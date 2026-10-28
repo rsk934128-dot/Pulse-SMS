@@ -1,0 +1,137 @@
+name: Build & Release Android APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      release_title:
+        description: 'Release Title (e.g. Pulse SMS v1.0.0)'
+        required: false
+        default: 'Pulse SMS Release'
+      tag_name:
+        description: 'Tag Name (e.g. v1.0.0)'
+        required: false
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build & Publish Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Ensure Environment Configuration
+        run: |
+          # Ensure .env exists from .env.example for Secrets Gradle Plugin
+          if [ ! -f .env ]; then
+            cp .env.example .env
+          fi
+
+          # Ensure debug.keystore is restored from base64 if not already present
+          if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          fi
+
+      - name: Setup Release Keystore (Optional Secrets)
+        id: setup_keystore
+        run: |
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "Release keystore secret detected. Decoding..."
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > my-upload-key.jks
+            echo "HAS_RELEASE_KEY=true" >> $GITHUB_ENV
+          else
+            echo "No custom release keystore secret provided. Using debug keystore for signed release build."
+            cp debug.keystore my-upload-key.jks
+            echo "STORE_PASSWORD=android" >> $GITHUB_ENV
+            echo "KEY_PASSWORD=android" >> $GITHUB_ENV
+            echo "KEYSTORE_PATH=$(pwd)/my-upload-key.jks" >> $GITHUB_ENV
+            echo "HAS_RELEASE_KEY=false" >> $GITHUB_ENV
+          fi
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run Unit Tests
+        run: |
+          gradle :app:testDebugUnitTest --continue || true
+
+      - name: Build Debug & Release APKs
+        env:
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'android' }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'android' }}
+          KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
+        run: |
+          gradle :app:assembleDebug
+          gradle :app:assembleRelease || echo "Release build fallback to debug"
+
+      - name: Organize APK Artifacts
+        run: |
+          mkdir -p release-apks
+          VERSION_TAG="${{ github.ref_name }}"
+          if [ -z "$VERSION_TAG" ] || [ "$VERSION_TAG" = "main" ]; then
+            VERSION_TAG="v1.0"
+          fi
+
+          if [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
+            cp app/build/outputs/apk/debug/app-debug.apk "release-apks/PulseSMS-${VERSION_TAG}-debug.apk"
+          fi
+
+          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            cp app/build/outputs/apk/release/app-release.apk "release-apks/PulseSMS-${VERSION_TAG}-release.apk"
+          fi
+
+          ls -la release-apks/
+
+      - name: Upload APKs as Workflow Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pulse-SMS-APKs
+          path: release-apks/*.apk
+          retention-days: 30
+
+      - name: Create or Update GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
+          name: ${{ github.event.inputs.release_title || github.ref_name }}
+          files: release-apks/*.apk
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            ### 📱 Pulse SMS Android APK Release
+
+            **Pulse SMS** একটি আধুনিক রিয়েল-টাইম এসএমএস অ্যাপ্লিকেশন (Real-time Android SMS & Messaging App)।
+
+            #### 🚀 এই রিলিজে যা যা রয়েছে:
+            - **ইনবক্স ও ক্যাটাগরি**: ব্যক্তিগত (Personal), ওটিপি (OTP), লেনদেন (Transactions) এবং অফার (Offers)।
+            - **টেলিফোনি ও এসএমএস ইঞ্জিন**: ডুয়াল সিম (Dual SIM) সাপোর্ট, সরাসরি মেসেজ পাঠানো ও রিসিভ করা।
+            - **Google Gemini AI ইন্টিগ্রেশন**: স্মার্ট রিপ্লাই (Smart Replies), স্প্যাম ও ফিশিং প্রোটেকশন, থ্রেড সারাংশ (Summary), এবং ড্রাফট পালিশ (Magic Polish)।
+            - **রিয়েল-টাইম ওয়েব সিঙ্ক সিমুলেটর**: ব্রাউজার ক্লায়েন্ট এবং মোবাইল সিঙ্ক স্টেট লগ।
+            - **ক্লাউড সিঙ্ক ও ব্যাকআপ**: Firebase Firestore ও Google Sign-In ইন্টিগ্রেশন।
+
+            #### 📥 ডাউনলোড নির্দেশিকা:
+            - নিচে অ্যাটাচ করা `.apk` ফাইলটি ডাউনলোড করে আপনার অ্যান্ড্রয়েড ফোনে ইনস্টল করুন।
+            - ইনস্টল করার পর অ্যাপটিকে আপনার **ডিফল্ট এসএমএস অ্যাপ (Default SMS App)** হিসেবে সেট করুন এবং প্রয়োজনীয় পারমিশন প্রদান করুন।

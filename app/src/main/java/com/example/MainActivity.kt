@@ -255,7 +255,7 @@ fun SmsAppRoot(viewModel: SmsViewModel = viewModel()) {
     if (showSettings) {
         SettingsScreen(
             isDefaultSms = isDefaultSms,
-            hasTelephonyPermissions = hasTelephonyPermissions,
+            hasTelephonyPermissions = hasSmsPermissions,
             language = currentLanguage,
             currentUser = currentUser,
             isCloudSyncing = isCloudSyncing,
@@ -276,7 +276,7 @@ fun SmsAppRoot(viewModel: SmsViewModel = viewModel()) {
             onAuthSuccess = {
                 Toast.makeText(context, "Google Sign-In successful!", Toast.LENGTH_SHORT).show()
             },
-            onAuthError = { errorMsg ->
+            onAuthError = { errorMsg: String ->
                 Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
             },
             onDismiss = { showSettings = false }

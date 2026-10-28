@@ -11,7 +11,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import org.robolectric.shadows.ShadowApplication
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -36,8 +35,8 @@ class SmsPermissionManagerTest {
 
     @Test
     fun hasEssentialSmsPermissions_returnsTrue_whenGranted() {
-        val app = ShadowApplication.getInstance()
-        app.grantPermissions(Manifest.permission.READ_SMS, Manifest.permission.RECEIVE_SMS)
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        org.robolectric.Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_SMS, Manifest.permission.RECEIVE_SMS)
 
         assertTrue(SmsPermissionManager.hasPermission(context, Manifest.permission.READ_SMS))
         assertTrue(SmsPermissionManager.hasPermission(context, Manifest.permission.RECEIVE_SMS))

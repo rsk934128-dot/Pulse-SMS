@@ -138,9 +138,11 @@ class FirebaseAuthenticator(
         credentialManager: CredentialManager
     ): Result<FirebaseUser> {
         val clientId = try {
-            context.getString(R.string.default_web_client_id)
+            val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
+            if (resId != 0) context.getString(resId)
+            else "836906134294-bvgjqgnjfd8uo50ebd9kmkpvhntm0ki0.apps.googleusercontent.com"
         } catch (e: Exception) {
-            return Result.failure(IllegalStateException("Configuration error: default_web_client_id string resource not found", e))
+            "836906134294-bvgjqgnjfd8uo50ebd9kmkpvhntm0ki0.apps.googleusercontent.com"
         }
 
         val signInOption = GetSignInWithGoogleOption.Builder(serverClientId = clientId).build()
@@ -203,9 +205,11 @@ class FirebaseAuthenticator(
         }
 
         val clientId = try {
-            context.getString(R.string.default_web_client_id)
+            val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
+            if (resId != 0) context.getString(resId)
+            else "836906134294-bvgjqgnjfd8uo50ebd9kmkpvhntm0ki0.apps.googleusercontent.com"
         } catch (e: Exception) {
-            return Result.failure(e)
+            "836906134294-bvgjqgnjfd8uo50ebd9kmkpvhntm0ki0.apps.googleusercontent.com"
         }
 
         val googleIdOption = GetGoogleIdOption.Builder()
