@@ -30,10 +30,17 @@ jobs:
           if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ]; then
             base64 -d debug.keystore.base64 > debug.keystore
           fi
+          if [ -f ./gradlew ]; then
+            chmod +x ./gradlew
+          fi
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
       - name: Compile & Run Unit Tests
         run: |
-          gradle :app:testDebugUnitTest
+          if [ -f ./gradlew ]; then
+            ./gradlew :app:testDebugUnitTest
+          else
+            gradle :app:testDebugUnitTest
+          fi

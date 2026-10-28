@@ -38,8 +38,10 @@ jobs:
           java-version: '21'
           cache: 'gradle'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Accept Android SDK Licenses
+        run: |
+          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+          yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
       - name: Ensure Environment Configuration
         run: |
@@ -51,6 +53,11 @@ jobs:
           # Ensure debug.keystore is restored from base64 if not already present
           if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ]; then
             base64 -d debug.keystore.base64 > debug.keystore
+          fi
+
+          # Make sure gradlew is executable if present
+          if [ -f ./gradlew ]; then
+            chmod +x ./gradlew
           fi
 
       - name: Setup Release Keystore (Optional Secrets)
@@ -74,7 +81,11 @@ jobs:
 
       - name: Run Unit Tests
         run: |
-          gradle :app:testDebugUnitTest --continue || true
+          if [ -f ./gradlew ]; then
+            ./gradlew :app:testDebugUnitTest --continue || true
+          else
+            gradle :app:testDebugUnitTest --continue || true
+          fi
 
       - name: Build Debug & Release APKs
         env:
@@ -82,8 +93,13 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'android' }}
           KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
         run: |
-          gradle :app:assembleDebug
-          gradle :app:assembleRelease || echo "Release build fallback to debug"
+          if [ -f ./gradlew ]; then
+            ./gradlew :app:assembleDebug
+            ./gradlew :app:assembleRelease || echo "Release build fallback to debug"
+          else
+            gradle :app:assembleDebug
+            gradle :app:assembleRelease || echo "Release build fallback to debug"
+          fi
 
       - name: Organize APK Artifacts
         run: |
