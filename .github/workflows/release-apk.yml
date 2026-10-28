@@ -58,7 +58,7 @@ jobs:
       - name: Setup Keystores (Debug & Release)
         run: |
           # 1. Setup debug.keystore
-          if [ -f debug.keystore.base64 ]; then
+          if [ -f debug.keystore.base64 ] && [ ! -f debug.keystore ]; then
             base64 -d debug.keystore.base64 > debug.keystore || true
           fi
           if [ ! -f debug.keystore ] || [ ! -s debug.keystore ]; then
@@ -69,9 +69,14 @@ jobs:
           # 2. Setup release keystore (my-upload-key.jks with alias 'upload')
           if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
             echo "Custom release keystore secret found. Decoding..."
+            rm -f my-upload-key.jks
             echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > my-upload-key.jks
             echo "STORE_PASSWORD=${{ secrets.STORE_PASSWORD }}" >> $GITHUB_ENV
             echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
+          elif [ -f my-upload-key.jks ]; then
+            echo "my-upload-key.jks already exists in workspace. Reusing..."
+            echo "STORE_PASSWORD=android" >> $GITHUB_ENV
+            echo "KEY_PASSWORD=android" >> $GITHUB_ENV
           else
             echo "No custom release keystore provided. Generating dedicated release keystore..."
             keytool -genkey -v -keystore my-upload-key.jks -storepass android -alias upload -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Pulse SMS Release,O=Pulse,C=US"
