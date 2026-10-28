@@ -50,31 +50,35 @@ jobs:
             cp .env.example .env
           fi
 
-          # Ensure debug.keystore is restored from base64 if not already present
-          if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
-          fi
-
-          # Make sure gradlew is executable if present
+          # Make gradlew executable
           if [ -f ./gradlew ]; then
             chmod +x ./gradlew
           fi
 
-      - name: Setup Release Keystore (Optional Secrets)
-        id: setup_keystore
+      - name: Setup Keystores (Debug & Release)
         run: |
+          # 1. Setup debug.keystore
+          if [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore || true
+          fi
+          if [ ! -f debug.keystore ] || [ ! -s debug.keystore ]; then
+            echo "Generating debug.keystore with keytool..."
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+          # 2. Setup release keystore (my-upload-key.jks with alias 'upload')
           if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
-            echo "Release keystore secret detected. Decoding..."
+            echo "Custom release keystore secret found. Decoding..."
             echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > my-upload-key.jks
-            echo "HAS_RELEASE_KEY=true" >> $GITHUB_ENV
+            echo "STORE_PASSWORD=${{ secrets.STORE_PASSWORD }}" >> $GITHUB_ENV
+            echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
           else
-            echo "No custom release keystore secret provided. Using debug keystore for signed release build."
-            cp debug.keystore my-upload-key.jks
+            echo "No custom release keystore provided. Generating dedicated release keystore..."
+            keytool -genkey -v -keystore my-upload-key.jks -storepass android -alias upload -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Pulse SMS Release,O=Pulse,C=US"
             echo "STORE_PASSWORD=android" >> $GITHUB_ENV
             echo "KEY_PASSWORD=android" >> $GITHUB_ENV
-            echo "KEYSTORE_PATH=$(pwd)/my-upload-key.jks" >> $GITHUB_ENV
-            echo "HAS_RELEASE_KEY=false" >> $GITHUB_ENV
           fi
+          echo "KEYSTORE_PATH=${{ github.workspace }}/my-upload-key.jks" >> $GITHUB_ENV
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -88,10 +92,6 @@ jobs:
           fi
 
       - name: Build Debug & Release APKs
-        env:
-          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'android' }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'android' }}
-          KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
         run: |
           if [ -f ./gradlew ]; then
             ./gradlew :app:assembleDebug
