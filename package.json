@@ -1,12 +1,12 @@
 {
   "name": "pulse-sms-web",
-  "version": "1.0.5",
-  "description": "Pulse SMS - Real-time Android SMS & Web Messaging Companion",
+  "version": "1.0.6",
+  "description": "Pulse SMS - Real-time Android SMS, Booking.com Integration & Web Companion",
   "scripts": {
-    "build": "echo 'Pulse SMS Web Ready for Vercel'",
-    "start": "npx serve ."
+    "build": "mkdir -p public && cp -f index.html public/index.html",
+    "start": "npx serve public"
   },
-  "keywords": ["sms", "android", "gemini-ai", "pulse-sms", "vercel", "real-time"],
+  "keywords": ["sms", "android", "booking-com", "gemini-ai", "pulse-sms", "vercel", "real-time"],
   "author": "Pulse SMS",
   "license": "MIT"
 }

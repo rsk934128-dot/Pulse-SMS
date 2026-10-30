@@ -35,7 +35,19 @@ object SmsCategorizer {
             return "OTP"
         }
 
-        // 2. Transaction / Banking check
+        // 2. Booking.com & Travel Reservation check
+        val isBookingContext = lowerSender.contains("booking") ||
+                lowerSender.contains("hotel") ||
+                lowerSender.contains("airline") ||
+                lowerBody.contains("booking.com") ||
+                lowerBody.contains("reservation confirmed") ||
+                lowerBody.contains("hotel booking")
+
+        if (isBookingContext) {
+            return "TRAVEL"
+        }
+
+        // 3. Transaction / Banking check
         val isBankOrFinancial = lowerSender.contains("bank") ||
                 lowerSender.contains("bkash") ||
                 lowerSender.contains("nagad") ||
