@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -55,6 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.auth.GoogleSignInButton
+import com.example.ui.auth.GoogleUserProfileCard
 import com.google.firebase.auth.FirebaseUser
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -115,123 +117,64 @@ fun SettingsScreen(
             )
             Spacer(modifier = Modifier.height(8.dp))
 
-            Card(
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (currentUser != null) Color(0xFFEFF6FF) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                ),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    if (currentUser != null) {
+            if (currentUser != null) {
+                GoogleUserProfileCard(
+                    user = currentUser,
+                    isCloudSyncing = isCloudSyncing,
+                    onTriggerCloudSync = onTriggerCloudSync,
+                    onSignOut = onSignOut,
+                    language = language
+                )
+            } else {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    ),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
-                                    .size(40.dp)
+                                    .size(42.dp)
                                     .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary),
+                                    .background(MaterialTheme.colorScheme.primaryContainer),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.AccountCircle,
+                                    imageVector = Icons.Default.CloudDone,
                                     contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(24.dp)
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
                             Spacer(modifier = Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
+                            Column {
                                 Text(
-                                    text = currentUser.displayName ?: "Google User",
+                                    text = if (language == "BN") "গুগল অ্যাকাউন্ট দিয়ে সাইন-ইন করুন" else "Sign in with your Google Account",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    text = currentUser.email ?: "",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Color(0xFFDCFCE7))
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                            ) {
-                                Text("Connected", fontSize = 11.sp, color = Color(0xFF166534), fontWeight = FontWeight.Bold)
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "Firestore: ai-studio-android-pulsesms-d91f8c0e-d0eb-454c-a3c4-23804c092a8d (us-west1)",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Button(
-                                onClick = onTriggerCloudSync,
-                                enabled = !isCloudSyncing,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("trigger_cloud_sync_button"),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                if (isCloudSyncing) {
-                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
-                                } else {
-                                    Icon(Icons.Default.CloudSync, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(if (language == "BN") "এখনই সিঙ্ক করুন" else "Sync Now", fontSize = 12.sp)
-                                }
-                            }
-
-                            OutlinedButton(
-                                onClick = onSignOut,
-                                modifier = Modifier.testTag("sign_out_button"),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Icon(Icons.Default.Logout, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(if (language == "BN") "লগআউট" else "Sign Out", fontSize = 12.sp)
-                            }
-                        }
-                    } else {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.CloudDone,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = if (language == "BN") "ফায়ারবেস ক্লাউড ব্যাকআপ" else "Firebase Cloud Backup",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp
-                                )
-                                Text(
-                                    text = if (language == "BN") "আপনার সকল এসএমএস ও চ্যাট ক্লাউডে নিরাপদে সেভ রাখতে গুগল সাইন-ইন করুন।"
-                                    else "Sign in with Google to securely back up and sync messages across devices.",
+                                    text = if (language == "BN") "রিয়েল-টাইম ক্লাউড ব্যাকআপ এবং সকল ডিভাইসে এসএমএস সিঙ্ক সক্রিয় করতে"
+                                    else "Enable real-time cloud backup and cross-device sync with Firebase",
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
 
                         GoogleSignInButton(
                             onAuthSuccess = onAuthSuccess,
-                            onAuthError = onAuthError
+                            onAuthError = onAuthError,
+                            buttonText = if (language == "BN") "গুগল দিয়ে চালিয়ে যান" else "Continue with Google",
+                            subtitleText = if (language == "BN") "Google Identity Services দ্বারা সুরক্ষিত • Zero-Trust" else "Secured by Google Identity Services • Zero-Trust"
                         )
                     }
                 }

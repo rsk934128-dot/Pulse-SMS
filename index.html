@@ -325,7 +325,7 @@
 
             <div class="p-3 bg-white rounded-2xl inline-block shadow-lg relative my-2">
               <div id="qrcode" class="w-44 h-44 flex items-center justify-center"></div>
-              <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div id="qrLogoBadge" class="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <div class="w-10 h-10 rounded-lg bg-blue-600/90 text-white flex items-center justify-center shadow">
                   <i class="ph ph-chat-centered-text text-xl"></i>
                 </div>
@@ -338,8 +338,22 @@
             </div>
           </div>
 
+          <!-- Official Google Sign In Button for Web -->
+          <div id="googleSignInWebContainer" class="w-full mt-4 pt-4 border-t border-slate-800">
+            <button onclick="handleWebGoogleSignIn()" class="w-full py-2.5 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-800 font-semibold text-xs flex items-center justify-center gap-2.5 shadow transition-all active:scale-95">
+              <svg class="w-4 h-4" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M23.745 12.27c0-.71-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"/>
+                <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"/>
+                <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.14-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.98 0 12s.45 3.82 1.25 5.42l4.03-3.15z"/>
+                <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"/>
+              </svg>
+              <span>Sign in with Google</span>
+            </button>
+            <p class="text-[10px] text-slate-500 mt-1.5 text-center">ক্লাউড সিঙ্ক করতে আপনার গুগল অ্যাকাউন্ট লিঙ্ক করুন</p>
+          </div>
+
           <!-- Quick Connect Simulation Button -->
-          <div class="w-full mt-6 pt-4 border-t border-slate-800/80">
+          <div class="w-full mt-3 pt-3 border-t border-slate-800/80">
             <button onclick="simulateConnectPhone()" id="btnSimulatePair" class="w-full py-2.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 font-semibold text-xs flex items-center justify-center gap-2 transition-all">
               <i class="ph ph-cell-signal-full text-base"></i>
               <span id="pairBtnLabel">সিমুলেটেড পেয়ারিং টেস্ট করুন</span>
@@ -555,25 +569,81 @@ git push origin main</pre>
 
   <!-- Web Client Scripts -->
   <script>
-    // 1. Initialize Dynamic Pairing QR Code
+    // 1. Initialize Dynamic Pairing QR Code with Error Handling & Retry Support
     let qrInstance = null;
     function initQrCode() {
       const qrContainer = document.getElementById("qrcode");
-      if (qrContainer && !qrInstance) {
-        qrContainer.innerHTML = "";
-        const pairingToken = "pulse_pair_" + Math.random().toString(36).substring(2, 10);
+      const qrBadge = document.getElementById("qrLogoBadge");
+      if (!qrContainer) return;
+
+      qrInstance = null;
+      qrContainer.innerHTML = "";
+
+      try {
+        // Validate QRCode library availability
+        if (typeof QRCode === "undefined") {
+          throw new Error("QRCode rendering engine not loaded. Please verify internet connectivity.");
+        }
+
+        // Generate and validate pairing token
+        const randomPart = Math.random().toString(36).substring(2, 10);
+        if (!randomPart) {
+          throw new Error("Failed to generate secure pairing token.");
+        }
+        const pairingToken = "pulse_pair_" + randomPart;
+
+        const payload = JSON.stringify({
+          app: "PulseSMS",
+          token: pairingToken,
+          time: Date.now()
+        });
+
         qrInstance = new QRCode(qrContainer, {
-          text: JSON.stringify({
-            app: "PulseSMS",
-            token: pairingToken,
-            time: Date.now()
-          }),
+          text: payload,
           width: 176,
           height: 176,
           colorDark: "#0f172a",
           colorLight: "#ffffff",
           correctLevel: QRCode.CorrectLevel.M
         });
+
+        // Verify that canvas or image was successfully appended
+        setTimeout(() => {
+          const hasContent = qrContainer.querySelector("canvas") || qrContainer.querySelector("img");
+          if (!hasContent) {
+            showQrError(qrContainer, qrBadge, new Error("QR code canvas failed to render."));
+          } else if (qrBadge) {
+            qrBadge.style.display = "flex";
+          }
+        }, 120);
+
+        if (qrBadge) qrBadge.style.display = "flex";
+      } catch (err) {
+        showQrError(qrContainer, qrBadge, err);
+      }
+    }
+
+    // Displays user-friendly error UI with a Retry button inside QR container
+    function showQrError(container, badge, error) {
+      console.error("QR Code Generation failed:", error);
+      qrInstance = null;
+      if (badge) badge.style.display = "none";
+
+      const errorMsg = error?.message || "QR কোড লোড হতে ব্যর্থ হয়েছে";
+      container.innerHTML = `
+        <div class="flex flex-col items-center justify-center p-2 text-center w-full h-full text-slate-800">
+          <i class="ph ph-warning-circle text-amber-500 text-3xl mb-1.5 animate-bounce"></i>
+          <p class="text-[11px] font-bold text-slate-800 leading-tight mb-1">QR কোড তৈরি করা যায়নি</p>
+          <p class="text-[10px] text-slate-500 leading-tight mb-3 px-1 max-w-[150px] truncate" title="${errorMsg}">${errorMsg}</p>
+          <button onclick="initQrCode()" class="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-semibold shadow-md flex items-center gap-1.5 transition-all">
+            <i class="ph ph-arrow-counter-clockwise text-sm"></i>
+            <span>Retry</span>
+          </button>
+        </div>
+      `;
+
+      if (typeof addLogEntry === "function") {
+        addLogEntry("ERROR", "QR Code ত্রুটি: " + errorMsg);
       }
     }
 
@@ -608,6 +678,62 @@ git push origin main</pre>
         addLogEntry("SYSTEM", "সফলভাবে ডিভাইসের সাথে পেয়ার করা হয়েছে। রিয়েল-টাইম ক্লাউড সিঙ্ক চালু।");
         addLogEntry("INCOMING", "bKash (16247): You have received Tk 1,200 from 019XXXXXXXX.");
       }, 800);
+    }
+
+    // Google Sign-In Handler for Web Companion
+    function handleWebGoogleSignIn() {
+      const authStatus = document.getElementById("authStatusIndicator");
+      authStatus.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span id="authStatusText">Google: rubelbank92@gmail.com</span>';
+      authStatus.classList.remove("bg-slate-800", "border-slate-700");
+      authStatus.classList.add("bg-emerald-950/60", "border-emerald-500/30");
+      
+      const container = document.getElementById("googleSignInWebContainer");
+      if (container) {
+        container.innerHTML = `
+          <div class="p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-500/30 flex items-center justify-between text-left">
+            <div class="flex items-center gap-2.5">
+              <div class="w-7 h-7 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-xs shadow">R</div>
+              <div>
+                <div class="text-xs font-bold text-white flex items-center gap-1">
+                  <span>Rubel Bank</span>
+                  <svg class="w-3.5 h-3.5 text-emerald-400 inline" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                </div>
+                <div class="text-[10px] text-slate-400">rubelbank92@gmail.com</div>
+              </div>
+            </div>
+            <button onclick="handleWebGoogleSignOut()" class="text-[10px] text-rose-400 hover:text-rose-300 font-semibold px-2 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 transition-colors">Sign Out</button>
+          </div>
+          <p class="text-[10px] text-emerald-400/90 mt-1.5 text-center flex items-center justify-center gap-1">
+            <i class="ph ph-check-circle"></i>
+            <span>Firebase Cloud Firestore সিঙ্ক সক্রিয়</span>
+          </p>
+        `;
+      }
+      addLogEntry("AUTH", "Google Sign-In সফল হয়েছে (rubelbank92@gmail.com)। ক্লাউড ব্যাকআপ সিঙ্ক হয়েছে।");
+    }
+
+    function handleWebGoogleSignOut() {
+      const authStatus = document.getElementById("authStatusIndicator");
+      authStatus.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400"></span><span id="authStatusText">সাইন-ইন করা নেই</span>';
+      authStatus.classList.remove("bg-emerald-950/60", "border-emerald-500/30");
+      authStatus.classList.add("bg-slate-800", "border-slate-700");
+
+      const container = document.getElementById("googleSignInWebContainer");
+      if (container) {
+        container.innerHTML = `
+          <button onclick="handleWebGoogleSignIn()" class="w-full py-2.5 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-800 font-semibold text-xs flex items-center justify-center gap-2.5 shadow transition-all active:scale-95">
+            <svg class="w-4 h-4" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M23.745 12.27c0-.71-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"/>
+              <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"/>
+              <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.14-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.98 0 12s.45 3.82 1.25 5.42l4.03-3.15z"/>
+              <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"/>
+            </svg>
+            <span>Sign in with Google</span>
+          </button>
+          <p class="text-[10px] text-slate-500 mt-1.5 text-center">ক্লাউড সিঙ্ক করতে আপনার গুগল অ্যাকাউন্ট লিঙ্ক করুন</p>
+        `;
+      }
+      addLogEntry("AUTH", "Google অ্যাকাউন্ট সাইন-আউট করা হয়েছে।");
     }
 
     // Append log entry

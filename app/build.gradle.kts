@@ -6,7 +6,9 @@ plugins {
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.google.devtools.ksp)
   alias(libs.plugins.secrets)
-  alias(libs.plugins.google.services)
+
+  // Add the Google services Gradle plugin
+  id("com.google.gms.google-services")
 }
 
 android {
