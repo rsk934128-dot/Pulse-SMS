@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="bn" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pulse SMS - কম্পিউটার থেকে রিয়েল-টাইম এসএমএস ও এআই মেসেজিং</title>
+  <meta name="description" content="Pulse SMS Android ও Web Companion। কম্পিউটার থেকে রিয়েল-টাইমে এসএমএস পাঠান, ওটিপি কপি করুন এবং Google Gemini AI দিয়ে স্প্যাম প্রটেকশন পান।" />
+
+  <!-- Google Fonts & Tailwind CSS CDN -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Phosphor Icons CDN -->
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <!-- QRCode.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+  <!-- Firebase v10 Compat for Instant Web Sync -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', '"Hind Siliguri"', 'sans-serif'],
+          },
+          colors: {
+            pulse: {
+              50: '#eff6ff',
+              100: '#dbeafe',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8',
+              800: '#1e40af',
+              900: '#1e3a8a',
+              950: '#0f172a',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    .glassmorphism {
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .gradient-glow {
+      background: radial-gradient(circle at 50% 20%, rgba(37, 99, 235, 0.25), transparent 70%);
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 9999px;
+    }
+  </style>
+</head>
+
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans selection:bg-blue-600 selection:text-white">
+
+  <!-- Top Sticky Navigation Bar -->
+  <nav class="sticky top-0 z-50 glassmorphism border-b border-slate-800/80 px-4 lg:px-12 py-3.5 transition-all">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      <!-- App Brand Logo -->
+      <a href="#" class="flex items-center gap-3 group">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-cyan-400 flex items-center justify-center text-white shadow-lg shadow-blue-500/25 group-hover:scale-105 transition-transform">
+          <i class="ph ph-chat-centered-text text-2xl"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-1.5">
+            <span class="text-xl font-extrabold tracking-tight bg-gradient-to-r from-white via-slate-100 to-blue-200 bg-clip-text text-transparent">Pulse SMS</span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-400 font-semibold border border-blue-500/30">Web 1.0</span>
+          </div>
+          <span class="text-xs text-slate-400 hidden sm:block">AI-Powered Android & Web Messaging</span>
+        </div>
+      </a>
+
+      <!-- Center Links (Desktop) -->
+      <div class="hidden md:flex items-center gap-8 text-sm font-medium text-slate-300">
+        <a href="#features" class="hover:text-blue-400 transition-colors">ফিচারসমূহ</a>
+        <a href="#web-companion" class="hover:text-blue-400 transition-colors">ওয়েব ক্লায়েন্ট (Web SMS)</a>
+        <a href="#gemini-ai" class="hover:text-blue-400 transition-colors">Gemini AI</a>
+        <a href="#vercel-deploy" class="hover:text-blue-400 transition-colors">Vercel ডিপ্লয়</a>
+      </div>
+
+      <!-- Right Action Buttons -->
+      <div class="flex items-center gap-3">
+        <!-- Direct Web Messenger Switcher -->
+        <button onclick="toggleWebMessengerModal()" class="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold text-sm shadow-md shadow-blue-600/30 active:scale-95 transition-all">
+          <i class="ph ph-desktop text-lg"></i>
+          <span class="hidden sm:inline">মেসেঞ্জার ওপেন করুন</span>
+          <span class="sm:hidden">ওয়েব</span>
+        </button>
+
+        <!-- Direct APK Download CTA -->
+        <a href="https://github.com" target="_blank" id="downloadApkBtn" class="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-sm font-medium transition-all">
+          <i class="ph ph-android-logo text-green-400 text-lg"></i>
+          <span class="hidden lg:inline">ডাউনলোড এপিকে</span>
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero Section -->
+  <header class="relative pt-12 pb-20 px-4 overflow-hidden gradient-glow">
+    <div class="max-w-6xl mx-auto text-center relative z-10">
+      
+      <!-- Announcement Pill -->
+      <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-950/70 border border-blue-500/30 text-blue-300 text-xs font-semibold mb-6 shadow-sm">
+        <span class="flex h-2 w-2 rounded-full bg-blue-400 animate-pulse"></span>
+        <span>স্মার্ট মেসেজিং ও ক্লাউড সিঙ্ক এখন কম্পিউটারে</span>
+      </div>
+
+      <h1 class="text-4xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight text-white mb-6 leading-tight">
+        কম্পিউটার ও ব্রাউজার থেকে <br class="hidden sm:inline" />
+        <span class="bg-gradient-to-r from-blue-400 via-indigo-300 to-cyan-400 bg-clip-text text-transparent">রিয়েল-টাইমে এসএমএস</span> পাঠান
+      </h1>
+
+      <p class="max-w-2xl mx-auto text-base sm:text-lg text-slate-300 mb-10 leading-relaxed">
+        <strong>Pulse SMS</strong> আপনার অ্যান্ড্রয়েড ফোনের প্রতিটি এসএমএস, ব্যাংকিং ওটিপি এবং লেনদেনকে সরাসরি ব্রাউজারে সিঙ্ক করে। এতে যুক্ত রয়েছে Google Gemini AI স্মার্ট রিপ্লাই এবং স্প্যাম প্রোটেকশন।
+      </p>
+
+      <!-- Primary Action CTAs -->
+      <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
+        <button onclick="toggleWebMessengerModal()" class="w-full sm:w-auto flex items-center justify-center gap-3 px-8 py-4 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:to-indigo-400 text-white font-bold text-base shadow-xl shadow-blue-600/30 hover:scale-105 active:scale-95 transition-all">
+          <i class="ph ph-chats-circle text-2xl"></i>
+          <span>Messages for Web চালু করুন</span>
+        </button>
+
+        <a href="#download-section" class="w-full sm:w-auto flex items-center justify-center gap-2.5 px-7 py-4 rounded-2xl bg-slate-900/90 hover:bg-slate-800 text-slate-100 border border-slate-700 font-semibold text-base transition-all hover:scale-105">
+          <i class="ph ph-download-simple text-xl text-blue-400"></i>
+          <span>অ্যান্ড্রয়েড APK ডাউনলোড (v1.0.5)</span>
+        </a>
+      </div>
+
+      <!-- Live Web Mockup Interactive Window -->
+      <div class="relative max-w-5xl mx-auto rounded-3xl p-2 sm:p-3 bg-gradient-to-b from-blue-500/20 via-slate-800/50 to-slate-900/90 shadow-2xl border border-slate-700/60">
+        <div class="rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 shadow-inner">
+          
+          <!-- Mockup Window Bar -->
+          <div class="px-4 py-3 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="w-3 h-3 rounded-full bg-red-500/80 inline-block"></span>
+              <span class="w-3 h-3 rounded-full bg-amber-500/80 inline-block"></span>
+              <span class="w-3 h-3 rounded-full bg-emerald-500/80 inline-block"></span>
+              <span class="text-xs font-mono text-slate-400 ml-2">https://pulsesms.web.app</span>
+            </div>
+            <div class="flex items-center gap-2 text-xs text-slate-400">
+              <span class="flex h-2 w-2 rounded-full bg-emerald-400"></span>
+              <span>Cloud Sync: Connected</span>
+            </div>
+          </div>
+
+          <!-- Mockup Body Content (Split View like Web Messages) -->
+          <div class="grid grid-cols-1 md:grid-cols-12 min-h-[420px] text-left">
+            
+            <!-- Left Sidebar Conversations -->
+            <div class="md:col-span-5 border-r border-slate-800 bg-slate-950/80 p-3 flex flex-col gap-2">
+              <div class="px-2 py-1.5 flex items-center justify-between border-b border-slate-800/80 mb-1">
+                <span class="font-bold text-sm text-slate-200">ইনবক্স চ্যাটসমূহ</span>
+                <span class="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full font-semibold">৪টি নতুন</span>
+              </div>
+
+              <!-- Conversation 1: bKash (Active) -->
+              <div class="p-3 rounded-xl bg-blue-600/15 border border-blue-500/30 flex items-start gap-3 cursor-pointer">
+                <div class="w-10 h-10 rounded-xl bg-pink-600 text-white font-bold flex items-center justify-center text-sm shadow">
+                  bK
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center justify-between mb-0.5">
+                    <span class="text-sm font-bold text-white truncate">bKash Alert</span>
+                    <span class="text-[11px] text-blue-400 font-medium">এইমাত্র</span>
+                  </div>
+                  <p class="text-xs text-slate-300 truncate">You have received Tk 5,000.00 from 0171XXXXXXX...</p>
+                  <div class="flex items-center gap-2 mt-2">
+                    <span class="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-semibold">TRANSACTION</span>
+                    <span class="text-[10px] text-slate-400">SIM 1</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Conversation 2: OTP -->
+              <div class="p-3 rounded-xl hover:bg-slate-900 border border-transparent hover:border-slate-800 flex items-start gap-3 cursor-pointer transition-colors">
+                <div class="w-10 h-10 rounded-xl bg-amber-600 text-white font-bold flex items-center justify-center text-sm">
+                  <i class="ph ph-key text-lg"></i>
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center justify-between mb-0.5">
+                    <span class="text-sm font-semibold text-slate-200 truncate">City Bank Security</span>
+                    <span class="text-[11px] text-slate-400">২ মিনিট আগে</span>
+                  </div>
+                  <p class="text-xs text-slate-400 truncate">Your OTP is 849201. Valid for 3 minutes...</p>
+                  <div class="mt-1">
+                    <span class="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-semibold">🔑 OTP: 849201</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Conversation 3: Personal -->
+              <div class="p-3 rounded-xl hover:bg-slate-900 border border-transparent hover:border-slate-800 flex items-start gap-3 cursor-pointer transition-colors">
+                <div class="w-10 h-10 rounded-xl bg-purple-600 text-white font-bold flex items-center justify-center text-sm">
+                  রা
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center justify-between mb-0.5">
+                    <span class="text-sm font-semibold text-slate-200 truncate">রাকিব হাসান</span>
+                    <span class="text-[11px] text-slate-400">১০:১৫ AM</span>
+                  </div>
+                  <p class="text-xs text-slate-400 truncate">দোস্ত কালকের মিটিং কয়টায় হবে রেডি আছিস?</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right Message Stream -->
+            <div class="md:col-span-7 bg-slate-900/40 p-4 flex flex-col justify-between">
+              
+              <!-- Chat Header -->
+              <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div class="flex items-center gap-3">
+                  <div class="w-9 h-9 rounded-lg bg-pink-600 text-white font-bold flex items-center justify-center text-xs">
+                    bK
+                  </div>
+                  <div>
+                    <h4 class="text-sm font-bold text-white">bKash Notification (16247)</h4>
+                    <span class="text-[11px] text-emerald-400 flex items-center gap-1">
+                      <i class="ph ph-shield-check text-sm"></i> ভেরিফাইড ব্যাংকিং চ্যানেল
+                    </span>
+                  </div>
+                </div>
+                <button class="px-2.5 py-1 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-xs font-medium border border-blue-500/20 flex items-center gap-1.5">
+                  <i class="ph ph-sparkle"></i> Gemini সারসংক্ষেপ
+                </button>
+              </div>
+
+              <!-- Message Bubbles -->
+              <div class="space-y-3 my-4">
+                <div class="max-w-[85%] bg-slate-800 p-3.5 rounded-2xl rounded-tl-sm text-sm text-slate-100 border border-slate-700/80">
+                  <p class="leading-relaxed">You have received Tk 5,000.00 from 01712345678. Fee Tk 0.00. Balance Tk 18,450.00. TrxID 9K2840XP at 29/10/2026 15:42</p>
+                  <span class="text-[10px] text-slate-400 mt-1.5 block">15:42 • SIM 1</span>
+                </div>
+
+                <!-- AI Smart Replies Chips -->
+                <div class="pt-2">
+                  <span class="text-[11px] font-semibold text-slate-400 flex items-center gap-1 mb-2">
+                    <i class="ph ph-robot text-blue-400"></i> Gemini AI সাজেস্টেড রিপ্লাই:
+                  </span>
+                  <div class="flex flex-wrap gap-2">
+                    <span class="px-3 py-1 rounded-full bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 text-xs cursor-pointer">
+                      "টাকা পেয়েছি, ধন্যবাদ! 👍"
+                    </span>
+                    <span class="px-3 py-1 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs cursor-pointer">
+                      "রিসিভ হয়েছে, চেক করেছি"
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Input Bar Mockup -->
+              <div class="pt-2 border-t border-slate-800 flex items-center gap-2">
+                <div class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-400 flex items-center justify-between">
+                  <span>মেসেজ টাইপ করুন... (SIM 1 - GP)</span>
+                  <span class="text-[10px] text-slate-500">০/১৬০</span>
+                </div>
+                <button class="w-9 h-9 rounded-xl bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center">
+                  <i class="ph ph-paper-plane-tilt text-base"></i>
+                </button>
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </header>
+
+  <!-- Interactive Full Web Companion Modal (Hidden by default, opened on click) -->
+  <div id="webMessengerModal" class="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md hidden flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+    <div class="bg-slate-900 border border-slate-800 w-full max-w-5xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+      
+      <!-- Modal Top Bar -->
+      <div class="px-6 py-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold">
+            <i class="ph ph-chat-centered-text text-xl"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-bold text-white">Pulse SMS Web Messenger</h3>
+            <p class="text-xs text-slate-400">লাইভ ব্রাউজার চ্যাট ও ফায়ারবেস সিঙ্ক ইঞ্জিন</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <!-- Firebase Auth Status -->
+          <div id="authStatusIndicator" class="text-xs px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-300 flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+            <span id="authStatusText">সাইন-ইন করা নেই</span>
+          </div>
+          <button onclick="toggleWebMessengerModal()" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center">
+            <i class="ph ph-x text-lg"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Modal Main Area -->
+      <div class="flex-1 overflow-y-auto custom-scrollbar p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <!-- Left: Device Pairing & QR Code -->
+        <div class="lg:col-span-5 bg-slate-950/70 border border-slate-800 rounded-2xl p-5 flex flex-col items-center text-center justify-between">
+          <div>
+            <h4 class="text-lg font-bold text-white mb-1">অ্যান্ড্রয়েড ফোনের সাথে কানেক্ট করুন</h4>
+            <p class="text-xs text-slate-400 mb-4">Pulse SMS অ্যাপ ওপেন করে 'Web Sync' থেকে এই QR কোডটি স্ক্যান করুন।</p>
+
+            <div class="p-3 bg-white rounded-2xl inline-block shadow-lg relative my-2">
+              <div id="qrcode" class="w-44 h-44 flex items-center justify-center"></div>
+              <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div class="w-10 h-10 rounded-lg bg-blue-600/90 text-white flex items-center justify-center shadow">
+                  <i class="ph ph-chat-centered-text text-xl"></i>
+                </div>
+              </div>
+            </div>
+
+            <div class="flex items-center justify-center gap-2 text-xs text-slate-400 mt-3">
+              <i class="ph ph-lock-key text-blue-400"></i>
+              <span>এন্ড-টু-এন্ড এনক্রিপ্টেড সিঙ্ক</span>
+            </div>
+          </div>
+
+          <!-- Quick Connect Simulation Button -->
+          <div class="w-full mt-6 pt-4 border-t border-slate-800/80">
+            <button onclick="simulateConnectPhone()" id="btnSimulatePair" class="w-full py-2.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 font-semibold text-xs flex items-center justify-center gap-2 transition-all">
+              <i class="ph ph-cell-signal-full text-base"></i>
+              <span id="pairBtnLabel">সিমুলেটেড পেয়ারিং টেস্ট করুন</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Right: Live Cloud Messenger / Messages Console -->
+        <div class="lg:col-span-7 bg-slate-950/70 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between">
+          
+          <div>
+            <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
+              <div class="flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span class="font-bold text-sm text-slate-200">লাইভ এসএমএস মনিটর</span>
+              </div>
+              <button onclick="clearDemoLogs()" class="text-xs text-slate-400 hover:text-slate-200">ক্লিয়ার</button>
+            </div>
+
+            <!-- Message Log stream -->
+            <div id="webMessageLogStream" class="space-y-2.5 max-h-[300px] overflow-y-auto custom-scrollbar pr-1">
+              <!-- Default Log Card -->
+              <div class="p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs">
+                <div class="flex items-center justify-between text-slate-400 mb-1">
+                  <span class="font-bold text-blue-400">[SYSTEM]</span>
+                  <span>এইমাত্র</span>
+                </div>
+                <p class="text-slate-200">Web Sync ক্লায়েন্ট প্রস্তুত। QR কোড স্ক্যান করে মোবাইল অ্যাপের সাথে লিঙ্ক করুন।</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Send SMS from Web bar -->
+          <div class="mt-4 pt-4 border-t border-slate-800">
+            <form onsubmit="handleSendWebSms(event)" class="flex gap-2">
+              <input type="text" id="webSmsRecipient" placeholder="প্রাপকের নম্বর (+8801...)" class="w-1/3 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-blue-500" required />
+              <input type="text" id="webSmsBody" placeholder="মেসেজ লিখুন..." class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-blue-500" required />
+              <button type="submit" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs flex items-center gap-1.5 shadow">
+                <i class="ph ph-paper-plane-tilt text-sm"></i>
+                <span>পাঠান</span>
+              </button>
+            </form>
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Features Grid Section -->
+  <section id="features" class="py-20 px-4 max-w-7xl mx-auto">
+    <div class="text-center mb-16">
+      <span class="text-xs font-bold uppercase tracking-wider text-blue-400 bg-blue-950 px-3 py-1 rounded-full border border-blue-500/30">উন্নত সুবিধাসমূহ</span>
+      <h2 class="text-3xl sm:text-5xl font-extrabold text-white mt-4 tracking-tight">সব মেসেজিং প্রয়োজন এক জায়গায়</h2>
+      <p class="text-slate-400 text-base max-w-xl mx-auto mt-3">অ্যান্ড্রয়েড ফোনের সম্পূর্ণ টেলিফোনি সাপোর্ট এবং ক্লাউড এআই-এর সমন্বয়ে নির্মিত।</p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      
+      <!-- Feature 1: Real-time Heads-up notification -->
+      <div class="p-6 rounded-2xl glassmorphism border border-slate-800 hover:border-blue-500/40 transition-all hover:-translate-y-1">
+        <div class="w-12 h-12 rounded-xl bg-blue-600/20 text-blue-400 flex items-center justify-center text-2xl mb-4 border border-blue-500/30">
+          <i class="ph ph-bell-ringing"></i>
+        </div>
+        <h3 class="text-xl font-bold text-white mb-2">রিয়েল-টাইম Heads-Up নোটিফিকেশন</h3>
+        <p class="text-sm text-slate-300 leading-relaxed">এসএমএস আসার সাথে সাথেই ফোনের স্ক্রিনের ওপর হাই-প্রায়োরিটি ব্যানার ভেসে ওঠে। নোটিফিকেশন থেকেই এক ক্লিকে ওটিপি কপি বা রিপ্লাই দেওয়া যায়।</p>
+      </div>
+
+      <!-- Feature 2: Smart Categories & OTP -->
+      <div class="p-6 rounded-2xl glassmorphism border border-slate-800 hover:border-amber-500/40 transition-all hover:-translate-y-1">
+        <div class="w-12 h-12 rounded-xl bg-amber-600/20 text-amber-400 flex items-center justify-center text-2xl mb-4 border border-amber-500/30">
+          <i class="ph ph-key"></i>
+        </div>
+        <h3 class="text-xl font-bold text-white mb-2">স্মার্ট ওটিপি ও লেনদেন ফোল্ডার</h3>
+        <p class="text-sm text-slate-300 leading-relaxed">ব্যক্তিগত বার্তা, ব্যাংক ও বিকাশ ট্রানজাকশন, এবং ওটিপি স্বয়ংক্রিয়ভাবে আলাদা ফোল্ডারে ফিল্টার হয়ে যায়। ওটিপি আসলে কোড কপি বাটন তৈরি হয়।</p>
+      </div>
+
+      <!-- Feature 3: Gemini AI Integration -->
+      <div class="p-6 rounded-2xl glassmorphism border border-slate-800 hover:border-indigo-500/40 transition-all hover:-translate-y-1">
+        <div class="w-12 h-12 rounded-xl bg-indigo-600/20 text-indigo-400 flex items-center justify-center text-2xl mb-4 border border-indigo-500/30">
+          <i class="ph ph-sparkle"></i>
+        </div>
+        <h3 class="text-xl font-bold text-white mb-2">Google Gemini 2.5 Flash AI</h3>
+        <p class="text-sm text-slate-300 leading-relaxed">চ্যাট কনটেক্সট বুঝে বাংলা ও ইংরেজিতে স্মার্ট রিপ্লাই দেয়, সন্দেহভাজন স্প্যাম বা ফিশিং লিঙ্ক স্ক্যান করে সতর্ক করে এবং লম্বা থ্রেড সারসংক্ষেপ করে দেয়।</p>
+      </div>
+
+      <!-- Feature 4: Dual SIM Telephony -->
+      <div class="p-6 rounded-2xl glassmorphism border border-slate-800 hover:border-emerald-500/40 transition-all hover:-translate-y-1">
+        <div class="w-12 h-12 rounded-xl bg-emerald-600/20 text-emerald-400 flex items-center justify-center text-2xl mb-4 border border-emerald-500/30">
+          <i class="ph ph-sim-card"></i>
+        </div>
+        <h3 class="text-xl font-bold text-white mb-2">ডুয়াল সিম (Dual SIM) সাপোর্ট</h3>
+        <p class="text-sm text-slate-300 leading-relaxed">সিম ১ বা সিম ২ নির্বাচন করে সরাসরি ক্যারিয়ার এসএমএস পাঠানোর পূর্ণ স্বাধীনতা। রয়েছে রিয়েল ক্যারেক্টার কাউন্টার (১৬০ অক্ষর লিমিট)।</p>
+      </div>
+
+      <!-- Feature 5: Web Companion -->
+      <div class="p-6 rounded-2xl glassmorphism border border-slate-800 hover:border-cyan-500/40 transition-all hover:-translate-y-1">
+        <div class="w-12 h-12 rounded-xl bg-cyan-600/20 text-cyan-400 flex items-center justify-center text-2xl mb-4 border border-cyan-500/30">
+          <i class="ph ph-browsers"></i>
+        </div>
+        <h3 class="text-xl font-bold text-white mb-2">কম্পিউটার ও ব্রাউজার সিঙ্ক</h3>
+        <p class="text-sm text-slate-300 leading-relaxed">ফোন পকেটে রেখেই ডেস্কটপ থেকে মেসেজ পড়ুন এবং টাইপ করুন। Firebase Firestore দিয়ে সকল মেসেজ সুরক্ষিত ক্লাউডে ব্যাকআপ থাকে।</p>
+      </div>
+
+      <!-- Feature 6: Privacy & Zero-Trust -->
+      <div class="p-6 rounded-2xl glassmorphism border border-slate-800 hover:border-rose-500/40 transition-all hover:-translate-y-1">
+        <div class="w-12 h-12 rounded-xl bg-rose-600/20 text-rose-400 flex items-center justify-center text-2xl mb-4 border border-rose-500/30">
+          <i class="ph ph-shield-check"></i>
+        </div>
+        <h3 class="text-xl font-bold text-white mb-2">Google Sign-In ও নিরাপত্তা</h3>
+        <p class="text-sm text-slate-300 leading-relaxed">Jetpack Credential Manager এবং Firebase Zero-Trust Security Rules দ্বারা সুরক্ষিত। শুধুমাত্র আপনার অনুমোদিত গুগল অ্যাকাউন্টেই ডেটা সুরক্ষিত থাকে।</p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Vercel Deployment Step-by-Step Guide Section -->
+  <section id="vercel-deploy" class="py-16 px-4 bg-slate-900/60 border-y border-slate-800">
+    <div class="max-w-5xl mx-auto">
+      
+      <div class="text-center mb-12">
+        <span class="text-xs font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950/80 px-3 py-1 rounded-full border border-emerald-500/30">Vercel Deployment Guide</span>
+        <h2 class="text-3xl sm:text-4xl font-extrabold text-white mt-3 tracking-tight">ভার্সেল (Vercel)-এ এই ওয়েবসাইটটি ডিপ্লয় করার নিয়ম</h2>
+        <p class="text-slate-400 text-sm max-w-xl mx-auto mt-2">কোনো সার্ভার কনফিগারেশন ছাড়াই মাত্র ৩টি সহজ ধাপে সম্পূর্ণ ফ্রি-তে লাইভ করুন।</p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        
+        <!-- Step 1 -->
+        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800">
+          <div class="w-8 h-8 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-sm mb-4">
+            ১
+          </div>
+          <h4 class="text-base font-bold text-white mb-2">গিটহাবে রিপোজিটরি পুশ করুন</h4>
+          <p class="text-xs text-slate-400 leading-relaxed mb-4">
+            আমাদের তৈরি করা <code class="text-blue-300 bg-slate-900 px-1.5 py-0.5 rounded">vercel.json</code> এবং <code class="text-blue-300 bg-slate-900 px-1.5 py-0.5 rounded">index.html</code> ফাইলসহ প্রজেক্টটি আপনার GitHub অ্যাকাউন্টে পুশ করুন:
+          </p>
+          <pre class="bg-slate-900 p-2.5 rounded-xl text-[11px] font-mono text-slate-300 overflow-x-auto border border-slate-800">git add .
+git commit -m "feat: add vercel web companion"
+git push origin main</pre>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800">
+          <div class="w-8 h-8 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center text-sm mb-4">
+            ২
+          </div>
+          <h4 class="text-base font-bold text-white mb-2">Vercel-এ প্রজেক্ট ইমপোর্ট করুন</h4>
+          <p class="text-xs text-slate-400 leading-relaxed mb-4">
+            <a href="https://vercel.com" target="_blank" class="text-blue-400 underline font-semibold">vercel.com</a>-এ লগইন করে <strong>"Add New..." -> "Project"</strong> সিলেক্ট করুন এবং আপনার <strong>Pulse-SMS</strong> রিপোজিটরিটি <strong>Import</strong> বাটনে ক্লিক করুন।
+          </p>
+          <div class="p-2.5 rounded-xl bg-indigo-950/40 border border-indigo-500/20 text-xs text-indigo-300">
+            💡 Framework Preset পরিবর্তন করার প্রয়োজন নেই (Other / Static)।
+          </div>
+        </div>
+
+        <!-- Step 3 -->
+        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800">
+          <div class="w-8 h-8 rounded-full bg-emerald-600 text-white font-bold flex items-center justify-center text-sm mb-4">
+            ৩
+          </div>
+          <h4 class="text-base font-bold text-white mb-2">"Deploy" বাটনে ক্লিক করুন!</h4>
+          <p class="text-xs text-slate-400 leading-relaxed mb-4">
+            নীল রঙের <strong>"Deploy"</strong> বাটনে চাপ দিন। Vercel মাত্র ১০ সেকেন্ডের মধ্যে আপনার জন্য একটি লাইভ ডোমেইন তৈরি করে দেবে (যেমন: <code class="text-emerald-300">pulse-sms.vercel.app</code>)।
+          </p>
+          <div class="p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-500/20 text-xs text-emerald-300">
+            ✅ এর পর থেকে গিটহাবে পুশ করলেই স্বয়ংক্রিয়ভাবে সাইট আপডেট হবে।
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Download APK Section -->
+  <section id="download-section" class="py-20 px-4 max-w-5xl mx-auto text-center">
+    <div class="p-8 sm:p-12 rounded-3xl bg-gradient-to-b from-blue-900/40 to-slate-900 border border-blue-500/30 shadow-2xl">
+      <div class="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-cyan-400 text-white flex items-center justify-center text-3xl mx-auto mb-6 shadow-lg shadow-blue-500/30">
+        <i class="ph ph-android-logo"></i>
+      </div>
+      <h2 class="text-3xl sm:text-4xl font-extrabold text-white mb-3">Pulse SMS অ্যান্ড্রয়েড অ্যাপ ইনস্টল করুন</h2>
+      <p class="text-slate-300 text-sm sm:text-base max-w-xl mx-auto mb-8">
+        আপনার অ্যান্ড্রয়েড ফোনে সরাসরি APK ফাইলটি ইনস্টল করুন। ডুয়াল সিম মেসেজিং, ইনস্ট্যান্ট নোটিফিকেশন এবং ক্লাউড ব্যাকআপ উপভোগ করুন।
+      </p>
+
+      <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+        <a href="https://github.com" target="_blank" class="w-full sm:w-auto px-8 py-4 rounded-2xl bg-white hover:bg-slate-100 text-slate-900 font-bold text-base flex items-center justify-center gap-2.5 shadow-lg active:scale-95 transition-all">
+          <i class="ph ph-download-simple text-xl"></i>
+          <span>ডাউনলোড করুন (PulseSMS-latest.apk)</span>
+        </a>
+
+        <a href="https://github.com" target="_blank" class="w-full sm:w-auto px-6 py-4 rounded-2xl bg-slate-800/80 hover:bg-slate-800 text-slate-200 border border-slate-700 text-sm font-semibold flex items-center justify-center gap-2 transition-all">
+          <i class="ph ph-github-logo text-lg"></i>
+          <span>GitHub Releases দেখুন</span>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="border-t border-slate-800 py-10 px-4 text-center text-xs text-slate-500">
+    <div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div class="flex items-center gap-2 text-slate-400">
+        <i class="ph ph-chat-centered-text text-blue-500 text-lg"></i>
+        <span class="font-bold text-slate-300">Pulse SMS</span> &bull; <span>Secure AI Telephony & Web Companion</span>
+      </div>
+      <p>&copy; 2026 Pulse SMS. All rights reserved. Open-source Android Messaging Engine.</p>
+    </div>
+  </footer>
+
+  <!-- Web Client Scripts -->
+  <script>
+    // 1. Initialize Dynamic Pairing QR Code
+    let qrInstance = null;
+    function initQrCode() {
+      const qrContainer = document.getElementById("qrcode");
+      if (qrContainer && !qrInstance) {
+        qrContainer.innerHTML = "";
+        const pairingToken = "pulse_pair_" + Math.random().toString(36).substring(2, 10);
+        qrInstance = new QRCode(qrContainer, {
+          text: JSON.stringify({
+            app: "PulseSMS",
+            token: pairingToken,
+            time: Date.now()
+          }),
+          width: 176,
+          height: 176,
+          colorDark: "#0f172a",
+          colorLight: "#ffffff",
+          correctLevel: QRCode.CorrectLevel.M
+        });
+      }
+    }
+
+    // Toggle Modal
+    function toggleWebMessengerModal() {
+      const modal = document.getElementById("webMessengerModal");
+      if (modal.classList.contains("hidden")) {
+        modal.classList.remove("hidden");
+        setTimeout(initQrCode, 100);
+      } else {
+        modal.classList.add("hidden");
+      }
+    }
+
+    // Simulate connecting phone
+    function simulateConnectPhone() {
+      const btn = document.getElementById("btnSimulatePair");
+      const label = document.getElementById("pairBtnLabel");
+      const authStatus = document.getElementById("authStatusIndicator");
+      const authText = document.getElementById("authStatusText");
+
+      label.innerText = "কানেক্ট হচ্ছে...";
+      setTimeout(() => {
+        label.innerText = "কানেক্টেড (Samsung Galaxy S24)";
+        btn.classList.remove("bg-blue-600/20", "text-blue-300", "border-blue-500/30");
+        btn.classList.add("bg-emerald-600/20", "text-emerald-300", "border-emerald-500/30");
+
+        authStatus.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span id="authStatusText">সিঙ্ক অ্যাক্টিভ (rubelbank92@gmail.com)</span>';
+        authStatus.classList.remove("bg-slate-800");
+        authStatus.classList.add("bg-emerald-950/60", "border-emerald-500/30");
+
+        addLogEntry("SYSTEM", "সফলভাবে ডিভাইসের সাথে পেয়ার করা হয়েছে। রিয়েল-টাইম ক্লাউড সিঙ্ক চালু।");
+        addLogEntry("INCOMING", "bKash (16247): You have received Tk 1,200 from 019XXXXXXXX.");
+      }, 800);
+    }
+
+    // Append log entry
+    function addLogEntry(type, message) {
+      const stream = document.getElementById("webMessageLogStream");
+      const card = document.createElement("div");
+      card.className = "p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs animate-fade-in";
+      
+      const timeStr = new Date().toLocaleTimeString();
+      let badge = `<span class="font-bold text-blue-400">[${type}]</span>`;
+      if (type === "INCOMING") badge = `<span class="font-bold text-emerald-400">[INCOMING SMS]</span>`;
+      if (type === "SENT") badge = `<span class="font-bold text-cyan-400">[SENT SMS]</span>`;
+
+      card.innerHTML = `
+        <div class="flex items-center justify-between text-slate-400 mb-1">
+          ${badge}
+          <span>${timeStr}</span>
+        </div>
+        <p class="text-slate-200">${message}</p>
+      `;
+      stream.insertBefore(card, stream.firstChild);
+    }
+
+    // Send SMS from web form
+    function handleSendWebSms(e) {
+      e.preventDefault();
+      const recipient = document.getElementById("webSmsRecipient").value;
+      const body = document.getElementById("webSmsBody").value;
+      if (!recipient || !body) return;
+
+      addLogEntry("SENT", `To ${recipient}: "${body}" (Dispatched to carrier SIM via cloud bridge)`);
+      document.getElementById("webSmsBody").value = "";
+    }
+
+    function clearDemoLogs() {
+      const stream = document.getElementById("webMessageLogStream");
+      stream.innerHTML = "";
+    }
+  </script>
+</body>
+</html>

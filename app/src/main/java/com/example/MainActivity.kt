@@ -41,28 +41,65 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 
+import android.content.Intent
+import com.example.telephony.SmsNotificationManager
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
 class MainActivity : ComponentActivity() {
+
+    private val _notificationThreadAddress = MutableStateFlow<String?>(null)
+    val notificationThreadAddress: StateFlow<String?> = _notificationThreadAddress.asStateFlow()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         configureAppCheck(this, intent)
         enableEdgeToEdge()
 
+        SmsNotificationManager.createNotificationChannel(this)
+        handleNotificationIntent(intent)
+
         setContent {
             MyApplicationTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    SmsAppRoot()
+                    SmsAppRoot(notificationThreadAddress = notificationThreadAddress)
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleNotificationIntent(intent)
+    }
+
+    private fun handleNotificationIntent(intent: Intent?) {
+        val address = intent?.getStringExtra(SmsNotificationManager.EXTRA_THREAD_ADDRESS)
+        if (!address.isNullOrBlank()) {
+            _notificationThreadAddress.value = address
         }
     }
 }
 
 @Composable
-fun SmsAppRoot(viewModel: SmsViewModel = viewModel()) {
+fun SmsAppRoot(
+    viewModel: SmsViewModel = viewModel(),
+    notificationThreadAddress: StateFlow<String?>? = null
+) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val credentialManager = remember { CredentialManager.create(context) }
+
+    // Auto-open conversation when user taps on Heads-Up SMS notification
+    LaunchedEffect(notificationThreadAddress) {
+        notificationThreadAddress?.collect { address ->
+            if (!address.isNullOrBlank()) {
+                viewModel.openThread(address)
+            }
+        }
+    }
 
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()

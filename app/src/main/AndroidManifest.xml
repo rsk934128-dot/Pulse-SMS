@@ -76,6 +76,11 @@
             </intent-filter>
         </receiver>
 
+        <!-- Receiver for interactive notification actions (OTP Copy, Read, Reply) -->
+        <receiver
+            android:name=".telephony.NotificationActionReceiver"
+            android:exported="false" />
+
         <!-- Headless service for respond via message -->
         <service
             android:name=".telephony.HeadlessSmsSendService"

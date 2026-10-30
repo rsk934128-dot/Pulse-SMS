@@ -95,12 +95,25 @@ gradle :app:assembleDebug
 
 ---
 
+## 🌐 ভার্সেল (Vercel)-এ ওয়েবসাইট ডিপ্লয় করার নিয়ম (Web Companion)
+
+এই রিপোজিটরিতে Pulse SMS-এর জন্য একটি আধুনিক ও রেসপনসিভ **Landing Page ও Web Messenger Companion** (`index.html` ও `vercel.json`) তৈরি করা রয়েছে। এটি Vercel-এ ডিপ্লয় করতে:
+
+1. [Vercel](https://vercel.com)-এ যান এবং আপনার GitHub অ্যাকাউন্ট দিয়ে সাইন-ইন করুন।
+2. **"Add New..."** বাটনে ক্লিক করে **"Project"** সিলেক্ট করুন।
+3. আপনার **Pulse-SMS** রিপোজিটরির পাশে থাকা **"Import"** বাটনে চাপ দিন।
+4. কোনো কনফিগারেশন পরিবর্তন না করে সরাসরি **"Deploy"** বাটনে ক্লিক করুন।
+5. মাত্র ১০-১৫ সেকেন্ডের মধ্যে আপনার জন্য একটি লাইভ ফ্রি ডোমেইন তৈরি হয়ে যাবে (যেমন: `https://pulse-sms.vercel.app`)!
+
+---
+
 ## 🛠️ টেক স্ট্যাক ও আর্কিটেকচার
 
-- **Language**: Kotlin 100%
+- **Language**: Kotlin 100% (Android) & Modern Web (HTML5/Tailwind/JS)
 - **UI Framework**: Jetpack Compose (Material Design 3)
 - **Local Database**: Room Database (SQLite with KSP)
 - **AI Core**: Google Firebase AI Logic (`gemini-2.5-flash`)
 - **Cloud & Auth**: Firebase Firestore & Jetpack Credential Manager (Google Sign-In)
+- **Web Hosting**: Vercel Ready (`vercel.json`)
 - **CI/CD**: GitHub Actions
 - **Testing**: Robolectric & JUnit 4

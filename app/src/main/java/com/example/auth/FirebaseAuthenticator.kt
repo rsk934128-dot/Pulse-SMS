@@ -146,7 +146,16 @@ class FirebaseAuthenticator(
         }
 
         val signInOption = GetSignInWithGoogleOption.Builder(serverClientId = clientId).build()
-        val request = GetCredentialRequest.Builder().addCredentialOption(signInOption).build()
+        val googleIdOption = GetGoogleIdOption.Builder()
+            .setFilterByAuthorizedAccounts(false)
+            .setServerClientId(clientId)
+            .setAutoSelectEnabled(false)
+            .build()
+
+        val request = GetCredentialRequest.Builder()
+            .addCredentialOption(signInOption)
+            .addCredentialOption(googleIdOption)
+            .build()
 
         return try {
             val activity = context as? Activity
@@ -158,14 +167,24 @@ class FirebaseAuthenticator(
                 val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
                 signInWithGoogleIdToken(googleIdToken)
             } else {
-                Result.failure(IllegalStateException("Unexpected credential type returned: ${credential::class.java.name}"))
+                Result.failure(IllegalStateException("Unexpected credential type: ${credential::class.java.name}"))
             }
         } catch (e: GetCredentialCancellationException) {
             Log.w(TAG, "Google Sign-In cancelled by user", e)
             Result.failure(e)
         } catch (e: Exception) {
             Log.e(TAG, "Google Sign-In failed", e)
-            Result.failure(e)
+            val msg = e.message ?: ""
+            val userFriendlyMessage = when {
+                msg.contains("10:") || msg.contains("DEVELOPER_ERROR") ->
+                    "Google Sign-In 10: SHA-1 fingerprint mismatch or Firebase OAuth not configured."
+                msg.contains("16:") || msg.contains("No credential") ->
+                    "No Google account selected or cancelled."
+                msg.contains("7:") || msg.contains("NETWORK", ignoreCase = true) ->
+                    "Network error. Please check your internet connection."
+                else -> e.localizedMessage ?: "Sign in failed"
+            }
+            Result.failure(Exception(userFriendlyMessage, e))
         }
     }
 

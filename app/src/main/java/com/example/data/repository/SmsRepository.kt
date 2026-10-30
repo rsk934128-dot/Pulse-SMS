@@ -160,6 +160,7 @@ class SmsRepository(private val context: Context) {
     suspend fun markThreadAsRead(address: String) = withContext(Dispatchers.IO) {
         dao.markMessagesAsRead(address)
         dao.clearConversationUnreadCount(address)
+        com.example.telephony.SmsNotificationManager.cancelNotification(context, address)
     }
 
     suspend fun setPinned(address: String, isPinned: Boolean) = withContext(Dispatchers.IO) {
@@ -311,7 +312,20 @@ class SmsRepository(private val context: Context) {
             )
         )
 
-        message.copy(id = messageId)
+        val savedMessage = message.copy(id = messageId)
+
+        // Trigger real-time Heads-Up display notification
+        try {
+            com.example.telephony.SmsNotificationManager.showIncomingSmsNotification(
+                context = context,
+                message = savedMessage,
+                conversation = conversation
+            )
+        } catch (e: Exception) {
+            Log.e("SmsRepository", "Failed to trigger incoming SMS notification: ${e.message}")
+        }
+
+        savedMessage
     }
 
     suspend fun emitSyncLog(type: String, description: String) {

@@ -55,35 +55,40 @@ jobs:
             chmod +x ./gradlew
           fi
 
-      - name: Setup Keystores (Debug & Release)
+      - name: Setup Keystores (Preserve Firebase SHA-1 Certificate)
         run: |
-          # 1. Setup debug.keystore
-          if [ -f debug.keystore.base64 ] && [ ! -f debug.keystore ]; then
-            base64 -d debug.keystore.base64 > debug.keystore || true
+          # 1. Restore exact debug.keystore matching Firebase google-services.json (SHA-1: B6:4D:9F:4E:59:B7:5D:E0:84:42:1F:75:A9:CD:1F:85:BF:42:1A:E9)
+          if [ -f debug.keystore.base64 ]; then
+            python3 -c "import base64; open('debug.keystore','wb').write(base64.b64decode(open('debug.keystore.base64').read().strip()))"
           fi
+
           if [ ! -f debug.keystore ] || [ ! -s debug.keystore ]; then
-            echo "Generating debug.keystore with keytool..."
+            echo "Fallback generating debug.keystore..."
             keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
 
-          # 2. Setup release keystore (my-upload-key.jks with alias 'upload')
+          # 2. Setup release keystore (my-upload-key.jks with alias 'upload' and matching SHA-1)
           if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
             echo "Custom release keystore secret found. Decoding..."
             rm -f my-upload-key.jks
             echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > my-upload-key.jks
             echo "STORE_PASSWORD=${{ secrets.STORE_PASSWORD }}" >> $GITHUB_ENV
             echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
-          elif [ -f my-upload-key.jks ]; then
-            echo "my-upload-key.jks already exists in workspace. Reusing..."
-            echo "STORE_PASSWORD=android" >> $GITHUB_ENV
-            echo "KEY_PASSWORD=android" >> $GITHUB_ENV
           else
-            echo "No custom release keystore provided. Generating dedicated release keystore..."
-            keytool -genkey -v -keystore my-upload-key.jks -storepass android -alias upload -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Pulse SMS Release,O=Pulse,C=US"
+            echo "Cloning debug.keystore to my-upload-key.jks with alias 'upload' so Release APK has registered Firebase SHA-1..."
+            rm -f my-upload-key.jks
+            cp debug.keystore my-upload-key.jks
+            keytool -changealias -keystore my-upload-key.jks -alias androiddebugkey -destalias upload -storepass android
             echo "STORE_PASSWORD=android" >> $GITHUB_ENV
             echo "KEY_PASSWORD=android" >> $GITHUB_ENV
           fi
           echo "KEYSTORE_PATH=${{ github.workspace }}/my-upload-key.jks" >> $GITHUB_ENV
+
+          # Display SHA-1 fingerprints in workflow log for verification
+          echo "Debug Certificate SHA-1:"
+          keytool -list -v -keystore debug.keystore -alias androiddebugkey -storepass android | grep -i sha1 || true
+          echo "Release Certificate SHA-1:"
+          keytool -list -v -keystore my-upload-key.jks -alias upload -storepass android | grep -i sha1 || true
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
