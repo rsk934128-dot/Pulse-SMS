@@ -10,6 +10,7 @@ import android.util.Log
 import com.example.data.local.AppDatabase
 import com.example.data.model.ConversationEntity
 import com.example.data.model.MessageEntity
+import com.example.data.remote.FirebaseSyncRepository
 import com.example.telephony.SmsCategorizer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -252,15 +253,23 @@ class SmsRepository(private val context: Context) {
         )
         dao.upsertConversation(conversation)
 
-        _webSyncEvents.emit(
-            WebSyncEvent(
-                id = messageId.toString(),
-                type = "OUTGOING",
-                description = "Sent SMS to $cleanRecipient: \"${cleanBody.take(30)}...\""
-            )
-        )
+        val savedMessage = message.copy(id = messageId)
 
-        Result.success(message.copy(id = messageId))
+        // Real-time Cloud Sync to Firebase Firestore if user is authenticated
+        try {
+            val syncRepo = FirebaseSyncRepository(context)
+            if (syncRepo.isUserSignedIn()) {
+                syncRepo.syncMessage(savedMessage)
+            }
+        } catch (e: Exception) {
+            Log.w("SmsRepository", "Auto cloud sync outgoing SMS: ${e.message}")
+        }
+
+        Result.success(savedMessage)
+    }
+
+    suspend fun getRecentMessages(limit: Int = 100): List<MessageEntity> = withContext(Dispatchers.IO) {
+        dao.getRecentMessages(limit)
     }
 
     suspend fun handleIncomingSms(
@@ -313,6 +322,16 @@ class SmsRepository(private val context: Context) {
         )
 
         val savedMessage = message.copy(id = messageId)
+
+        // Real-time Cloud Sync to Firebase Firestore if user is authenticated
+        try {
+            val syncRepo = FirebaseSyncRepository(context)
+            if (syncRepo.isUserSignedIn()) {
+                syncRepo.syncMessage(savedMessage)
+            }
+        } catch (e: Exception) {
+            Log.w("SmsRepository", "Auto cloud sync incoming SMS: ${e.message}")
+        }
 
         // Trigger real-time Heads-Up display notification
         try {

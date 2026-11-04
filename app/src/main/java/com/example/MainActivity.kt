@@ -40,6 +40,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.auth.findActivity
 
 import android.content.Intent
 import com.example.telephony.SmsNotificationManager
@@ -89,8 +90,11 @@ fun SmsAppRoot(
     notificationThreadAddress: StateFlow<String?>? = null
 ) {
     val context = LocalContext.current
+    val activity = remember(context) { (context as? android.app.Activity) ?: context.findActivity() }
     val coroutineScope = rememberCoroutineScope()
-    val credentialManager = remember { CredentialManager.create(context) }
+    val credentialManager = remember(activity, context) {
+        CredentialManager.create(activity ?: context)
+    }
 
     // Auto-open conversation when user taps on Heads-Up SMS notification
     LaunchedEffect(notificationThreadAddress) {
@@ -130,7 +134,7 @@ fun SmsAppRoot(
     // Silent Auto-Sign-In on App Startup
     LaunchedEffect(Unit) {
         AuthManager.attemptAutoSignIn(
-            context = context,
+            context = activity ?: context,
             credentialManager = credentialManager,
             onAuthSuccess = { },
             onUnauthenticated = { },
@@ -302,16 +306,24 @@ fun SmsAppRoot(
             onTriggerCloudSync = { viewModel.triggerCloudSyncNow() },
             onSignOut = {
                 AuthManager.signOut(
-                    context = context,
+                    context = activity ?: context,
                     credentialManager = credentialManager,
                     onSignOutComplete = {
-                        Toast.makeText(context, "Signed out of Google", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            context,
+                            if (currentLanguage == "BN") "গুগল অ্যাকাউন্ট সাইন-আউট হয়েছে। এখন যেকোনো নতুন অ্যাকাউন্ট দিয়ে লগইন করতে পারবেন।" else "Signed out. You can now sign in with any account.",
+                            Toast.LENGTH_SHORT
+                        ).show()
                     },
                     scope = coroutineScope
                 )
             },
             onAuthSuccess = {
-                Toast.makeText(context, "Google Sign-In successful!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    context,
+                    if (currentLanguage == "BN") "গুগল সাইন-ইন সফল হয়েছে! ক্লাউড সিঙ্ক সক্রিয়।" else "Google Sign-In successful! Cloud sync active.",
+                    Toast.LENGTH_SHORT
+                ).show()
             },
             onAuthError = { errorMsg: String ->
                 Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()

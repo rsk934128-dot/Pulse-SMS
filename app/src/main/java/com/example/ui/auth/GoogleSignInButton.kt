@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.credentials.CredentialManager
 import com.example.R
+import com.example.auth.findActivity
 import com.google.firebase.auth.FirebaseUser
 
 /**
@@ -68,12 +69,15 @@ fun GoogleSignInButton(
     onAuthSuccess: () -> Unit,
     onAuthError: (String) -> Unit,
     modifier: Modifier = Modifier,
-    buttonText: String = "Sign in with Google",
-    subtitleText: String? = "Secured by Google Identity Services"
+    buttonText: String = "যেকোনো গুগল অ্যাকাউন্ট দিয়ে সাইন-ইন",
+    subtitleText: String? = "যেকোনো অ্যাকাউন্ট বেছে নিন বা নতুন যোগ করুন"
 ) {
     val context = LocalContext.current
+    val activity = remember(context) { (context as? android.app.Activity) ?: context.findActivity() }
     val coroutineScope = rememberCoroutineScope()
-    val credentialManager = remember { CredentialManager.create(context) }
+    val credentialManager = remember(activity, context) {
+        CredentialManager.create(activity ?: context)
+    }
     var isLoading by remember { mutableStateOf(false) }
 
     val isDark = isSystemInDarkTheme()
@@ -88,9 +92,14 @@ fun GoogleSignInButton(
         Surface(
             onClick = {
                 if (!isLoading) {
+                    val hostActivity = activity ?: context.findActivity() ?: (context as? android.app.Activity)
+                    if (hostActivity == null) {
+                        onAuthError("অ্যাক্টিভিটি পাওয়া যায়নি, অনুগ্রহ করে পুনরায় চেষ্টা করুন")
+                        return@Surface
+                    }
                     isLoading = true
                     AuthManager.onGoogleSignInClicked(
-                        context = context,
+                        context = hostActivity,
                         credentialManager = credentialManager,
                         onAuthSuccess = {
                             isLoading = false
@@ -131,7 +140,7 @@ fun GoogleSignInButton(
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
-                        text = "Signing in...",
+                        text = if (buttonText.contains("গুগল") || buttonText.contains("অ্যাকাউন্ট")) "লগইন হচ্ছে..." else "Signing in...",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium,
                         color = contentColor
@@ -390,8 +399,8 @@ fun GoogleUserProfileCard(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        if (language == "BN") "লগআউট" else "Sign Out",
-                        fontSize = 12.sp,
+                        if (language == "BN") "অ্যাকাউন্ট বদল / লগআউট" else "Switch / Sign Out",
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                 }

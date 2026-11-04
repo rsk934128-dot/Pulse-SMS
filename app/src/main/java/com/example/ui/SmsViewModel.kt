@@ -354,7 +354,13 @@ class SmsViewModel(
                     displayName = currentUser.value?.displayName ?: "User",
                     email = currentUser.value?.email ?: ""
                 )
-                repository.emitSyncLog("FIRESTORE", "Cloud sync completed successfully.")
+                val messages = repository.getRecentMessages(100)
+                var count = 0
+                for (msg in messages) {
+                    val res = firebaseSyncRepo.syncMessage(msg)
+                    if (res.isSuccess) count++
+                }
+                repository.emitSyncLog("FIRESTORE", "সফলভাবে $count টি এসএমএস ফায়ারবেস ক্লাউডে সিঙ্ক হয়েছে।")
             } catch (e: Exception) {
                 repository.emitSyncLog("FIRESTORE", "Cloud sync failed: ${e.message}")
             } finally {

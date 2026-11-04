@@ -38,6 +38,67 @@ beforeEach(async () => {
   }
 });
 
+test("Unauthenticated user: cannot read or write user profile", async () => {
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+  await assertFails(unauthDb.collection("users").doc(ALICE_UID).get());
+  await assertFails(unauthDb.collection("users").doc(ALICE_UID).set({
+    userId: ALICE_UID,
+    displayName: "Alice",
+    email: "alice@example.com",
+    createdAt: new Date(),
+    updatedAt: new Date()
+  }));
+});
+
+test("Owner: Alice can create and update her user profile", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const userRef = aliceDb.collection("users").doc(ALICE_UID);
+
+  // Initial creation
+  await assertSucceeds(
+    userRef.set({
+      userId: ALICE_UID,
+      displayName: "Alice Tester",
+      email: "alice@example.com",
+      createdAt: new Date(),
+      updatedAt: new Date()
+    })
+  );
+
+  await assertSucceeds(userRef.get());
+
+  // Subsequent update
+  await assertSucceeds(
+    userRef.update({
+      displayName: "Alice Updated",
+      updatedAt: new Date()
+    })
+  );
+
+  // Set with merge (as done in Android app)
+  await assertSucceeds(
+    userRef.set({
+      userId: ALICE_UID,
+      displayName: "Alice Set Merge",
+      email: "alice@example.com",
+      updatedAt: new Date()
+    }, { merge: true })
+  );
+});
+
+test("Cross-user: Bob cannot write to Alice's profile", async () => {
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  await assertFails(
+    bobDb.collection("users").doc(ALICE_UID).set({
+      userId: ALICE_UID,
+      displayName: "Hacker Bob",
+      email: "bob@example.com",
+      createdAt: new Date(),
+      updatedAt: new Date()
+    })
+  );
+});
+
 test("Unauthenticated user: cannot read messages", async () => {
   const unauthDb = testEnv.unauthenticatedContext().firestore();
   await assertFails(unauthDb.collection("users").doc(ALICE_UID).collection("messages").get());

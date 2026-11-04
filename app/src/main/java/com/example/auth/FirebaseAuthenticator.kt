@@ -2,6 +2,7 @@ package com.example.auth
 
 import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.util.Log
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
@@ -25,6 +26,19 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
+
+/**
+ * Traverses context wrappers (such as ModalBottomSheet or Dialog theme wrappers)
+ * until the host Activity is found.
+ */
+fun Context.findActivity(): Activity? {
+    var ctx: Context? = this
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
+}
 
 /**
  * Data representation of an authenticated user profile.
@@ -133,58 +147,81 @@ class FirebaseAuthenticator(
     /**
      * Internal implementation of the Google Credential Manager authentication flow.
      */
+    /**
+     * Internal implementation of the Google Credential Manager authentication flow.
+     * Supports selecting ANY Google account on the device or adding a new account.
+     */
     private suspend fun executeGoogleAuth(
         context: Context,
         credentialManager: CredentialManager
     ): Result<FirebaseUser> {
+        val targetActivity = context.findActivity() ?: (context as? Activity)
+            ?: return Result.failure(IllegalStateException("Context must be an Activity to display Google Sign-In UI"))
+
         val clientId = try {
-            val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
-            if (resId != 0) context.getString(resId)
-            else "836906134294-bvgjqgnjfd8uo50ebd9kmkpvhntm0ki0.apps.googleusercontent.com"
+            targetActivity.getString(R.string.default_web_client_id)
         } catch (e: Exception) {
-            "836906134294-bvgjqgnjfd8uo50ebd9kmkpvhntm0ki0.apps.googleusercontent.com"
+            val resId = targetActivity.resources.getIdentifier("default_web_client_id", "string", targetActivity.packageName)
+            if (resId != 0) targetActivity.getString(resId)
+            else throw IllegalStateException("Resource string 'default_web_client_id' is missing.")
         }
 
+        // Strategy 1: Interactive Google Account Chooser bottom sheet
         val signInOption = GetSignInWithGoogleOption.Builder(serverClientId = clientId).build()
-        val googleIdOption = GetGoogleIdOption.Builder()
-            .setFilterByAuthorizedAccounts(false)
-            .setServerClientId(clientId)
-            .setAutoSelectEnabled(false)
-            .build()
-
-        val request = GetCredentialRequest.Builder()
+        val primaryRequest = GetCredentialRequest.Builder()
             .addCredentialOption(signInOption)
-            .addCredentialOption(googleIdOption)
             .build()
 
         return try {
-            val activity = context as? Activity
-                ?: return Result.failure(IllegalArgumentException("Context must be an Activity to display Google Sign-In UI"))
-
-            val result = credentialManager.getCredential(activity, request)
-            val credential = result.credential
-            if (credential is CustomCredential && credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
-                val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
-                signInWithGoogleIdToken(googleIdToken)
-            } else {
-                Result.failure(IllegalStateException("Unexpected credential type: ${credential::class.java.name}"))
-            }
+            val result = credentialManager.getCredential(targetActivity, primaryRequest)
+            processCredentialResult(result.credential)
         } catch (e: GetCredentialCancellationException) {
             Log.w(TAG, "Google Sign-In cancelled by user", e)
             Result.failure(e)
         } catch (e: Exception) {
-            Log.e(TAG, "Google Sign-In failed", e)
-            val msg = e.message ?: ""
-            val userFriendlyMessage = when {
-                msg.contains("10:") || msg.contains("DEVELOPER_ERROR") ->
-                    "Google Sign-In 10: SHA-1 fingerprint mismatch or Firebase OAuth not configured."
-                msg.contains("16:") || msg.contains("No credential") ->
-                    "No Google account selected or cancelled."
-                msg.contains("7:") || msg.contains("NETWORK", ignoreCase = true) ->
-                    "Network error. Please check your internet connection."
-                else -> e.localizedMessage ?: "Sign in failed"
+            Log.w(TAG, "Primary GetSignInWithGoogleOption failed, attempting GetGoogleIdOption fallback", e)
+            try {
+                // Strategy 2: Explicit GetGoogleIdOption with filterByAuthorizedAccounts = false
+                // This forces Google Play Services to list ALL accounts on the device,
+                // and provides the 'Add account' button to sign in with any account.
+                val googleIdOption = GetGoogleIdOption.Builder()
+                    .setFilterByAuthorizedAccounts(false)
+                    .setServerClientId(clientId)
+                    .setAutoSelectEnabled(false)
+                    .build()
+
+                val fallbackRequest = GetCredentialRequest.Builder()
+                    .addCredentialOption(googleIdOption)
+                    .build()
+
+                val fallbackResult = credentialManager.getCredential(targetActivity, fallbackRequest)
+                processCredentialResult(fallbackResult.credential)
+            } catch (fallbackCancel: GetCredentialCancellationException) {
+                Log.w(TAG, "Google Sign-In cancelled by user in fallback", fallbackCancel)
+                Result.failure(fallbackCancel)
+            } catch (fallbackEx: Exception) {
+                Log.e(TAG, "Google Sign-In failed across both strategies", fallbackEx)
+                val msg = fallbackEx.message ?: e.message ?: ""
+                val userFriendlyMessage = when {
+                    msg.contains("10:") || msg.contains("DEVELOPER_ERROR") ->
+                        "গুগল সাইন-ইন কনফিগারেশন ত্রুটি (SHA-1 / OAuth Client ID)।"
+                    msg.contains("16:") || msg.contains("No credential", ignoreCase = true) ->
+                        "কোনো গুগল অ্যাকাউন্ট নির্বাচন করা হয়নি বা বাতিল করা হয়েছে।"
+                    msg.contains("7:") || msg.contains("NETWORK", ignoreCase = true) ->
+                        "নেটওয়ার্ক সংযোগ চেক করুন।"
+                    else -> fallbackEx.localizedMessage ?: "সাইন-ইন ব্যর্থ হয়েছে"
+                }
+                Result.failure(Exception(userFriendlyMessage, fallbackEx))
             }
-            Result.failure(Exception(userFriendlyMessage, e))
+        }
+    }
+
+    private suspend fun processCredentialResult(credential: androidx.credentials.Credential): Result<FirebaseUser> {
+        return if (credential is CustomCredential && credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+            val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
+            signInWithGoogleIdToken(googleIdToken)
+        } else {
+            Result.failure(IllegalStateException("Unexpected credential type: ${credential::class.java.name}"))
         }
     }
 
@@ -224,11 +261,10 @@ class FirebaseAuthenticator(
         }
 
         val clientId = try {
-            val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
-            if (resId != 0) context.getString(resId)
-            else "836906134294-bvgjqgnjfd8uo50ebd9kmkpvhntm0ki0.apps.googleusercontent.com"
+            context.getString(R.string.default_web_client_id)
         } catch (e: Exception) {
-            "836906134294-bvgjqgnjfd8uo50ebd9kmkpvhntm0ki0.apps.googleusercontent.com"
+            val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
+            if (resId != 0) context.getString(resId) else return Result.success(null)
         }
 
         val googleIdOption = GetGoogleIdOption.Builder()
@@ -240,7 +276,8 @@ class FirebaseAuthenticator(
         val request = GetCredentialRequest.Builder().addCredentialOption(googleIdOption).build()
 
         return try {
-            val result = credentialManager.getCredential(context, request)
+            val targetContext = context.findActivity() ?: context
+            val result = credentialManager.getCredential(targetContext, request)
             val credential = result.credential
             if (credential is CustomCredential && credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                 val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data).idToken

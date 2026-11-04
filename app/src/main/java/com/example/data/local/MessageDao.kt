@@ -42,6 +42,9 @@ interface MessageDao {
     @Query("SELECT COUNT(*) FROM messages WHERE isRead = 0 AND isIncoming = 1")
     fun getTotalUnreadCountFlow(): Flow<Int>
 
+    @Query("SELECT * FROM messages ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun getRecentMessages(limit: Int = 100): List<MessageEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessage(message: MessageEntity): Long
 

@@ -8,6 +8,7 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.snapshots
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -50,16 +51,31 @@ class FirebaseSyncRepository(
         val path = "users/$uid"
         val userRef = db.collection("users").document(uid)
 
-        val data = mapOf(
-            "userId" to uid,
-            "displayName" to displayName,
-            "email" to email,
-            "createdAt" to FieldValue.serverTimestamp(),
-            "updatedAt" to FieldValue.serverTimestamp()
-        )
+        val docSnap = try {
+            userRef.get().await()
+        } catch (e: Exception) {
+            null
+        }
+
+        val data = if (docSnap != null && docSnap.exists()) {
+            mapOf(
+                "userId" to uid,
+                "displayName" to displayName,
+                "email" to email,
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+        } else {
+            mapOf(
+                "userId" to uid,
+                "displayName" to displayName,
+                "email" to email,
+                "createdAt" to FieldValue.serverTimestamp(),
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+        }
 
         try {
-            userRef.set(data).await()
+            userRef.set(data, SetOptions.merge()).await()
         } catch (e: Exception) {
             handleFirestoreError(e, OperationType.WRITE, path)
             throw e

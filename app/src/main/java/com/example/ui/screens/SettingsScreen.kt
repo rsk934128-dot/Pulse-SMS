@@ -154,14 +154,14 @@ fun SettingsScreen(
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text(
-                                    text = if (language == "BN") "গুগল অ্যাকাউন্ট দিয়ে সাইন-ইন করুন" else "Sign in with your Google Account",
+                                    text = if (language == "BN") "যেকোনো গুগল অ্যাকাউন্ট দিয়ে সাইন-ইন করুন" else "Sign in with Any Google Account",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    text = if (language == "BN") "রিয়েল-টাইম ক্লাউড ব্যাকআপ এবং সকল ডিভাইসে এসএমএস সিঙ্ক সক্রিয় করতে"
-                                    else "Enable real-time cloud backup and cross-device sync with Firebase",
+                                    text = if (language == "BN") "রিয়েল-টাইম ক্লাউড ব্যাকআপ ও ওয়েব মেসেঞ্জারে এসএমএস দেখতে আপনার ফোনের যেকোনো গুগল অ্যাকাউন্ট নির্বাচন করুন"
+                                    else "Select any Google account on this device or add a new one to sync SMS in real time",
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -173,8 +173,8 @@ fun SettingsScreen(
                         GoogleSignInButton(
                             onAuthSuccess = onAuthSuccess,
                             onAuthError = onAuthError,
-                            buttonText = if (language == "BN") "গুগল দিয়ে চালিয়ে যান" else "Continue with Google",
-                            subtitleText = if (language == "BN") "Google Identity Services দ্বারা সুরক্ষিত • Zero-Trust" else "Secured by Google Identity Services • Zero-Trust"
+                            buttonText = if (language == "BN") "যেকোনো গুগল অ্যাকাউন্ট দিয়ে সাইন-ইন" else "Sign in with Any Google Account",
+                            subtitleText = if (language == "BN") "যেকোনো অ্যাকাউন্ট বেছে নিন বা নতুন যোগ করুন • Zero-Trust" else "Choose any account or add new • Zero-Trust"
                         )
                     }
                 }

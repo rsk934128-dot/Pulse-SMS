@@ -20,10 +20,10 @@ service cloud.firestore {
 
     function isValidUserProfile(data) {
       return data.userId is string && data.userId.size() <= 128 &&
-             data.displayName is string && data.displayName.size() <= 100 &&
-             data.email is string && data.email.size() <= 200 &&
-             data.createdAt is timestamp && data.createdAt <= request.time &&
-             data.updatedAt is timestamp && data.updatedAt <= request.time;
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 200)) &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 320)) &&
+             (!('createdAt' in data) || (data.createdAt is timestamp && data.createdAt <= request.time)) &&
+             (!('updatedAt' in data) || (data.updatedAt is timestamp && data.updatedAt <= request.time));
     }
 
     function isValidCloudMessage(data) {
@@ -33,7 +33,7 @@ service cloud.firestore {
              data.recipientAddress is string && data.recipientAddress.size() <= 100 &&
              data.body is string && data.body.size() <= 5000 &&
              data.isIncoming is bool &&
-             (data.category in ['PERSONAL', 'OTP', 'TRANSACTION', 'PROMOTION', 'SPAM']) &&
+             (data.category in ['PERSONAL', 'OTP', 'TRANSACTION', 'PROMOTION', 'SPAM', 'TRAVEL']) &&
              data.createdAt is timestamp && data.createdAt <= request.time;
     }
 
@@ -54,14 +54,13 @@ service cloud.firestore {
 
       allow create: if isOwner(userId) &&
                        request.resource.data.userId == request.auth.uid &&
-                       request.resource.data.keys().hasAll(['userId', 'displayName', 'email', 'createdAt', 'updatedAt']) &&
+                       request.resource.data.keys().hasAll(['userId', 'displayName', 'email']) &&
                        request.resource.data.keys().hasOnly(['userId', 'displayName', 'email', 'createdAt', 'updatedAt']) &&
                        isValidUserProfile(request.resource.data);
 
       allow update: if isOwner(userId) &&
                        request.resource.data.userId == resource.data.userId &&
-                       request.resource.data.createdAt == resource.data.createdAt &&
-                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'email', 'updatedAt']) &&
+                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'email', 'updatedAt', 'createdAt']) &&
                        isValidUserProfile(request.resource.data);
 
       allow delete: if isOwner(userId);

@@ -1,5 +1,6 @@
 package com.example
 
+import com.example.auth.findActivity
 import com.example.telephony.SmsCategorizer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
