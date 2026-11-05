@@ -32,12 +32,13 @@ import kotlinx.coroutines.tasks.await
  * until the host Activity is found.
  */
 fun Context.findActivity(): Activity? {
+    if (this is Activity) return this
     var ctx: Context? = this
     while (ctx is ContextWrapper) {
         if (ctx is Activity) return ctx
         ctx = ctx.baseContext
     }
-    return null
+    return CurrentActivityHolder.currentActivity
 }
 
 /**
@@ -155,7 +156,9 @@ class FirebaseAuthenticator(
         context: Context,
         credentialManager: CredentialManager
     ): Result<FirebaseUser> {
-        val targetActivity = context.findActivity() ?: (context as? Activity)
+        val targetActivity = (context as? Activity)
+            ?: context.findActivity()
+            ?: CurrentActivityHolder.currentActivity
             ?: return Result.failure(IllegalStateException("Context must be an Activity to display Google Sign-In UI"))
 
         val clientId = try {

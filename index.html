@@ -155,137 +155,121 @@
         </a>
       </div>
 
-      <!-- Live Web Mockup Interactive Window -->
-      <div class="relative max-w-5xl mx-auto rounded-3xl p-2 sm:p-3 bg-gradient-to-b from-blue-500/20 via-slate-800/50 to-slate-900/90 shadow-2xl border border-slate-700/60">
+      <!-- Live Web Messenger Interactive Window (Real-time SMS Stream) -->
+      <div id="web-companion" class="scroll-mt-24"></div>
+      <div id="liveWebMessengerCard" class="relative max-w-6xl mx-auto rounded-3xl p-2 sm:p-3 bg-gradient-to-b from-blue-500/25 via-slate-800/60 to-slate-900/95 shadow-2xl border border-slate-700/70">
         <div class="rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 shadow-inner">
           
-          <!-- Mockup Window Bar -->
-          <div class="px-4 py-3 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between">
+          <!-- Messenger Window Top Bar -->
+          <div class="px-4 py-3 bg-slate-900/90 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2.5">
             <div class="flex items-center gap-2">
-              <span class="w-3 h-3 rounded-full bg-red-500/80 inline-block"></span>
-              <span class="w-3 h-3 rounded-full bg-amber-500/80 inline-block"></span>
-              <span class="w-3 h-3 rounded-full bg-emerald-500/80 inline-block"></span>
-              <span class="text-xs font-mono text-slate-400 ml-2">https://pulsesms.web.app</span>
+              <span class="w-3 h-3 rounded-full bg-red-500/80 inline-block shadow-sm"></span>
+              <span class="w-3 h-3 rounded-full bg-amber-500/80 inline-block shadow-sm"></span>
+              <span class="w-3 h-3 rounded-full bg-emerald-500/80 inline-block shadow-sm"></span>
+              <span class="text-xs font-bold text-white ml-2 flex items-center gap-1.5">
+                <i class="ph ph-chat-centered-text text-blue-400 text-sm"></i>
+                <span class="hidden sm:inline">Pulse SMS Web Messenger</span>
+                <span class="sm:hidden">Pulse Web</span>
+              </span>
+              <span id="headerSyncLiveBadge" class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1 font-semibold">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span class="hidden sm:inline">রিয়েল-টাইম লাইভ সিঙ্ক</span>
+                <span class="sm:hidden">Live</span>
+              </span>
             </div>
-            <div class="flex items-center gap-2 text-xs text-slate-400">
-              <span class="flex h-2 w-2 rounded-full bg-emerald-400"></span>
-              <span>Cloud Sync: Connected</span>
+
+            <!-- Top Actions & Auth status -->
+            <div class="flex items-center gap-2">
+              <!-- Simulate Incoming SMS CTA for Instant Testing -->
+              <button onclick="triggerSimulatedIncomingSms()" class="px-2.5 py-1 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-medium flex items-center gap-1.5 transition-all active:scale-95 shadow-sm" title="মোবাইল থেকে আসা নতুন এসএমএস সিমুলেশন করুন">
+                <i class="ph ph-bell-ringing text-emerald-400"></i>
+                <span class="hidden md:inline">টেস্ট এসএমএস পাঠান</span>
+                <span class="md:hidden">টেস্ট</span>
+              </button>
+
+              <!-- Dynamic Google Auth Bar -->
+              <div id="liveMessengerAuthSlot">
+                <button onclick="handleWebGoogleSignIn()" class="px-3 py-1 rounded-xl bg-white hover:bg-slate-100 text-slate-900 text-xs font-bold flex items-center gap-1.5 shadow transition-all active:scale-95">
+                  <svg class="w-3.5 h-3.5" viewBox="0 0 24 24"><path fill="#4285F4" d="M23.745 12.27c0-.71-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"/><path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"/><path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.14-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.98 0 12s.45 3.82 1.25 5.42l4.03-3.15z"/><path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c0.95-2.83 3.6-4.98 6.72-4.98z"/></svg>
+                  <span>Google Sign-In</span>
+                </button>
+              </div>
+
+              <!-- Full Screen Modal Launcher Button -->
+              <button onclick="toggleWebMessengerModal()" title="ফুল-স্ক্রিন মোড ও কিউআর পেয়ারিং" class="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs flex items-center gap-1 border border-slate-700 transition-colors">
+                <i class="ph ph-arrows-out-simple text-sm"></i>
+                <span class="text-[11px] hidden lg:inline">QR পেয়ারিং</span>
+              </button>
             </div>
           </div>
 
-          <!-- Mockup Body Content (Split View like Web Messages) -->
-          <div class="grid grid-cols-1 md:grid-cols-12 min-h-[420px] text-left">
+          <!-- Messenger Main Dual Pane (Responsive Grid) -->
+          <div class="grid grid-cols-1 md:grid-cols-12 min-h-[480px] max-h-[580px] text-left overflow-hidden">
             
-            <!-- Left Sidebar Conversations -->
-            <div class="md:col-span-5 border-r border-slate-800 bg-slate-950/80 p-3 flex flex-col gap-2">
-              <div class="px-2 py-1.5 flex items-center justify-between border-b border-slate-800/80 mb-1">
-                <span class="font-bold text-sm text-slate-200">ইনবক্স চ্যাটসমূহ</span>
-                <span class="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full font-semibold">৪টি নতুন</span>
-              </div>
-
-              <!-- Conversation 1: bKash (Active) -->
-              <div class="p-3 rounded-xl bg-blue-600/15 border border-blue-500/30 flex items-start gap-3 cursor-pointer">
-                <div class="w-10 h-10 rounded-xl bg-pink-600 text-white font-bold flex items-center justify-center text-sm shadow">
-                  bK
+            <!-- Left Column: Search, Category Filters & Conversations List -->
+            <div class="md:col-span-5 border-r border-slate-800 bg-slate-950/90 flex flex-col justify-between">
+              
+              <!-- Search & Filters Container -->
+              <div class="p-3 border-b border-slate-800/80 bg-slate-900/40 space-y-2.5">
+                <!-- Search Box -->
+                <div class="relative">
+                  <i class="ph ph-magnifying-glass absolute left-3 top-2.5 text-slate-400 text-sm"></i>
+                  <input type="text" id="mainMessengerSearchInput" oninput="handleMessengerSearch(this.value)" placeholder="এসএমএস বা প্রেরক খুঁজুন..." class="w-full bg-slate-950 border border-slate-800 focus:border-blue-500 rounded-xl pl-9 pr-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none transition-colors" />
                 </div>
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center justify-between mb-0.5">
-                    <span class="text-sm font-bold text-white truncate">bKash Alert</span>
-                    <span class="text-[11px] text-blue-400 font-medium">এইমাত্র</span>
-                  </div>
-                  <p class="text-xs text-slate-300 truncate">You have received Tk 5,000.00 from 0171XXXXXXX...</p>
-                  <div class="flex items-center gap-2 mt-2">
-                    <span class="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-semibold">TRANSACTION</span>
-                    <span class="text-[10px] text-slate-400">SIM 1</span>
-                  </div>
+
+                <!-- Category Filter Chips -->
+                <div class="flex items-center gap-1 overflow-x-auto custom-scrollbar pb-1 text-[11px]">
+                  <button type="button" onclick="setMainCategoryFilter('ALL')" id="mainFilterBtnALL" class="px-2.5 py-1 rounded-lg bg-blue-600 text-white font-semibold whitespace-nowrap shadow-sm transition-all">সব</button>
+                  <button type="button" onclick="setMainCategoryFilter('OTP')" id="mainFilterBtnOTP" class="px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 whitespace-nowrap transition-all">🔑 OTP</button>
+                  <button type="button" onclick="setMainCategoryFilter('TRANSACTION')" id="mainFilterBtnTRANSACTION" class="px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 whitespace-nowrap transition-all">💳 লেনদেন</button>
+                  <button type="button" onclick="setMainCategoryFilter('PERSONAL')" id="mainFilterBtnPERSONAL" class="px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 whitespace-nowrap transition-all">📩 ব্যক্তিগত</button>
+                  <button type="button" onclick="setMainCategoryFilter('TRAVEL')" id="mainFilterBtnTRAVEL" class="px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 whitespace-nowrap transition-all">🏨 ট্রাভেল</button>
                 </div>
               </div>
 
-              <!-- Conversation 2: OTP -->
-              <div class="p-3 rounded-xl hover:bg-slate-900 border border-transparent hover:border-slate-800 flex items-start gap-3 cursor-pointer transition-colors">
-                <div class="w-10 h-10 rounded-xl bg-amber-600 text-white font-bold flex items-center justify-center text-sm">
-                  <i class="ph ph-key text-lg"></i>
-                </div>
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center justify-between mb-0.5">
-                    <span class="text-sm font-semibold text-slate-200 truncate">City Bank Security</span>
-                    <span class="text-[11px] text-slate-400">২ মিনিট আগে</span>
-                  </div>
-                  <p class="text-xs text-slate-400 truncate">Your OTP is 849201. Valid for 3 minutes...</p>
-                  <div class="mt-1">
-                    <span class="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-semibold">🔑 OTP: 849201</span>
-                  </div>
-                </div>
+              <!-- Conversations Scroll List -->
+              <div id="mainConversationList" class="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1.5 max-h-[380px]">
+                <!-- Populated dynamically by renderLiveMessenger() -->
               </div>
 
-              <!-- Conversation 3: Personal -->
-              <div class="p-3 rounded-xl hover:bg-slate-900 border border-transparent hover:border-slate-800 flex items-start gap-3 cursor-pointer transition-colors">
-                <div class="w-10 h-10 rounded-xl bg-purple-600 text-white font-bold flex items-center justify-center text-sm">
-                  রা
-                </div>
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center justify-between mb-0.5">
-                    <span class="text-sm font-semibold text-slate-200 truncate">রাকিব হাসান</span>
-                    <span class="text-[11px] text-slate-400">১০:১৫ AM</span>
-                  </div>
-                  <p class="text-xs text-slate-400 truncate">দোস্ত কালকের মিটিং কয়টায় হবে রেডি আছিস?</p>
-                </div>
+              <!-- Bottom Status / Sync count banner -->
+              <div class="p-2.5 border-t border-slate-800/80 bg-slate-950 flex items-center justify-between text-[11px] text-slate-400">
+                <span id="mainSmsCounterText" class="font-medium text-slate-300">৪টি কথোপকথন</span>
+                <span class="flex items-center gap-1 text-emerald-400 text-[10px]">
+                  <i class="ph ph-check-circle-bold"></i>
+                  <span>ফায়ারবেস সিঙ্ক সক্রিয়</span>
+                </span>
               </div>
             </div>
 
-            <!-- Right Message Stream -->
-            <div class="md:col-span-7 bg-slate-900/40 p-4 flex flex-col justify-between">
+            <!-- Right Column: Active Conversation Messages Stream & Reply Bar -->
+            <div class="md:col-span-7 bg-slate-900/40 flex flex-col justify-between overflow-hidden">
               
-              <!-- Chat Header -->
-              <div class="flex items-center justify-between pb-3 border-b border-slate-800">
-                <div class="flex items-center gap-3">
-                  <div class="w-9 h-9 rounded-lg bg-pink-600 text-white font-bold flex items-center justify-center text-xs">
-                    bK
-                  </div>
-                  <div>
-                    <h4 class="text-sm font-bold text-white">bKash Notification (16247)</h4>
-                    <span class="text-[11px] text-emerald-400 flex items-center gap-1">
-                      <i class="ph ph-shield-check text-sm"></i> ভেরিফাইড ব্যাংকিং চ্যানেল
-                    </span>
-                  </div>
-                </div>
-                <button class="px-2.5 py-1 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-xs font-medium border border-blue-500/20 flex items-center gap-1.5">
-                  <i class="ph ph-sparkle"></i> Gemini সারসংক্ষেপ
-                </button>
+              <!-- Active Thread Header -->
+              <div id="mainThreadHeader" class="px-4 py-3 border-b border-slate-800 bg-slate-950/60 flex items-center justify-between">
+                <!-- Rendered dynamically -->
               </div>
 
-              <!-- Message Bubbles -->
-              <div class="space-y-3 my-4">
-                <div class="max-w-[85%] bg-slate-800 p-3.5 rounded-2xl rounded-tl-sm text-sm text-slate-100 border border-slate-700/80">
-                  <p class="leading-relaxed">You have received Tk 5,000.00 from 01712345678. Fee Tk 0.00. Balance Tk 18,450.00. TrxID 9K2840XP at 29/10/2026 15:42</p>
-                  <span class="text-[10px] text-slate-400 mt-1.5 block">15:42 • SIM 1</span>
-                </div>
-
-                <!-- AI Smart Replies Chips -->
-                <div class="pt-2">
-                  <span class="text-[11px] font-semibold text-slate-400 flex items-center gap-1 mb-2">
-                    <i class="ph ph-robot text-blue-400"></i> Gemini AI সাজেস্টেড রিপ্লাই:
-                  </span>
-                  <div class="flex flex-wrap gap-2">
-                    <span class="px-3 py-1 rounded-full bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 text-xs cursor-pointer">
-                      "টাকা পেয়েছি, ধন্যবাদ! 👍"
-                    </span>
-                    <span class="px-3 py-1 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs cursor-pointer">
-                      "রিসিভ হয়েছে, চেক করেছি"
-                    </span>
-                  </div>
-                </div>
+              <!-- Messages Stream Scroll Container -->
+              <div id="mainActiveThreadMessages" class="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3.5 max-h-[360px]">
+                <!-- Rendered dynamically -->
               </div>
 
-              <!-- Input Bar Mockup -->
-              <div class="pt-2 border-t border-slate-800 flex items-center gap-2">
-                <div class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-400 flex items-center justify-between">
-                  <span>মেসেজ টাইপ করুন... (SIM 1 - GP)</span>
-                  <span class="text-[10px] text-slate-500">০/১৬০</span>
+              <!-- Quick Reply & Send SMS Form -->
+              <div class="p-3 border-t border-slate-800 bg-slate-950/90">
+                <form onsubmit="handleSendDirectWebSms(event)" class="flex items-center gap-2">
+                  <div class="relative flex-1">
+                    <input type="text" id="directWebSmsBody" placeholder="মেসেজ লিখুন... (মোবাইলে পৌঁছাবে)" class="w-full bg-slate-900 border border-slate-700/80 focus:border-blue-500 rounded-xl px-3.5 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none transition-colors" required />
+                  </div>
+                  <button type="submit" id="btnDirectSendSms" class="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold text-xs flex items-center gap-1.5 shadow-md shadow-blue-600/30 active:scale-95 transition-all">
+                    <i class="ph ph-paper-plane-tilt text-sm"></i>
+                    <span>পাঠান</span>
+                  </button>
+                </form>
+                <div class="flex items-center justify-between mt-1.5 px-1 text-[10px] text-slate-500">
+                  <span>এন্ড-টু-এন্ড এনক্রিপ্টেড ক্লাউড ট্রান্সফার</span>
+                  <span>১৬০ অক্ষর লিমিট</span>
                 </div>
-                <button class="w-9 h-9 rounded-xl bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center">
-                  <i class="ph ph-paper-plane-tilt text-base"></i>
-                </button>
               </div>
 
             </div>
@@ -1163,11 +1147,52 @@ git push origin main</pre>
       showModalToast("Google Sign-In সফল!", "rubelbank92@gmail.com অ্যাকাউন্টে রিয়েল-টাইম ক্লাউড সিঙ্ক চালু হয়েছে");
     }
 
+    let activeSelectedSender = "bKash (16247)";
+    let mainMessengerSearchQuery = "";
+    let mainCategoryFilter = "ALL";
+    let lastKnownMessageCount = 0;
+
+    // Pleasant Web Audio API Chime for incoming real-time SMS
+    function playIncomingMessageSound() {
+      try {
+        const ctx = getWebAudioContext();
+        if (!ctx) return;
+        const now = ctx.currentTime;
+        const master = ctx.createGain();
+        master.connect(ctx.destination);
+        master.gain.setValueAtTime(0.24, now);
+
+        // Ascending 3-tone chime: F5 (698.46Hz) -> A5 (880Hz) -> C6 (1046.5Hz)
+        const notes = [
+          { f: 698.46, t: 0, d: 0.12 },
+          { f: 880.00, t: 0.08, d: 0.15 },
+          { f: 1046.50, t: 0.16, d: 0.38 }
+        ];
+
+        notes.forEach(n => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(n.f, now + n.t);
+          gain.gain.setValueAtTime(0.001, now + n.t);
+          gain.gain.linearRampToValueAtTime(0.25, now + n.t + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + n.t + n.d);
+          osc.connect(gain);
+          gain.connect(master);
+          osc.start(now + n.t);
+          osc.stop(now + n.t + n.d + 0.01);
+        });
+      } catch (e) {
+        console.warn("Incoming audio chime:", e);
+      }
+    }
+
     function applySignedInUI(user) {
       const email = user.email || "rubelbank92@gmail.com";
       const name = user.displayName || "Rubel Bank";
       const initial = (name.charAt(0) || "R").toUpperCase();
 
+      // Update Modal Status Indicator
       const authStatus = document.getElementById("authStatusIndicator");
       if (authStatus) {
         authStatus.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span><span id="authStatusText">Google: ${email}</span>`;
@@ -1175,6 +1200,25 @@ git push origin main</pre>
         authStatus.classList.add("bg-emerald-950/60", "border-emerald-500/30");
       }
 
+      // Update On-Page Messenger Top Bar Slot
+      const liveAuthSlot = document.getElementById("liveMessengerAuthSlot");
+      if (liveAuthSlot) {
+        liveAuthSlot.innerHTML = `
+          <div class="flex items-center gap-2 px-2.5 py-1 rounded-xl bg-emerald-950/70 border border-emerald-500/30 text-left shadow-sm">
+            <div class="w-6 h-6 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-bold flex items-center justify-center text-[10px] shadow">${initial}</div>
+            <div class="hidden sm:block text-[11px] leading-tight">
+              <div class="font-bold text-white truncate max-w-[130px]">${name}</div>
+              <div class="text-[9px] text-emerald-300 flex items-center gap-1">
+                <span class="w-1 h-1 rounded-full bg-emerald-400"></span>
+                <span>সিঙ্ক সক্রিয়</span>
+              </div>
+            </div>
+            <button onclick="handleWebGoogleSignOut()" class="text-[10px] text-rose-400 hover:text-rose-300 font-semibold px-2 py-0.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 transition-colors">Sign Out</button>
+          </div>
+        `;
+      }
+
+      // Update Modal Left Panel Container
       const container = document.getElementById("googleSignInWebContainer");
       if (container) {
         container.innerHTML = `
@@ -1204,7 +1248,7 @@ git push origin main</pre>
         syncStatusBadge.innerText = "রিয়েল-টাইম লাইভ সিঙ্ক";
       }
 
-      addLogEntry("AUTH", `Google Sign-In সফল হয়েছে (${email})। ক্লাউড বার্তা সিঙ্ক হচ্ছে...`);
+      addLogEntry("AUTH", `Google Sign-In সফল হয়েছে (${email})। ক্লাউড বার্তা সিঙ্ক হচ্ছে...`);
     }
 
     function applySignedOutUI() {
@@ -1213,7 +1257,7 @@ git push origin main</pre>
         cloudMessagesUnsubscribe();
         cloudMessagesUnsubscribe = null;
       }
-      loadedCloudMessages = [];
+      loadLocalFallbackMessages();
 
       const authStatus = document.getElementById("authStatusIndicator");
       if (authStatus) {
@@ -1222,16 +1266,21 @@ git push origin main</pre>
         authStatus.classList.add("bg-slate-800", "border-slate-700");
       }
 
+      const liveAuthSlot = document.getElementById("liveMessengerAuthSlot");
+      if (liveAuthSlot) {
+        liveAuthSlot.innerHTML = `
+          <button onclick="handleWebGoogleSignIn()" class="px-3 py-1 rounded-xl bg-white hover:bg-slate-100 text-slate-900 text-xs font-bold flex items-center gap-1.5 shadow transition-all active:scale-95">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24"><path fill="#4285F4" d="M23.745 12.27c0-.71-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"/><path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"/><path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.14-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.98 0 12s.45 3.82 1.25 5.42l4.03-3.15z"/><path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c0.95-2.83 3.6-4.98 6.72-4.98z"/></svg>
+            <span>Google Sign-In</span>
+          </button>
+        `;
+      }
+
       const container = document.getElementById("googleSignInWebContainer");
       if (container) {
         container.innerHTML = `
           <button onclick="handleWebGoogleSignIn()" class="w-full py-2.5 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-800 font-semibold text-xs flex items-center justify-center gap-2.5 shadow transition-all active:scale-95">
-            <svg class="w-4 h-4" viewBox="0 0 24 24">
-              <path fill="#4285F4" d="M23.745 12.27c0-.71-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"/>
-              <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"/>
-              <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.14-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.98 0 12s.45 3.82 1.25 5.42l4.03-3.15z"/>
-              <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"/>
-            </svg>
+            <svg class="w-4 h-4" viewBox="0 0 24 24"><path fill="#4285F4" d="M23.745 12.27c0-.71-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"/><path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"/><path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.14-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.98 0 12s.45 3.82 1.25 5.42l4.03-3.15z"/><path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c0.95-2.83 3.6-4.98 6.72-4.98z"/></svg>
             <span>Sign in with Google</span>
           </button>
           <p class="text-[10px] text-slate-500 mt-1.5 text-center">ক্লাউড সিঙ্ক করতে আপনার গুগল অ্যাকাউন্ট লিঙ্ক করুন</p>
@@ -1241,35 +1290,10 @@ git push origin main</pre>
       const syncStatusBadge = document.getElementById("cloudSyncStatusBadge");
       if (syncStatusBadge) {
         syncStatusBadge.className = "text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-normal";
-        syncStatusBadge.innerText = "লগইন অপেক্ষমাণ";
+        syncStatusBadge.innerText = "ডেমো সিঙ্ক মোড";
       }
 
-      const countBadge = document.getElementById("cloudSmsCountBadge");
-      if (countBadge) countBadge.innerText = "০টি এসএমএস";
-
-      const listContainer = document.getElementById("cloudSmsListContainer");
-      if (listContainer) {
-        listContainer.innerHTML = `
-          <div class="p-6 rounded-2xl bg-slate-900/60 border border-dashed border-slate-800 text-center">
-            <div class="w-12 h-12 rounded-2xl bg-blue-600/10 text-blue-400 flex items-center justify-center text-2xl mx-auto mb-3">
-              <i class="ph ph-cloud-arrow-down"></i>
-            </div>
-            <h5 class="text-sm font-bold text-white mb-1">একই গুগল অ্যাকাউন্ট দিয়ে লগইন করুন</h5>
-            <p class="text-xs text-slate-400 max-w-sm mx-auto mb-4">
-              আপনার অ্যান্ড্রয়েড ফোনে যে Google অ্যাকাউন্ট দিয়ে লগইন করেছেন, বাম পাশের <strong>"Sign in with Google"</strong> বাটনে ক্লিক করে একই অ্যাকাউন্ট দিয়ে লগইন করলেই ফোনের সব এসএমএস রিয়েল-টাইমে এখানে দেখা যাবে।
-            </p>
-            <button onclick="handleWebGoogleSignIn()" class="px-4 py-2 rounded-xl bg-white hover:bg-slate-100 text-slate-900 text-xs font-bold inline-flex items-center gap-2 shadow transition-all active:scale-95">
-              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M23.745 12.27c0-.71-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"/>
-                <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"/>
-                <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.14-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.98 0 12s.45 3.82 1.25 5.42l4.03-3.15z"/>
-                <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c0.95-2.83 3.6-4.98 6.72-4.98z"/>
-              </svg>
-              <span>Google Sign-In করুন</span>
-            </button>
-          </div>
-        `;
-      }
+      renderLiveMessenger();
     }
 
     async function handleWebGoogleSignOut() {
@@ -1281,8 +1305,8 @@ git push origin main</pre>
         console.warn("Sign out exception:", e);
       }
       applySignedOutUI();
-      addLogEntry("AUTH", "Google অ্যাকাউন্ট সাইন-আউট করা হয়েছে।");
-      showModalToast("সাইন-আউট সম্পন্ন", "ক্লাউড সিঙ্ক সংযোগ বিচ্ছিন্ন করা হয়েছে");
+      addLogEntry("AUTH", "Google অ্যাকাউন্ট সাইন-আউট করা হয়েছে।");
+      showModalToast("সাইন-আউট সম্পন্ন", "ক্লাউড সিঙ্ক সংযোগ বিচ্ছিন্ন করা হয়েছে");
     }
 
     // Attach real-time snapshot listener to Firestore
@@ -1309,9 +1333,20 @@ git push origin main</pre>
               list.push(data);
             });
             if (list.length > 0) {
+              const prevLen = loadedCloudMessages.length;
+              const prevFirstId = loadedCloudMessages[0]?.id;
               loadedCloudMessages = list;
-              renderFilteredCloudSms();
-              addLogEntry("SYNC", `ক্লাউড থেকে ${list.length}টি লাইভ এসএমএস পাওয়া গেছে।`);
+
+              // If a new incoming SMS arrived in real time
+              if (prevLen > 0 && list[0]?.id !== prevFirstId && list[0]?.isIncoming) {
+                const incomingSender = list[0].threadAddress || list[0].senderAddress || "Unknown";
+                activeSelectedSender = incomingSender;
+                playIncomingMessageSound();
+                showModalToast(`📱 নতুন মোবাইল এসএমএস: ${incomingSender}`, (list[0].body || "").substring(0, 60) + "...");
+              }
+
+              renderLiveMessenger();
+              addLogEntry("SYNC", `ক্লাউড থেকে ${list.length}টি লাইভ এসএমএস রিয়েল-টাইমে পাওয়া গেছে।`);
             } else {
               loadLocalFallbackMessages();
             }
@@ -1371,51 +1406,313 @@ git push origin main</pre>
           createdAt: { seconds: Math.floor(Date.now() / 1000) - 1800 }
         }
       ];
-      renderFilteredCloudSms();
+      renderLiveMessenger();
     }
 
-    // Filter by Category Tab
-    function filterCloudSms(category) {
+    function getMsgTimestampNumber(msg) {
+      if (!msg) return 0;
+      const c = msg.createdAt;
+      if (!c) return 0;
+      if (typeof c === "number") return c;
+      if (c.seconds) return c.seconds * 1000;
+      if (c instanceof Date) return c.getTime();
+      return 0;
+    }
+
+    function formatRelativeTime(ts) {
+      const millis = getMsgTimestampNumber({ createdAt: ts }) || Date.now();
+      const diffSec = Math.floor((Date.now() - millis) / 1000);
+      if (diffSec < 60) return "এইমাত্র";
+      if (diffSec < 3600) return `${Math.floor(diffSec / 60)} মি. আগে`;
+      if (diffSec < 86400) {
+        return new Date(millis).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      }
+      return new Date(millis).toLocaleDateString([], { month: 'short', day: 'numeric' });
+    }
+
+    function getSenderColorAndInitial(sender) {
+      const s = (sender || "Unknown").trim();
+      if (/bkash/i.test(s)) return { bg: "bg-[#d81b60]", text: "text-white", initial: "bK", isBrand: true };
+      if (/nagad/i.test(s)) return { bg: "bg-[#e65100]", text: "text-white", initial: "না", isBrand: true };
+      if (/google/i.test(s)) return { bg: "bg-[#2563eb]", text: "text-white", initial: "G", isBrand: true };
+      if (/booking/i.test(s)) return { bg: "bg-[#003580]", text: "text-[#FEBB02]", initial: "B.", isBrand: true };
+      if (/bank/i.test(s)) return { bg: "bg-[#0d9488]", text: "text-white", initial: "BK", isBrand: true };
+      
+      const colors = ["bg-indigo-600", "bg-purple-600", "bg-cyan-600", "bg-emerald-600", "bg-rose-600", "bg-blue-600"];
+      let hash = 0;
+      for (let i = 0; i < s.length; i++) hash = s.charCodeAt(i) + ((hash << 5) - hash);
+      const color = colors[Math.abs(hash) % colors.length];
+      const initial = s.startsWith("+") ? s.substring(s.length - 2) : s.substring(0, 2).toUpperCase();
+      return { bg: color, text: "text-white", initial: initial, isBrand: false };
+    }
+
+    // Category Filter Handlers
+    function setMainCategoryFilter(category) {
+      mainCategoryFilter = category;
       activeCategoryFilter = category;
 
-      // Update button highlights
-      const catList = ['ALL', 'OTP', 'TRANSACTION', 'PERSONAL', 'TRAVEL', 'LOGS'];
-      catList.forEach((c) => {
-        const btn = document.getElementById("filterBtn" + c);
-        if (!btn) return;
-        if (c === category) {
-          btn.className = "px-3 py-1 rounded-lg bg-blue-600 text-white font-semibold shadow transition-all";
-        } else {
-          btn.className = "px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 border border-slate-800 transition-all";
+      ['ALL', 'OTP', 'TRANSACTION', 'PERSONAL', 'TRAVEL'].forEach(c => {
+        const btn = document.getElementById("mainFilterBtn" + c);
+        if (btn) {
+          if (c === category) {
+            btn.className = "px-2.5 py-1 rounded-lg bg-blue-600 text-white font-semibold whitespace-nowrap shadow-sm transition-all";
+          } else {
+            btn.className = "px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 whitespace-nowrap transition-all";
+          }
         }
       });
 
-      const smsContainer = document.getElementById("cloudSmsListContainer");
-      const logsContainer = document.getElementById("webMessageLogStream");
-
-      if (category === "LOGS") {
-        if (smsContainer) smsContainer.classList.add("hidden");
-        if (logsContainer) logsContainer.classList.remove("hidden");
-      } else {
-        if (smsContainer) smsContainer.classList.remove("hidden");
-        if (logsContainer) logsContainer.classList.add("hidden");
-        renderFilteredCloudSms();
-      }
+      renderLiveMessenger();
     }
 
-    // Render Cloud SMS Cards
-    function renderFilteredCloudSms() {
+    function filterCloudSms(category) {
+      setMainCategoryFilter(category);
+    }
+
+    function handleMessengerSearch(val) {
+      mainMessengerSearchQuery = (val || "").toLowerCase().trim();
+      renderLiveMessenger();
+    }
+
+    function selectMainConversation(senderAddress) {
+      activeSelectedSender = senderAddress;
+      renderLiveMessenger();
+    }
+
+    // Unified Real-Time Messenger Renderer (Updates both On-Page & Modal views)
+    function renderLiveMessenger() {
+      if (loadedCloudMessages.length === 0) {
+        loadLocalFallbackMessages();
+        return;
+      }
+
+      // 1. Group messages by thread address
+      const threadMap = new Map();
+      loadedCloudMessages.forEach(msg => {
+        const threadKey = (msg.threadAddress || msg.senderAddress || "Unknown").trim();
+        if (!threadMap.has(threadKey)) {
+          threadMap.set(threadKey, {
+            address: threadKey,
+            messages: [],
+            lastMessage: msg,
+            category: (msg.category || "PERSONAL").toUpperCase()
+          });
+        }
+        const thread = threadMap.get(threadKey);
+        thread.messages.push(msg);
+      });
+
+      // Sort each thread's messages chronologically (oldest to newest for conversational stream)
+      let threads = Array.from(threadMap.values());
+      threads.forEach(t => {
+        t.messages.sort((a, b) => getMsgTimestampNumber(a) - getMsgTimestampNumber(b));
+        t.lastMessage = t.messages[t.messages.length - 1];
+        t.category = (t.lastMessage.category || "PERSONAL").toUpperCase();
+      });
+
+      // Sort threads by latest message descending
+      threads.sort((a, b) => getMsgTimestampNumber(b.lastMessage) - getMsgTimestampNumber(a.lastMessage));
+
+      // Filter by category
+      if (mainCategoryFilter !== "ALL") {
+        threads = threads.filter(t => t.messages.some(m => (m.category || "PERSONAL").toUpperCase() === mainCategoryFilter));
+      }
+
+      // Filter by search query
+      if (mainMessengerSearchQuery) {
+        threads = threads.filter(t => 
+          t.address.toLowerCase().includes(mainMessengerSearchQuery) ||
+          t.messages.some(m => (m.body || "").toLowerCase().includes(mainMessengerSearchQuery))
+        );
+      }
+
+      // Ensure active thread is valid
+      if (!threads.some(t => t.address === activeSelectedSender) && threads.length > 0) {
+        activeSelectedSender = threads[0].address;
+      }
+
+      // Update counters
+      const counterText = document.getElementById("mainSmsCounterText");
+      if (counterText) {
+        counterText.innerText = `${threads.length}টি কথোপকথন (${loadedCloudMessages.length}টি মোট এসএমএস)`;
+      }
+      const modalCount = document.getElementById("cloudSmsCountBadge");
+      if (modalCount) {
+        modalCount.innerText = `${loadedCloudMessages.length}টি এসএমএস`;
+      }
+
+      // 2. Render Left Pane: Conversations List
+      const convListContainer = document.getElementById("mainConversationList");
+      if (convListContainer) {
+        if (threads.length === 0) {
+          convListContainer.innerHTML = `
+            <div class="p-6 text-center text-slate-500">
+              <i class="ph ph-chat-teardrop-slash text-2xl mb-1 text-slate-600"></i>
+              <p class="text-xs">কোনো বার্তা পাওয়া যায়নি</p>
+            </div>
+          `;
+        } else {
+          convListContainer.innerHTML = threads.map(t => {
+            const isSelected = t.address === activeSelectedSender;
+            const style = getSenderColorAndInitial(t.address);
+            const timeStr = formatRelativeTime(t.lastMessage.createdAt);
+            const snippet = (t.lastMessage.body || "").trim();
+
+            let catBadge = `<span class="text-[9px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 font-mono">${t.category}</span>`;
+            if (t.category === "OTP") catBadge = `<span class="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">🔑 OTP</span>`;
+            else if (t.category === "TRANSACTION") catBadge = `<span class="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">💳 লেনদেন</span>`;
+            else if (t.category === "TRAVEL") catBadge = `<span class="text-[9px] px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">🏨 বুকিং</span>`;
+
+            return `
+              <div onclick="selectMainConversation('${t.address.replace(/'/g, "\\'")}')" class="p-2.5 rounded-2xl cursor-pointer transition-all flex items-start gap-2.5 ${isSelected ? 'bg-blue-600/20 border border-blue-500/50 shadow-md ring-1 ring-blue-500/30' : 'hover:bg-slate-900 border border-transparent hover:border-slate-800/80'}">
+                <div class="w-9 h-9 rounded-xl ${style.bg} ${style.text} font-bold flex items-center justify-center text-xs shrink-0 shadow-sm mt-0.5">
+                  ${style.initial}
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center justify-between mb-0.5">
+                    <span class="text-xs font-bold ${isSelected ? 'text-white' : 'text-slate-200'} truncate">${t.address}</span>
+                    <span class="text-[10px] text-slate-400 shrink-0 ml-1 font-medium">${timeStr}</span>
+                  </div>
+                  <p class="text-[11px] ${isSelected ? 'text-slate-200' : 'text-slate-400'} truncate leading-tight">${snippet}</p>
+                  <div class="flex items-center gap-1.5 mt-1.5">
+                    ${catBadge}
+                    ${t.messages.some(m => m.isIncoming) ? `<span class="text-[9px] text-emerald-400 font-mono flex items-center gap-0.5"><i class="ph ph-check"></i> সিঙ্কড</span>` : ''}
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('');
+        }
+      }
+
+      // 3. Render Right Pane: Active Thread Header & Message Stream
+      const activeThread = threadMap.get(activeSelectedSender) || threads[0];
+      const headerSlot = document.getElementById("mainThreadHeader");
+      const messagesSlot = document.getElementById("mainActiveThreadMessages");
+
+      if (activeThread && headerSlot && messagesSlot) {
+        const style = getSenderColorAndInitial(activeThread.address);
+        headerSlot.innerHTML = `
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-xl ${style.bg} ${style.text} font-bold flex items-center justify-center text-xs shadow-sm">
+              ${style.initial}
+            </div>
+            <div>
+              <h4 class="text-xs font-bold text-white flex items-center gap-1.5">
+                <span>${activeThread.address}</span>
+                <span class="text-[9px] px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono">মোবাইল সিঙ্ক</span>
+              </h4>
+              <p class="text-[10px] text-slate-400 flex items-center gap-1">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>রিয়েল-টাইমে ডিভাইসের সাথে সংযুক্ত</span>
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <button onclick="copyOtpCode('${activeThread.address}')" class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] flex items-center gap-1 transition-colors" title="প্রেরকের ঠিকানা কপি">
+              <i class="ph ph-copy text-xs"></i>
+              <span class="hidden sm:inline">কপি</span>
+            </button>
+          </div>
+        `;
+
+        messagesSlot.innerHTML = activeThread.messages.map(msg => {
+          const isIncoming = msg.isIncoming !== false;
+          const body = msg.body || "";
+          const timeStr = formatRelativeTime(msg.createdAt);
+          const category = (msg.category || activeThread.category || "PERSONAL").toUpperCase();
+
+          // Detect OTP
+          let otpCode = null;
+          if (category === "OTP" || /code|otp|pin/i.test(body)) {
+            const m = body.match(/\b([0-9]{4,8})\b/);
+            if (m) otpCode = m[1];
+          }
+
+          if (isIncoming) {
+            return `
+              <div class="flex items-start gap-2 max-w-[90%] sm:max-w-[82%]">
+                <div class="w-6 h-6 rounded-lg ${style.bg} ${style.text} font-bold flex items-center justify-center text-[9px] shrink-0 mt-1">
+                  ${style.initial}
+                </div>
+                <div class="space-y-1.5">
+                  <div class="p-3.5 rounded-2xl rounded-tl-sm bg-slate-900 border border-slate-800 text-slate-100 text-xs shadow-sm space-y-2">
+                    <p class="leading-relaxed select-text font-normal">${body}</p>
+
+                    ${otpCode ? `
+                      <div class="p-2.5 rounded-xl bg-amber-950/60 border border-amber-500/40 flex items-center justify-between gap-2 mt-2">
+                        <div class="flex items-center gap-1.5">
+                          <i class="ph ph-shield-check text-amber-400 text-base"></i>
+                          <div>
+                            <span class="text-[9px] text-amber-300/80 block uppercase font-bold tracking-wider">ওটিপি কোড</span>
+                            <span class="font-mono text-sm font-extrabold text-amber-300 tracking-wider">${otpCode}</span>
+                          </div>
+                        </div>
+                        <button onclick="copyOtpCode('${otpCode}')" class="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1 shadow active:scale-95 transition-all">
+                          <i class="ph ph-copy"></i>
+                          <span>কপি করুন</span>
+                        </button>
+                      </div>
+                    ` : ''}
+
+                    ${category === "TRANSACTION" && /tk|bdt|balance/i.test(body) ? `
+                      <div class="p-2 rounded-lg bg-emerald-950/50 border border-emerald-500/30 flex items-center justify-between text-[10px] text-emerald-300 font-medium">
+                        <span class="flex items-center gap-1"><i class="ph ph-bank"></i> ব্যাংকিং ট্রানজাকশন</span>
+                        <span class="font-mono text-emerald-200">অটো ভেরিফাইড</span>
+                      </div>
+                    ` : ''}
+
+                    ${category === "TRAVEL" && /booking|pin/i.test(body) ? `
+                      <div class="p-2 rounded-lg bg-blue-950/60 border border-blue-500/40 flex items-center justify-between text-[10px] text-blue-300 font-medium">
+                        <span class="flex items-center gap-1"><i class="ph ph-airplane-tilt"></i> Booking.com রিজার্ভেশন</span>
+                        <a href="#booking-hub" class="text-blue-200 underline font-semibold">হোটেল হাব দেখুন</a>
+                      </div>
+                    ` : ''}
+                  </div>
+                  
+                  <div class="flex items-center gap-2 px-1 text-[10px] text-slate-500">
+                    <span>${timeStr}</span>
+                    <span>•</span>
+                    <span class="text-emerald-400 flex items-center gap-0.5">
+                      <i class="ph ph-device-mobile"></i> ফোনে রিসিভড
+                    </span>
+                  </div>
+                </div>
+              </div>
+            `;
+          } else {
+            return `
+              <div class="flex flex-col items-end max-w-[90%] sm:max-w-[80%] ml-auto space-y-1">
+                <div class="p-3.5 rounded-2xl rounded-tr-sm bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs shadow-md shadow-blue-600/20">
+                  <p class="leading-relaxed select-text">${body}</p>
+                </div>
+                <div class="flex items-center gap-1.5 px-1 text-[10px] text-slate-400">
+                  <span>${timeStr}</span>
+                  <span class="text-cyan-400 flex items-center gap-0.5 font-mono">
+                    <i class="ph ph-checks"></i> পাঠানো হয়েছে
+                  </span>
+                </div>
+              </div>
+            `;
+          }
+        }).join('');
+
+        // Auto-scroll to bottom of conversation
+        messagesSlot.scrollTop = messagesSlot.scrollHeight;
+      }
+
+      // Also sync to Modal container
+      renderFilteredCloudSmsModal();
+    }
+
+    // Modal List Renderer
+    function renderFilteredCloudSmsModal() {
       const container = document.getElementById("cloudSmsListContainer");
-      const countBadge = document.getElementById("cloudSmsCountBadge");
       if (!container) return;
 
       let list = loadedCloudMessages;
-      if (activeCategoryFilter !== "ALL") {
-        list = list.filter((m) => (m.category || "PERSONAL").toUpperCase() === activeCategoryFilter);
-      }
-
-      if (countBadge) {
-        countBadge.innerText = `${list.length}টি এসএমএস`;
+      if (mainCategoryFilter !== "ALL") {
+        list = list.filter((m) => (m.category || "PERSONAL").toUpperCase() === mainCategoryFilter);
       }
 
       if (list.length === 0) {
@@ -1434,24 +1731,17 @@ git push origin main</pre>
         const isIncoming = msg.isIncoming !== false;
         const category = (msg.category || "PERSONAL").toUpperCase();
 
-        // Detect OTP code in text
         let otpCode = null;
         if (category === "OTP" || /code|otp|pin/i.test(body)) {
           const m = body.match(/\b([0-9]{4,8})\b/);
           if (m) otpCode = m[1];
         }
 
-        // Category style badge
         let catBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700">${category}</span>`;
-        if (category === "OTP") {
-          catBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">🔑 OTP</span>`;
-        } else if (category === "TRANSACTION") {
-          catBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">💳 লেনদেন</span>`;
-        } else if (category === "TRAVEL") {
-          catBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">🏨 ট্রাভেল</span>`;
-        } else if (category === "PERSONAL") {
-          catBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">📩 ব্যক্তিগত</span>`;
-        }
+        if (category === "OTP") catBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">🔑 OTP</span>`;
+        else if (category === "TRANSACTION") catBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">💳 লেনদেন</span>`;
+        else if (category === "TRAVEL") catBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">🏨 ট্রাভেল</span>`;
+        else if (category === "PERSONAL") catBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">📩 ব্যক্তিগত</span>`;
 
         const dirBadge = isIncoming
           ? `<span class="text-[10px] text-emerald-400 font-medium flex items-center gap-1"><i class="ph ph-arrow-down-left"></i> ইনকামিং</span>`
@@ -1488,54 +1778,114 @@ git push origin main</pre>
       }).join('');
     }
 
-    // One-click Copy OTP Helper
-    function copyOtpCode(code) {
-      if (!code) return;
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(code).then(() => {
-          showModalToast("OTP কপি করা হয়েছে!", "কোড " + code + " ক্লিপবোর্ডে কপি করা হয়েছে");
-        }).catch(() => {
-          fallbackCopyText(code);
-        });
-      } else {
-        fallbackCopyText(code);
+    function renderFilteredCloudSms() {
+      renderLiveMessenger();
+    }
+
+    // Trigger Simulated Incoming SMS for Instant Testing
+    function triggerSimulatedIncomingSms() {
+      const samples = [
+        {
+          name: "bKash (16247)",
+          category: "TRANSACTION",
+          body: `You have received Tk ${(Math.floor(Math.random() * 40) + 5) * 100}.00 from 017${Math.floor(10000000 + Math.random() * 89999999)}. Fee Tk 0.00. Balance Tk 16,${Math.floor(100 + Math.random() * 899)}.00. TrxID ${Math.random().toString(36).substring(2, 9).toUpperCase()} at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+        },
+        {
+          name: "Google",
+          category: "OTP",
+          body: `G-${Math.floor(100000 + Math.random() * 900000)} is your Google verification code. Do not share this code with anyone.`
+        },
+        {
+          name: "City Bank",
+          category: "TRANSACTION",
+          body: `Dear Customer, your A/C *8491 has been credited with BDT 4,500.00. Available balance: BDT 32,410.20.`
+        },
+        {
+          name: "+8801755112233",
+          category: "PERSONAL",
+          body: "দোস্ত, তোর মেসেজটি পেয়েছি। আজ সন্ধ্যায় কি অফিসে আসবি?"
+        },
+        {
+          name: "Booking.com",
+          category: "TRAVEL",
+          body: `Booking.com: Confirmation #${Math.floor(100000000 + Math.random() * 900000000)} at Radisson Blu Dhaka. Check-in: ${new Date().toLocaleDateString()}. PIN: ${Math.floor(1000 + Math.random() * 9000)}`
+        }
+      ];
+
+      const item = samples[Math.floor(Math.random() * samples.length)];
+      const randomSuffix = Math.random().toString(36).substring(2, 7);
+      const msgId = "sim_" + Date.now() + "_" + randomSuffix;
+
+      const newMsg = {
+        id: msgId,
+        threadAddress: item.name,
+        senderAddress: item.name,
+        recipientAddress: "Self",
+        body: item.body,
+        isIncoming: true,
+        category: item.category,
+        createdAt: { seconds: Math.floor(Date.now() / 1000) }
+      };
+
+      loadedCloudMessages.unshift(newMsg);
+      activeSelectedSender = item.name;
+      renderLiveMessenger();
+      playIncomingMessageSound();
+      showModalToast(`📱 নতুন এসএমএস এসেছে: ${item.name}`, item.body.substring(0, 50) + "...");
+      addLogEntry("INCOMING", `${item.name}: "${item.body}"`);
+    }
+
+    // Direct Send from On-Page Messenger
+    async function handleSendDirectWebSms(e) {
+      if (e) e.preventDefault();
+      const input = document.getElementById("directWebSmsBody");
+      if (!input) return;
+      const body = input.value.trim();
+      if (!body) return;
+
+      const recipient = activeSelectedSender || "+8801711223344";
+      const randomSuffix = Math.random().toString(36).substring(2, 7);
+      const msgId = "web_" + Date.now() + "_" + randomSuffix;
+
+      const newMsg = {
+        id: msgId,
+        threadAddress: recipient,
+        senderAddress: "Web Companion",
+        recipientAddress: recipient,
+        body: body,
+        isIncoming: false,
+        category: "PERSONAL",
+        createdAt: { seconds: Math.floor(Date.now() / 1000) }
+      };
+
+      loadedCloudMessages.push(newMsg);
+      input.value = "";
+      renderLiveMessenger();
+      playSuccessSound();
+      showModalToast("মেসেজ পাঠানো হয়েছে!", `${recipient}-এ বার্তা প্রেরণ করা হয়েছে`);
+      addLogEntry("SENT", `To ${recipient}: "${body}"`);
+
+      // Write to Firestore if logged in
+      const db = getFirestoreInstance();
+      if (db && currentCloudUser && currentCloudUser.uid) {
+        try {
+          await db.collection("users").doc(currentCloudUser.uid).collection("messages").doc(msgId).set({
+            id: msgId,
+            threadAddress: recipient,
+            senderAddress: "Web Companion",
+            recipientAddress: recipient,
+            body: body,
+            isIncoming: false,
+            category: "PERSONAL",
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+        } catch (err) {
+          console.warn("Firestore send error:", err);
+        }
       }
     }
 
-    function fallbackCopyText(text) {
-      const el = document.createElement("textarea");
-      el.value = text;
-      document.body.appendChild(el);
-      el.select();
-      document.execCommand("copy");
-      document.body.removeChild(el);
-      showModalToast("OTP কপি করা হয়েছে!", "কোড " + text + " ক্লিপবোর্ডে কপি করা হয়েছে");
-    }
-
-    // Append log entry
-    function addLogEntry(type, message) {
-      const stream = document.getElementById("webMessageLogStream");
-      if (!stream) return;
-      const card = document.createElement("div");
-      card.className = "p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs animate-fade-in";
-      
-      const timeStr = new Date().toLocaleTimeString();
-      let badge = `<span class="font-bold text-blue-400">[${type}]</span>`;
-      if (type === "INCOMING") badge = `<span class="font-bold text-emerald-400">[INCOMING SMS]</span>`;
-      if (type === "SENT") badge = `<span class="font-bold text-cyan-400">[SENT SMS]</span>`;
-      if (type === "SYNC") badge = `<span class="font-bold text-indigo-400">[CLOUD SYNC]</span>`;
-
-      card.innerHTML = `
-        <div class="flex items-center justify-between text-slate-400 mb-1">
-          ${badge}
-          <span>${timeStr}</span>
-        </div>
-        <p class="text-slate-200">${message}</p>
-      `;
-      stream.insertBefore(card, stream.firstChild);
-    }
-
-    // Send SMS from web form and sync to Firestore
+    // Modal Send Form Handler
     async function handleSendWebSms(e) {
       e.preventDefault();
       const recipientInput = document.getElementById("webSmsRecipient");
@@ -1558,11 +1908,15 @@ git push origin main</pre>
         createdAt: { seconds: Math.floor(Date.now() / 1000) }
       };
 
-      // Push to loaded list for immediate display
-      loadedCloudMessages.unshift(newMsg);
-      renderFilteredCloudSms();
+      loadedCloudMessages.push(newMsg);
+      activeSelectedSender = recipient;
+      recipientInput.value = "";
+      bodyInput.value = "";
+      renderLiveMessenger();
+      playSuccessSound();
+      showModalToast("মেসেজ পাঠানো হয়েছে!", `${recipient}-এ বার্তা প্রেরণ করা হয়েছে`);
+      addLogEntry("SENT", `To ${recipient}: "${body}"`);
 
-      // Write to Firestore if connected
       const db = getFirestoreInstance();
       if (db && currentCloudUser && currentCloudUser.uid) {
         try {
@@ -1576,22 +1930,56 @@ git push origin main</pre>
             category: "PERSONAL",
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
           });
-          addLogEntry("SENT", `To ${recipient}: "${body}" (Firestore ক্লাউডে সংরক্ষিত • ফোনে পৌঁছাবে)`);
         } catch (err) {
-          console.warn("Firestore write error:", err);
-          addLogEntry("SENT", `To ${recipient}: "${body}" (লোকাল ডিসপ্যাচ করা হয়েছে)`);
+          console.warn("Firestore send error:", err);
         }
-      } else {
-        addLogEntry("SENT", `To ${recipient}: "${body}" (লোকাল ডিসপ্যাচ করা হয়েছে)`);
       }
-
-      bodyInput.value = "";
-      showModalToast("মেসেজ পাঠানো হয়েছে!", recipient + "-এ বার্তা সফলভাবে ক্লাউড ব্রিজে যুক্ত হয়েছে");
     }
 
-    function clearDemoLogs() {
+    // One-click Copy OTP Helper
+    function copyOtpCode(code) {
+      if (!code) return;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(() => {
+          showModalToast("কপি সম্পন্ন!", "কোড " + code + " ক্লিপবোর্ডে কপি করা হয়েছে");
+        }).catch(() => {
+          fallbackCopyText(code);
+        });
+      } else {
+        fallbackCopyText(code);
+      }
+    }
+
+    function fallbackCopyText(text) {
+      const el = document.createElement("textarea");
+      el.value = text;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
+      showModalToast("কপি সম্পন্ন!", "কোড " + text + " ক্লিপবোর্ডে কপি করা হয়েছে");
+    }
+
+    function addLogEntry(type, message) {
       const stream = document.getElementById("webMessageLogStream");
-      if (stream) stream.innerHTML = "";
+      if (!stream) return;
+      const card = document.createElement("div");
+      card.className = "p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs animate-fade-in";
+      
+      const timeStr = new Date().toLocaleTimeString();
+      let badge = `<span class="font-bold text-blue-400">[${type}]</span>`;
+      if (type === "INCOMING") badge = `<span class="font-bold text-emerald-400">[INCOMING SMS]</span>`;
+      if (type === "SENT") badge = `<span class="font-bold text-cyan-400">[SENT SMS]</span>`;
+      if (type === "SYNC") badge = `<span class="font-bold text-indigo-400">[CLOUD SYNC]</span>`;
+
+      card.innerHTML = `
+        <div class="flex items-center justify-between text-slate-400 mb-1">
+          ${badge}
+          <span>${timeStr}</span>
+        </div>
+        <p class="text-slate-200">${message}</p>
+      `;
+      stream.insertBefore(card, stream.firstChild);
     }
 
     // ==========================================
@@ -1866,13 +2254,21 @@ git push origin main</pre>
       addLogEntry("BOOKING", `Booking.com SMS সনাক্ত হয়েছে: ${hotelName} (Ref: ${confNo})`);
     }
 
-    // Auto-render default hotels on load
+    // Auto-render default hotels and live messenger on load
     window.addEventListener("DOMContentLoaded", () => {
       renderBookingHotels("Cox's Bazar");
+      if (typeof liveMessagesList !== "undefined" && liveMessagesList.length === 0) {
+        loadLocalFallbackMessages();
+      }
+      renderLiveMessenger();
     });
     // In case DOM is already ready:
     setTimeout(() => {
       renderBookingHotels("Cox's Bazar");
+      if (typeof liveMessagesList !== "undefined" && liveMessagesList.length === 0) {
+        loadLocalFallbackMessages();
+      }
+      renderLiveMessenger();
     }, 200);
   </script>
 </body>

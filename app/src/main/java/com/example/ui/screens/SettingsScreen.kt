@@ -62,6 +62,7 @@ import com.google.firebase.auth.FirebaseUser
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
+    activity: android.app.Activity? = null,
     isDefaultSms: Boolean,
     hasTelephonyPermissions: Boolean,
     language: String,
@@ -171,6 +172,7 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.height(16.dp))
 
                         GoogleSignInButton(
+                            activity = activity,
                             onAuthSuccess = onAuthSuccess,
                             onAuthError = onAuthError,
                             buttonText = if (language == "BN") "যেকোনো গুগল অ্যাকাউন্ট দিয়ে সাইন-ইন" else "Sign in with Any Google Account",

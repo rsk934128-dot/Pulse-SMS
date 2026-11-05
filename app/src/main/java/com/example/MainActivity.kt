@@ -48,6 +48,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+import com.example.auth.CurrentActivityHolder
+
 class MainActivity : ComponentActivity() {
 
     private val _notificationThreadAddress = MutableStateFlow<String?>(null)
@@ -55,6 +57,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CurrentActivityHolder.currentActivity = this
         configureAppCheck(this, intent)
         enableEdgeToEdge()
 
@@ -67,6 +70,18 @@ class MainActivity : ComponentActivity() {
                     SmsAppRoot(notificationThreadAddress = notificationThreadAddress)
                 }
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        CurrentActivityHolder.currentActivity = this
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (CurrentActivityHolder.currentActivity === this) {
+            CurrentActivityHolder.currentActivity = null
         }
     }
 
@@ -294,7 +309,9 @@ fun SmsAppRoot(
 
     // Settings Bottom Sheet
     if (showSettings) {
+        val hostActivity = activity ?: context.findActivity() ?: CurrentActivityHolder.currentActivity
         SettingsScreen(
+            activity = hostActivity,
             isDefaultSms = isDefaultSms,
             hasTelephonyPermissions = hasSmsPermissions,
             language = currentLanguage,
@@ -305,8 +322,9 @@ fun SmsAppRoot(
             onRequestPermissions = onRequestPermissions,
             onTriggerCloudSync = { viewModel.triggerCloudSyncNow() },
             onSignOut = {
+                val targetContext = hostActivity ?: context
                 AuthManager.signOut(
-                    context = activity ?: context,
+                    context = targetContext,
                     credentialManager = credentialManager,
                     onSignOutComplete = {
                         Toast.makeText(

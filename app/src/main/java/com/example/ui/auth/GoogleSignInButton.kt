@@ -69,15 +69,15 @@ fun GoogleSignInButton(
     onAuthSuccess: () -> Unit,
     onAuthError: (String) -> Unit,
     modifier: Modifier = Modifier,
+    activity: android.app.Activity? = null,
     buttonText: String = "যেকোনো গুগল অ্যাকাউন্ট দিয়ে সাইন-ইন",
     subtitleText: String? = "যেকোনো অ্যাকাউন্ট বেছে নিন বা নতুন যোগ করুন"
 ) {
     val context = LocalContext.current
-    val activity = remember(context) { (context as? android.app.Activity) ?: context.findActivity() }
-    val coroutineScope = rememberCoroutineScope()
-    val credentialManager = remember(activity, context) {
-        CredentialManager.create(activity ?: context)
+    val hostActivity = remember(activity, context) {
+        activity ?: (context as? android.app.Activity) ?: context.findActivity() ?: com.example.auth.CurrentActivityHolder.currentActivity
     }
+    val coroutineScope = rememberCoroutineScope()
     var isLoading by remember { mutableStateOf(false) }
 
     val isDark = isSystemInDarkTheme()
@@ -92,15 +92,20 @@ fun GoogleSignInButton(
         Surface(
             onClick = {
                 if (!isLoading) {
-                    val hostActivity = activity ?: context.findActivity() ?: (context as? android.app.Activity)
-                    if (hostActivity == null) {
+                    val targetActivity = hostActivity
+                        ?: activity
+                        ?: (context as? android.app.Activity)
+                        ?: context.findActivity()
+                        ?: com.example.auth.CurrentActivityHolder.currentActivity
+                    if (targetActivity == null) {
                         onAuthError("অ্যাক্টিভিটি পাওয়া যায়নি, অনুগ্রহ করে পুনরায় চেষ্টা করুন")
                         return@Surface
                     }
+                    val activeCredentialManager = CredentialManager.create(targetActivity)
                     isLoading = true
                     AuthManager.onGoogleSignInClicked(
-                        context = hostActivity,
-                        credentialManager = credentialManager,
+                        context = targetActivity,
+                        credentialManager = activeCredentialManager,
                         onAuthSuccess = {
                             isLoading = false
                             onAuthSuccess()
