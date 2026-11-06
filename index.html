@@ -6,6 +6,20 @@
   <title>Pulse SMS - কম্পিউটার থেকে রিয়েল-টাইম এসএমএস ও এআই মেসেজিং</title>
   <meta name="description" content="Pulse SMS Android ও Web Companion। কম্পিউটার থেকে রিয়েল-টাইমে এসএমএস পাঠান, ওটিপি কপি করুন এবং Google Gemini AI দিয়ে স্প্যাম প্রটেকশন পান।" />
 
+  <!-- PWA & PWABuilder Manifest -->
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Pulse SMS" />
+  <meta name="application-name" content="Pulse SMS" />
+  <meta name="msapplication-TileColor" content="#0f172a" />
+  <meta name="msapplication-TileImage" content="/icons/icon-192.png" />
+  <link rel="icon" type="image/png" sizes="64x64" href="/icons/favicon-64.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
+
   <!-- Google Fonts & Tailwind CSS CDN -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -107,6 +121,12 @@
 
       <!-- Right Action Buttons -->
       <div class="flex items-center gap-3">
+        <!-- PWA Install App Button (PWABuilder / Browser Install Prompt) -->
+        <button id="pwaInstallBtn" onclick="triggerPwaInstall()" class="hidden flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-semibold text-xs shadow-md transition-all active:scale-95">
+          <i class="ph ph-download-simple text-base"></i>
+          <span>PWA ইনস্টল</span>
+        </button>
+
         <!-- Direct Web Messenger Switcher -->
         <button onclick="toggleWebMessengerModal()" class="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold text-sm shadow-md shadow-blue-600/30 active:scale-95 transition-all">
           <i class="ph ph-desktop text-lg"></i>
@@ -362,6 +382,11 @@
                   <span>Syncing Live</span>
                 </div>
               </div>
+            </div>
+
+            <div class="mt-2 text-center">
+              <span class="text-[11px] text-slate-400">পেয়ারিং টোকেন:</span>
+              <span id="qrPairingTokenDisplay" class="font-mono text-xs font-bold text-cyan-300 bg-slate-900 px-2.5 py-0.5 rounded-full border border-cyan-500/30 ml-1">pulse_pair_...</span>
             </div>
 
             <div class="flex items-center justify-center gap-3 text-xs text-slate-400 mt-3">
@@ -803,6 +828,11 @@ git push origin main</pre>
           correctLevel: QRCode.CorrectLevel.M
         });
 
+        const tokenDisplay = document.getElementById("qrPairingTokenDisplay");
+        if (tokenDisplay) tokenDisplay.innerText = pairingToken;
+
+        listenForMobileCameraPairing(pairingToken);
+
         // Verify that canvas or image was successfully appended
         setTimeout(() => {
           const hasContent = qrContainer.querySelector("canvas") || qrContainer.querySelector("img");
@@ -816,6 +846,94 @@ git push origin main</pre>
         if (qrBadge) qrBadge.style.display = "flex";
       } catch (err) {
         showQrError(qrContainer, qrBadge, err);
+      }
+    }
+
+    let pairingSessionUnsubscribe = null;
+    let currentPairingSessionId = null;
+
+    function listenForMobileCameraPairing(sessionId) {
+      currentPairingSessionId = sessionId;
+      if (pairingSessionUnsubscribe) {
+        pairingSessionUnsubscribe();
+        pairingSessionUnsubscribe = null;
+      }
+
+      // Check Firestore listener
+      try {
+        const db = getFirestoreInstance();
+        if (db) {
+          db.collection("pairing_sessions").doc(sessionId).set({
+            sessionId: sessionId,
+            status: "PENDING",
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+          }, { merge: true }).catch(() => {});
+
+          pairingSessionUnsubscribe = db.collection("pairing_sessions").doc(sessionId)
+            .onSnapshot((doc) => {
+              if (!doc.exists) return;
+              const data = doc.data();
+              if (data && data.status === "CONNECTED") {
+                handleSuccessfulScreenPairing(data);
+              }
+            }, (err) => {
+              console.warn("Pairing snapshot listener notice:", err);
+            });
+        }
+      } catch (err) {
+        console.warn("Error initializing mobile camera pairing listener:", err);
+      }
+    }
+
+    function handleSuccessfulScreenPairing(data) {
+      const deviceName = data.deviceName || "Samsung Galaxy S24";
+      const overlay = document.getElementById("qrSuccessOverlay");
+      const laser = document.getElementById("qrScanLaser");
+      const qrBox = document.getElementById("qrBoxContainer");
+      const authStatus = document.getElementById("authStatusIndicator");
+      const btn = document.getElementById("btnSimulatePair");
+      const label = document.getElementById("pairBtnLabel");
+
+      if (laser) laser.classList.remove("qr-scanning-laser-active");
+      if (qrBox) qrBox.classList.remove("ring-4", "ring-cyan-500/40");
+
+      if (overlay) {
+        const devText = overlay.querySelector("p");
+        if (devText) devText.innerText = deviceName;
+        overlay.classList.remove("opacity-0", "pointer-events-none", "scale-90");
+        overlay.classList.add("opacity-100", "pointer-events-auto", "scale-100");
+      }
+
+      // 1. Play Web Audio confirmation sound
+      playQrScanConfirmationSound();
+
+      // 2. Trigger Floating Toast Notification inside the modal
+      showModalToast("QR কোড সফলভাবে স্ক্যান হয়েছে!", `${deviceName} এক চান্সে কানেক্টেড • রিয়েল-টাইম স্ক্রিন সিঙ্ক সক্রিয়`);
+
+      if (authStatus) {
+        authStatus.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span id="authStatusText">কানেক্টেড (${deviceName})</span>`;
+        authStatus.classList.remove("bg-slate-800");
+        authStatus.classList.add("bg-emerald-950/60", "border-emerald-500/30");
+      }
+
+      if (btn && label) {
+        label.innerText = `কানেক্টেড (${deviceName})`;
+        btn.classList.remove("bg-blue-600/20", "text-blue-300", "border-blue-500/30");
+        btn.classList.add("bg-emerald-600/20", "text-emerald-300", "border-emerald-500/30");
+      }
+
+      const syncLabel = document.getElementById("mainMessengerSyncStatus");
+      if (syncLabel) {
+        syncLabel.innerText = `কানেক্টেড • ${deviceName} লাইভ`;
+      }
+
+      if (typeof addLogEntry === "function") {
+        addLogEntry("PAIRING", `মোবাইল ক্যামেরা স্ক্যানে এক চান্সে স্ক্রিন কানেক্টেড: ${deviceName}`);
+      }
+
+      // If mobile user ID is provided, attach messages in real time
+      if (data.userId && typeof attachFirestoreMessageListener === "function") {
+        attachFirestoreMessageListener(data.userId);
       }
     }
 
@@ -2270,6 +2388,50 @@ git push origin main</pre>
       }
       renderLiveMessenger();
     }, 200);
+
+    // ==========================================
+    // 📱 PWA & PWABuilder Service Worker Integration
+    // ==========================================
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then((registration) => {
+            console.log('Pulse SMS PWA Service Worker registered with scope:', registration.scope);
+          })
+          .catch((error) => {
+            console.warn('PWA Service Worker registration notice:', error);
+          });
+      });
+    }
+
+    let deferredInstallPrompt = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      const installBtn = document.getElementById('pwaInstallBtn');
+      if (installBtn) {
+        installBtn.classList.remove('hidden');
+      }
+    });
+
+    function triggerPwaInstall() {
+      if (!deferredInstallPrompt) return;
+      deferredInstallPrompt.prompt();
+      deferredInstallPrompt.userChoice.then((choice) => {
+        if (choice && choice.outcome === 'accepted') {
+          console.log('User accepted PWA installation');
+        }
+        deferredInstallPrompt = null;
+        const installBtn = document.getElementById('pwaInstallBtn');
+        if (installBtn) installBtn.classList.add('hidden');
+      });
+    }
+
+    window.addEventListener('appinstalled', () => {
+      console.log('Pulse SMS PWA installed successfully!');
+      const installBtn = document.getElementById('pwaInstallBtn');
+      if (installBtn) installBtn.classList.add('hidden');
+    });
   </script>
 </body>
 </html>

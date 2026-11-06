@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
@@ -77,6 +78,7 @@ fun InboxScreen(
     onDeleteConversation: (String) -> Unit,
     onOpenCompose: () -> Unit,
     onOpenWebSync: () -> Unit,
+    onOpenQrScanner: () -> Unit = {},
     onToggleLanguage: () -> Unit,
     onOpenSettings: () -> Unit,
     onRequestDefaultSms: () -> Unit,
@@ -163,6 +165,18 @@ fun InboxScreen(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Camera QR Scanner button for Instant Screen Connection
+                    IconButton(
+                        onClick = onOpenQrScanner,
+                        modifier = Modifier.testTag("open_camera_qr_scanner_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.QrCodeScanner,
+                            contentDescription = if (language == "BN") "ক্যামেরা QR স্ক্যানার" else "Camera QR Scanner",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
                     // Web sync bridge indicator button
                     IconButton(
                         onClick = onOpenWebSync,

@@ -195,11 +195,15 @@ class SmsViewModel(
 
     fun toggleWebConnection() {
         val newState = !_isWebConnected.value
-        _isWebConnected.value = newState
+        setWebConnected(newState)
+    }
+
+    fun setWebConnected(connected: Boolean) {
+        _isWebConnected.value = connected
         viewModelScope.launch {
             repository.emitSyncLog(
-                if (newState) "WEB_SOCKET" else "STATUS",
-                if (newState) "Web client connected to Android bridge (Socket ID: ws-client-8821)"
+                if (connected) "WEB_SOCKET" else "STATUS",
+                if (connected) "Web screen connected via Camera QR Scan (Pulse Live Sync Active)"
                 else "Web client disconnected from Android bridge"
             )
         }

@@ -3,7 +3,7 @@
   "version": "1.0.6",
   "description": "Pulse SMS - Real-time Android SMS, Booking.com Integration & Web Companion",
   "scripts": {
-    "build": "mkdir -p public && cp -f index.html public/index.html",
+    "build": "mkdir -p public && cp -f index.html public/index.html && cp -f manifest.json public/manifest.json && cp -f sw.js public/sw.js && cp -rf icons screenshots public/",
     "start": "npx serve public"
   },
   "keywords": ["sms", "android", "booking-com", "gemini-ai", "pulse-sms", "vercel", "real-time"],

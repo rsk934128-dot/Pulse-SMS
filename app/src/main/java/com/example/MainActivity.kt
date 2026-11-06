@@ -29,6 +29,7 @@ import com.example.ui.SmsViewModel
 import com.example.ui.auth.AuthManager
 import com.example.ui.components.ComposeDialog
 import com.example.ui.components.WebSyncSheet
+import com.example.ui.components.CameraQrScannerDialog
 import com.example.ui.screens.ChatThreadScreen
 import com.example.ui.screens.InboxScreen
 import com.example.ui.screens.SettingsScreen
@@ -144,6 +145,7 @@ fun SmsAppRoot(
 
     var showCompose by remember { mutableStateOf(false) }
     var showWebSync by remember { mutableStateOf(false) }
+    var showQrScanner by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
 
     // Silent Auto-Sign-In on App Startup
@@ -263,6 +265,7 @@ fun SmsAppRoot(
             onDeleteConversation = { viewModel.deleteConversation(it) },
             onOpenCompose = { showCompose = true },
             onOpenWebSync = { showWebSync = true },
+            onOpenQrScanner = { showQrScanner = true },
             onToggleLanguage = { viewModel.toggleLanguage() },
             onOpenSettings = { showSettings = true },
             onRequestDefaultSms = onRequestDefaultSms,
@@ -303,7 +306,28 @@ fun SmsAppRoot(
             onSimulateIncoming = { sender, body ->
                 viewModel.simulateIncomingSms(sender, body)
             },
+            onOpenQrScanner = {
+                showWebSync = false
+                showQrScanner = true
+            },
             onDismiss = { showWebSync = false }
+        )
+    }
+
+    // Camera QR Code Scanner Dialog (Instant Screen Pairing)
+    if (showQrScanner) {
+        CameraQrScannerDialog(
+            language = currentLanguage,
+            onPairingSuccess = { sessionId, deviceName ->
+                viewModel.setWebConnected(true)
+                Toast.makeText(
+                    context,
+                    if (currentLanguage == "BN") "🎉 এক চান্সে ওয়েব স্ক্রিন কানেক্টেড হয়েছে! ($deviceName)"
+                    else "🎉 Web screen connected in 1 shot! ($deviceName)",
+                    Toast.LENGTH_LONG
+                ).show()
+            },
+            onDismiss = { showQrScanner = false }
         )
     }
 

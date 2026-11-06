@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.ElectricBolt
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material3.Button
@@ -72,6 +73,7 @@ fun WebSyncSheet(
     language: String,
     onToggleConnection: () -> Unit,
     onSimulateIncoming: (sender: String, body: String) -> Unit,
+    onOpenQrScanner: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -181,6 +183,31 @@ fun WebSyncSheet(
                         modifier = Modifier.testTag("toggle_web_sync_switch")
                     )
                 }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Primary Camera QR Scan Button
+            Button(
+                onClick = onOpenQrScanner,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("open_camera_qr_scan_from_sheet")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.QrCodeScanner,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (language == "BN") "ক্যামেরা দিয়ে ওয়েবসাইটের QR স্ক্যান করুন" else "Scan Website QR with Camera",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
             }
 
             Spacer(modifier = Modifier.height(20.dp))
