@@ -37,7 +37,7 @@ abstract class FirestoreEmulatorTestBase {
         databaseId = if (resId != 0) context.getString(resId) else "ai-studio-android-pulsesms-d91f8c0e-d0eb-454c-a3c4-23804c092a8d"
 
         val app = if (FirebaseApp.getApps(context).isEmpty()) {
-            val newApp = FirebaseApp.initializeApp(
+            FirebaseApp.initializeApp(
                 context,
                 FirebaseOptions.Builder()
                     .setApplicationId("com.aistudio.pulsesms.qwtzxp")
@@ -45,26 +45,45 @@ abstract class FirestoreEmulatorTestBase {
                     .setApiKey("fake-api-key-for-emulator")
                     .build()
             )
-            val newFirestore = FirebaseFirestore.getInstance(newApp, databaseId)
-            newFirestore.useEmulator(EMULATOR_HOST, FIRESTORE_PORT)
-            newFirestore.firestoreSettings = FirebaseFirestoreSettings.Builder()
-                .setLocalCacheSettings(MemoryCacheSettings.newBuilder().build())
-                .build()
-
-            val newAuth = FirebaseAuth.getInstance(newApp)
-            newAuth.useEmulator(EMULATOR_HOST, AUTH_PORT)
-            newApp
         } else {
             FirebaseApp.getInstance()
         }
 
         firestore = FirebaseFirestore.getInstance(app, databaseId)
+        try {
+            firestore.useEmulator(EMULATOR_HOST, FIRESTORE_PORT)
+            firestore.firestoreSettings = FirebaseFirestoreSettings.Builder()
+                .setLocalCacheSettings(MemoryCacheSettings.newBuilder().build())
+                .build()
+        } catch (_: Exception) {}
+
         auth = FirebaseAuth.getInstance(app)
+        try {
+            auth.useEmulator(EMULATOR_HOST, AUTH_PORT)
+        } catch (_: Exception) {}
+
+        val emulatorAvailable = isPortOpen(EMULATOR_HOST, AUTH_PORT)
+        org.junit.Assume.assumeTrue("Firebase Auth/Firestore emulator not reachable on $EMULATOR_HOST:$AUTH_PORT", emulatorAvailable)
+    }
+
+    private fun isPortOpen(host: String, port: Int): Boolean {
+        return try {
+            java.net.Socket().use { socket ->
+                socket.connect(java.net.InetSocketAddress(host, port), 200)
+                true
+            }
+        } catch (_: Exception) {
+            false
+        }
     }
 
     @After
     open fun tearDownFirebase() {
-        auth.signOut()
+        if (::auth.isInitialized) {
+            try {
+                auth.signOut()
+            } catch (_: Exception) {}
+        }
     }
 
     protected suspend fun signInTestUser(email: String): String = withContext(Dispatchers.IO) {

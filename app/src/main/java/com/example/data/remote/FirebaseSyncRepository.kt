@@ -83,10 +83,11 @@ class FirebaseSyncRepository(
     }
 
     suspend fun syncMessage(message: MessageEntity): Result<Unit> = withContext(Dispatchers.IO) {
+        var path = "users/me/messages"
         try {
             val uid = requireUserId()
             val msgId = "sms_${message.id}_${message.timestamp}"
-            val path = "users/$uid/messages/$msgId"
+            path = "users/$uid/messages/$msgId"
             val msgRef = db.collection("users").document(uid).collection("messages").document(msgId)
 
             val payload = mapOf(
@@ -100,10 +101,10 @@ class FirebaseSyncRepository(
                 "createdAt" to FieldValue.serverTimestamp()
             )
 
-            msgRef.set(payload).await()
+            msgRef.set(payload, SetOptions.merge()).await()
             Result.success(Unit)
         } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.WRITE, "users/me/messages")
+            handleFirestoreError(e, OperationType.WRITE, path)
             Result.failure(e)
         }
     }
@@ -123,13 +124,14 @@ class FirebaseSyncRepository(
     }
 
     suspend fun deleteCloudMessage(messageId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        var path = "users/me/messages/$messageId"
         try {
             val uid = requireUserId()
-            val path = "users/$uid/messages/$messageId"
+            path = "users/$uid/messages/$messageId"
             db.collection("users").document(uid).collection("messages").document(messageId).delete().await()
             Result.success(Unit)
         } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.DELETE, "users/me/messages/$messageId")
+            handleFirestoreError(e, OperationType.DELETE, path)
             Result.failure(e)
         }
     }

@@ -220,6 +220,13 @@ fun SmsAppRoot(
         permissionLauncher.launch(SmsPermissionManager.getAllRequiredPermissions())
     }
 
+    // Auto-prompt essential telephony and SMS permissions on app launch
+    LaunchedEffect(Unit) {
+        if (!hasSmsPermissions) {
+            onRequestPermissions()
+        }
+    }
+
     if (currentThreadAddress != null) {
         ChatThreadScreen(
             conversation = currentConversation,
@@ -324,6 +331,7 @@ fun SmsAppRoot(
             language = currentLanguage,
             onPairingSuccess = { sessionId, deviceName ->
                 viewModel.setWebConnected(true)
+                viewModel.triggerCloudSyncNow()
                 Toast.makeText(
                     context,
                     if (currentLanguage == "BN") "🎉 এক চান্সে ওয়েব স্ক্রিন কানেক্টেড হয়েছে! ($deviceName)"

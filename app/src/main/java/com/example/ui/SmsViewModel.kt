@@ -99,6 +99,7 @@ class SmsViewModel(
                             displayName = user.displayName ?: "User",
                             email = user.email ?: ""
                         )
+                        triggerCloudSyncNow()
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }

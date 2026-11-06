@@ -809,6 +809,51 @@ git push origin main</pre>
 
   <!-- Web Client Scripts -->
   <script>
+    // ==========================================
+    // 🌐 FIREBASE CONFIGURATION & FIRESTORE INSTANCE
+    // ==========================================
+    const FIREBASE_CONFIG = {
+      apiKey: "AIzaSyAPXA-x3XgEYgOL_ex3UG7mhbG5bHdDxZM",
+      authDomain: "gen-lang-client-0040983236.firebaseapp.com",
+      projectId: "gen-lang-client-0040983236",
+      storageBucket: "gen-lang-client-0040983236.firebasestorage.app",
+      messagingSenderId: "836906134294",
+      appId: "1:836906134294:android:c35f8f3d9c103484f53e37"
+    };
+
+    const FIRESTORE_DATABASE_ID = "ai-studio-android-pulsesms-d91f8c0e-d0eb-454c-a3c4-23804c092a8d";
+
+    let firebaseApp = null;
+    let firestoreDb = null;
+    let currentCloudUser = null;
+    let cloudMessagesUnsubscribe = null;
+    let loadedCloudMessages = [];
+    let activeCategoryFilter = "ALL";
+
+    function getFirestoreInstance() {
+      if (firestoreDb) return firestoreDb;
+      try {
+        if (typeof firebase === "undefined") {
+          console.warn("Firebase SDK not yet loaded.");
+          return null;
+        }
+        if (!firebase.apps.length) {
+          firebaseApp = firebase.initializeApp(FIREBASE_CONFIG);
+        } else {
+          firebaseApp = firebase.app();
+        }
+        try {
+          firestoreDb = firebaseApp.firestore(FIRESTORE_DATABASE_ID);
+        } catch (e) {
+          firestoreDb = firebase.firestore();
+        }
+        return firestoreDb;
+      } catch (err) {
+        console.warn("Firestore init exception:", err);
+        return null;
+      }
+    }
+
     // 1. Initialize Dynamic Pairing QR Code with 60-Second Security Timeout & Regenerate Support
     let qrInstance = null;
     let qrTimerInterval = null;
@@ -823,10 +868,7 @@ git push origin main</pre>
 
     function handleQrTimeout() {
       clearQrTimer();
-      if (pairingSessionUnsubscribe) {
-        pairingSessionUnsubscribe();
-        pairingSessionUnsubscribe = null;
-      }
+      cleanupPairingListeners();
       const expiredOverlay = document.getElementById("qrExpiredOverlay");
       const qrBadge = document.getElementById("qrLogoBadge");
       const laser = document.getElementById("qrScanLaser");
@@ -951,37 +993,65 @@ git push origin main</pre>
       }
     }
 
-    let pairingSessionUnsubscribe = null;
+    let pairingSessionUnsubscribes = [];
     let currentPairingSessionId = null;
+
+    function cleanupPairingListeners() {
+      pairingSessionUnsubscribes.forEach(unsub => {
+        try { if (typeof unsub === "function") unsub(); } catch (_) {}
+      });
+      pairingSessionUnsubscribes = [];
+    }
 
     function listenForMobileCameraPairing(sessionId) {
       currentPairingSessionId = sessionId;
-      if (pairingSessionUnsubscribe) {
-        pairingSessionUnsubscribe();
-        pairingSessionUnsubscribe = null;
-      }
+      cleanupPairingListeners();
 
-      // Check Firestore listener
       try {
-        const db = getFirestoreInstance();
-        if (db) {
-          db.collection("pairing_sessions").doc(sessionId).set({
-            sessionId: sessionId,
-            status: "PENDING",
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-          }, { merge: true }).catch(() => {});
+        const dbs = [];
+        const primaryDb = getFirestoreInstance();
+        if (primaryDb) dbs.push(primaryDb);
 
-          pairingSessionUnsubscribe = db.collection("pairing_sessions").doc(sessionId)
-            .onSnapshot((doc) => {
-              if (!doc.exists) return;
-              const data = doc.data();
-              if (data && data.status === "CONNECTED") {
-                handleSuccessfulScreenPairing(data);
-              }
-            }, (err) => {
-              console.warn("Pairing snapshot listener notice:", err);
-            });
-        }
+        try {
+          if (typeof firebase !== "undefined" && firebase.apps && firebase.apps.length) {
+            const defaultDb = firebase.app().firestore();
+            if (defaultDb && !dbs.includes(defaultDb)) {
+              dbs.push(defaultDb);
+            }
+          }
+        } catch (_) {}
+
+        const tokensToWatch = [sessionId, "pulse_pair_instant_one_shot", "pulse_pair_simulation_instant"];
+
+        dbs.forEach(db => {
+          // Initialize pending state for active QR session
+          try {
+            db.collection("pairing_sessions").doc(sessionId).set({
+              sessionId: sessionId,
+              status: "PENDING",
+              createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true }).catch(() => {});
+          } catch (_) {}
+
+          // Watch target session and fast fallback instant connect tokens
+          tokensToWatch.forEach(token => {
+            try {
+              const unsub = db.collection("pairing_sessions").doc(token)
+                .onSnapshot((doc) => {
+                  if (!doc.exists) return;
+                  const data = doc.data();
+                  if (data && data.status === "CONNECTED") {
+                    handleSuccessfulScreenPairing(data);
+                  }
+                }, (err) => {
+                  console.warn("Pairing snapshot listener notice (" + token + "):", err);
+                });
+              pairingSessionUnsubscribes.push(unsub);
+            } catch (err) {
+              console.warn("Snapshot setup error:", err);
+            }
+          });
+        });
       } catch (err) {
         console.warn("Error initializing mobile camera pairing listener:", err);
       }
@@ -1006,8 +1076,9 @@ git push origin main</pre>
         overlay.classList.add("opacity-100", "pointer-events-auto", "scale-100");
       }
 
-      // Stop expiration countdown
+      // Stop expiration countdown & listeners
       clearQrTimer();
+      cleanupPairingListeners();
       const countdownText = document.getElementById("qrCountdownText");
       if (countdownText) {
         countdownText.innerText = "কানেক্টেড (Active)";
@@ -1080,6 +1151,7 @@ git push origin main</pre>
       } else {
         modal.classList.add("hidden");
         clearQrTimer();
+        cleanupPairingListeners();
       }
     }
 
@@ -1277,51 +1349,6 @@ git push origin main</pre>
       btn.classList.remove("bg-emerald-600/20", "text-emerald-300", "border-emerald-500/30");
       btn.onclick = simulateConnectPhone;
       initQrCode();
-    }
-
-    // ==========================================
-    // 🌐 FIREBASE AUTH & REAL-TIME FIRESTORE SYNC
-    // ==========================================
-    const FIREBASE_CONFIG = {
-      apiKey: "AIzaSyAPXA-x3XgEYgOL_ex3UG7mhbG5bHdDxZM",
-      authDomain: "gen-lang-client-0040983236.firebaseapp.com",
-      projectId: "gen-lang-client-0040983236",
-      storageBucket: "gen-lang-client-0040983236.firebasestorage.app",
-      messagingSenderId: "836906134294",
-      appId: "1:836906134294:android:c35f8f3d9c103484f53e37"
-    };
-
-    const FIRESTORE_DATABASE_ID = "ai-studio-android-pulsesms-d91f8c0e-d0eb-454c-a3c4-23804c092a8d";
-
-    let firebaseApp = null;
-    let firestoreDb = null;
-    let currentCloudUser = null;
-    let cloudMessagesUnsubscribe = null;
-    let loadedCloudMessages = [];
-    let activeCategoryFilter = "ALL";
-
-    function getFirestoreInstance() {
-      if (firestoreDb) return firestoreDb;
-      try {
-        if (typeof firebase === "undefined") {
-          console.warn("Firebase SDK not yet loaded.");
-          return null;
-        }
-        if (!firebase.apps.length) {
-          firebaseApp = firebase.initializeApp(FIREBASE_CONFIG);
-        } else {
-          firebaseApp = firebase.app();
-        }
-        try {
-          firestoreDb = firebaseApp.firestore(FIRESTORE_DATABASE_ID);
-        } catch (e) {
-          firestoreDb = firebase.firestore();
-        }
-        return firestoreDb;
-      } catch (err) {
-        console.warn("Firestore init exception:", err);
-        return null;
-      }
     }
 
     // Initialize Firebase Auth listener on script load

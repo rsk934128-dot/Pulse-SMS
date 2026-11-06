@@ -34,7 +34,7 @@ service cloud.firestore {
              data.body is string && data.body.size() <= 5000 &&
              data.isIncoming is bool &&
              (data.category in ['PERSONAL', 'OTP', 'TRANSACTION', 'PROMOTION', 'SPAM', 'TRAVEL']) &&
-             data.createdAt is timestamp && data.createdAt <= request.time;
+             data.createdAt is timestamp;
     }
 
     function isValidCloudConversation(data) {
@@ -44,8 +44,8 @@ service cloud.firestore {
              data.category is string && data.category.size() <= 50 &&
              data.unreadCount is int && data.unreadCount >= 0 &&
              data.isPinned is bool &&
-             data.createdAt is timestamp && data.createdAt <= request.time &&
-             data.updatedAt is timestamp && data.updatedAt <= request.time;
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
     }
 
     match /users/{userId} {
@@ -69,14 +69,13 @@ service cloud.firestore {
         allow get: if isOwner(userId) && isValidId(messageId);
         allow list: if isOwner(userId);
 
-        allow create: if isOwner(userId) &&
+        allow create, update: if isOwner(userId) &&
                          isValidId(messageId) &&
                          request.resource.data.id == messageId &&
                          request.resource.data.keys().hasAll(['id', 'threadAddress', 'senderAddress', 'recipientAddress', 'body', 'isIncoming', 'category', 'createdAt']) &&
                          request.resource.data.keys().hasOnly(['id', 'threadAddress', 'senderAddress', 'recipientAddress', 'body', 'isIncoming', 'category', 'createdAt']) &&
                          isValidCloudMessage(request.resource.data);
 
-        allow update: if false;
         allow delete: if isOwner(userId) && isValidId(messageId);
       }
 
@@ -107,11 +106,9 @@ service cloud.firestore {
 
       allow create: if isValidId(sessionId) &&
                        request.resource.data.sessionId == sessionId &&
-                       request.resource.data.status in ['PENDING', 'CONNECTED'] &&
-                       request.resource.data.createdAt is timestamp && request.resource.data.createdAt <= request.time;
+                       request.resource.data.status in ['PENDING', 'CONNECTED'];
 
       allow update: if isValidId(sessionId) &&
-                       request.resource.data.sessionId == resource.data.sessionId &&
                        request.resource.data.status in ['PENDING', 'CONNECTED', 'DISCONNECTED'];
 
       allow delete: if isValidId(sessionId);

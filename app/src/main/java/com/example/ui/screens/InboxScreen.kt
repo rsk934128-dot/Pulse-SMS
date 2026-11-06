@@ -53,6 +53,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
@@ -113,15 +114,18 @@ fun InboxScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // Header Top Bar
+            // Header Top Bar - Responsive layout guaranteed to fit all screen widths without pushing Settings off-screen
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Box(
                         modifier = Modifier
                             .size(38.dp)
@@ -137,56 +141,74 @@ fun InboxScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.width(10.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
 
-                    Column {
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = "Pulse SMS",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             if (totalUnreadCount > 0) {
-                                Spacer(modifier = Modifier.width(6.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Badge(
                                     containerColor = MaterialTheme.colorScheme.primary,
                                     contentColor = MaterialTheme.colorScheme.onPrimary
                                 ) {
-                                    Text(text = "$totalUnreadCount", fontSize = 11.sp)
+                                    Text(text = "$totalUnreadCount", fontSize = 10.sp)
                                 }
                             }
                         }
                         Text(
-                            text = if (language == "BN") "রিয়েল-টাইম মেসেজিং ও টেলিফোনি" else "Real-time Telephony & Messaging",
+                            text = if (language == "BN") "মেসেজিং ও টেলিফোনি" else "Telephony & Messaging",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(modifier = Modifier.width(4.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     // Camera QR Scanner button for Instant Screen Connection
                     IconButton(
                         onClick = onOpenQrScanner,
-                        modifier = Modifier.testTag("open_camera_qr_scanner_button")
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                            .testTag("open_camera_qr_scanner_button")
                     ) {
                         Icon(
                             imageVector = Icons.Default.QrCodeScanner,
                             contentDescription = if (language == "BN") "ক্যামেরা QR স্ক্যানার" else "Camera QR Scanner",
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
 
                     // Web sync bridge indicator button
                     IconButton(
                         onClick = onOpenWebSync,
-                        modifier = Modifier.testTag("open_web_sync_button")
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                            .testTag("open_web_sync_button")
                     ) {
                         BadgedBox(
                             badge = {
                                 Box(
                                     modifier = Modifier
-                                        .size(8.dp)
+                                        .size(7.dp)
                                         .clip(CircleShape)
                                         .background(if (isWebConnected) Color(0xFF10B981) else Color(0xFFEF4444))
                                 )
@@ -195,7 +217,8 @@ fun InboxScreen(
                             Icon(
                                 imageVector = Icons.Default.Cable,
                                 contentDescription = "Web Sync Bridge",
-                                tint = MaterialTheme.colorScheme.primary
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }
@@ -203,29 +226,40 @@ fun InboxScreen(
                     // Language toggle
                     IconButton(
                         onClick = onToggleLanguage,
-                        modifier = Modifier.testTag("toggle_language_button")
+                        modifier = Modifier
+                            .size(38.dp)
+                            .testTag("toggle_language_button")
                     ) {
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(MaterialTheme.colorScheme.surfaceVariant)
-                                .padding(horizontal = 6.dp, vertical = 4.dp)
+                                .padding(horizontal = 6.dp, vertical = 3.dp)
                         ) {
                             Text(
                                 text = if (language == "BN") "বাং" else "EN",
-                                fontSize = 12.sp,
+                                fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
 
-                    // Settings button
+                    // Settings button - Guaranteed visible with prominent circle background!
                     IconButton(
                         onClick = onOpenSettings,
-                        modifier = Modifier.testTag("open_settings_button")
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .testTag("open_settings_button")
                     ) {
-                        Icon(imageVector = Icons.Default.Settings, contentDescription = "Settings")
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = if (language == "BN") "সেটিংস" else "Settings",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 }
             }
