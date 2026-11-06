@@ -1,5 +1,6 @@
 package com.example.util
 
+import android.util.Log
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import com.google.zxing.BarcodeFormat
@@ -11,6 +12,7 @@ import com.google.zxing.common.HybridBinarizer
 
 /**
  * CameraX ImageAnalysis.Analyzer that decodes QR codes from the live camera stream in real time.
+ * Designed with defensive byte-buffer handling and comprehensive exception isolation.
  */
 class QrCodeAnalyzer(
     private val onQrCodeScanned: (String) -> Unit
@@ -45,42 +47,46 @@ class QrCodeAnalyzer(
                 return
             }
 
-            val yBuffer = yPlane.buffer
-            val rowStride = yPlane.rowStride
-            val pixelStride = yPlane.pixelStride
-            val width = imageProxy.width
-            val height = imageProxy.height
-
-            val yBytes = ByteArray(width * height)
-            if (rowStride == width && pixelStride == 1) {
-                yBuffer.position(0)
-                yBuffer.get(yBytes, 0, width * height)
-            } else {
-                for (row in 0 until height) {
-                    val pos = row * rowStride
-                    if (pos < yBuffer.capacity()) {
-                        yBuffer.position(pos)
-                        val bytesToRead = minOf(width, yBuffer.remaining())
-                        yBuffer.get(yBytes, row * width, bytesToRead)
-                    }
-                }
+            val buffer = yPlane.buffer
+            val remaining = buffer.remaining()
+            if (remaining <= 0) {
+                imageProxy.close()
+                return
             }
 
-            val source = PlanarYUVLuminanceSource(
-                yBytes, width, height, 0, 0, width, height, false
-            )
-            val bitmap = BinaryBitmap(HybridBinarizer(source))
+            val data = ByteArray(remaining)
+            buffer.get(data)
 
+            val width = imageProxy.width
+            val height = imageProxy.height
+            val rowStride = yPlane.rowStride
+
+            val source = PlanarYUVLuminanceSource(
+                data,
+                rowStride,
+                height,
+                0,
+                0,
+                width,
+                height,
+                false
+            )
+
+            val bitmap = BinaryBitmap(HybridBinarizer(source))
             val result = reader.decodeWithState(bitmap)
             if (result != null && !result.text.isNullOrBlank()) {
                 isScanning = false
                 onQrCodeScanned(result.text.trim())
             }
-        } catch (_: Exception) {
-            // No QR code found in current frame, ignore and continue
+        } catch (_: Throwable) {
+            // Frame did not contain a valid QR code or decode failed - continue stream
         } finally {
-            reader.reset()
-            imageProxy.close()
+            try {
+                reader.reset()
+            } catch (_: Throwable) {}
+            try {
+                imageProxy.close()
+            } catch (_: Throwable) {}
         }
     }
 }

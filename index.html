@@ -382,11 +382,30 @@
                   <span>Syncing Live</span>
                 </div>
               </div>
+
+              <!-- 60-Second Security Timeout Expired Overlay -->
+              <div id="qrExpiredOverlay" class="absolute inset-0 bg-slate-950/95 backdrop-blur-sm flex flex-col items-center justify-center text-center p-3 opacity-0 pointer-events-none transition-all duration-300 scale-95 z-20">
+                <div class="w-12 h-12 rounded-full bg-amber-500/20 border-2 border-amber-400 flex items-center justify-center text-amber-400 mb-2">
+                  <i class="ph ph-hourglass-simple-slash text-2xl"></i>
+                </div>
+                <h5 class="text-xs font-bold text-white mb-0.5">QR কোডের মেয়াদ শেষ</h5>
+                <p class="text-[10px] text-slate-400 mb-3 px-2">নিরাপত্তার স্বার্থে ৬০ সেকেন্ড পর QR কোডটি এক্সপায়ার হয়েছে</p>
+                <button id="btnRegenerateQr" onclick="initQrCode()" class="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-blue-600/30 active:scale-95 transition-all">
+                  <i class="ph ph-arrow-clockwise"></i>
+                  <span>Regenerate (পুনরায় তৈরি)</span>
+                </button>
+              </div>
             </div>
 
             <div class="mt-2 text-center">
               <span class="text-[11px] text-slate-400">পেয়ারিং টোকেন:</span>
               <span id="qrPairingTokenDisplay" class="font-mono text-xs font-bold text-cyan-300 bg-slate-900 px-2.5 py-0.5 rounded-full border border-cyan-500/30 ml-1">pulse_pair_...</span>
+            </div>
+
+            <!-- 60-Second Security Countdown Display -->
+            <div id="qrTimerStatusContainer" class="mt-2 flex items-center justify-center gap-1.5 text-xs text-slate-400">
+              <i class="ph ph-clock-countdown text-cyan-400"></i>
+              <span>মেয়াদ: <span id="qrCountdownText" class="font-mono font-bold text-cyan-300">60s</span></span>
             </div>
 
             <div class="flex items-center justify-center gap-3 text-xs text-slate-400 mt-3">
@@ -790,11 +809,68 @@ git push origin main</pre>
 
   <!-- Web Client Scripts -->
   <script>
-    // 1. Initialize Dynamic Pairing QR Code with Error Handling & Retry Support
+    // 1. Initialize Dynamic Pairing QR Code with 60-Second Security Timeout & Regenerate Support
     let qrInstance = null;
+    let qrTimerInterval = null;
+    let qrSecondsRemaining = 60;
+
+    function clearQrTimer() {
+      if (qrTimerInterval) {
+        clearInterval(qrTimerInterval);
+        qrTimerInterval = null;
+      }
+    }
+
+    function handleQrTimeout() {
+      clearQrTimer();
+      if (pairingSessionUnsubscribe) {
+        pairingSessionUnsubscribe();
+        pairingSessionUnsubscribe = null;
+      }
+      const expiredOverlay = document.getElementById("qrExpiredOverlay");
+      const qrBadge = document.getElementById("qrLogoBadge");
+      const laser = document.getElementById("qrScanLaser");
+      const countdownText = document.getElementById("qrCountdownText");
+
+      if (laser) laser.classList.remove("qr-scanning-laser-active", "qr-laser-active");
+      if (qrBadge) qrBadge.style.display = "none";
+      if (countdownText) {
+        countdownText.innerText = "মেয়াদ শেষ (Expired)";
+        countdownText.className = "font-mono font-bold text-amber-400";
+      }
+
+      if (expiredOverlay) {
+        expiredOverlay.classList.remove("opacity-0", "pointer-events-none", "scale-95");
+        expiredOverlay.classList.add("opacity-100", "pointer-events-auto", "scale-100");
+      }
+
+      if (typeof addLogEntry === "function") {
+        addLogEntry("SECURITY", "QR কোডের ৬০ সেকেন্ডের নিরাপত্তা মেয়াদ শেষ হয়েছে। পুনরায় জেনারেট করুন।");
+      }
+    }
+
     function initQrCode() {
+      clearQrTimer();
+
       const qrContainer = document.getElementById("qrcode");
       const qrBadge = document.getElementById("qrLogoBadge");
+      const expiredOverlay = document.getElementById("qrExpiredOverlay");
+      const successOverlay = document.getElementById("qrSuccessOverlay");
+      const countdownText = document.getElementById("qrCountdownText");
+      const laser = document.getElementById("qrScanLaser");
+
+      if (expiredOverlay) {
+        expiredOverlay.classList.add("opacity-0", "pointer-events-none", "scale-95");
+        expiredOverlay.classList.remove("opacity-100", "pointer-events-auto", "scale-100");
+      }
+      if (successOverlay) {
+        successOverlay.classList.add("opacity-0", "pointer-events-none", "scale-90");
+        successOverlay.classList.remove("opacity-100", "pointer-events-auto", "scale-100");
+      }
+      if (laser) {
+        laser.classList.remove("qr-scanning-laser-active", "qr-laser-active");
+      }
+
       if (!qrContainer) return;
 
       qrInstance = null;
@@ -844,6 +920,32 @@ git push origin main</pre>
         }, 120);
 
         if (qrBadge) qrBadge.style.display = "flex";
+
+        // Start 60-Second Security Timeout Mechanism
+        qrSecondsRemaining = 60;
+        if (countdownText) {
+          countdownText.innerText = "60s";
+          countdownText.className = "font-mono font-bold text-cyan-300";
+        }
+
+        qrTimerInterval = setInterval(() => {
+          qrSecondsRemaining--;
+          if (countdownText) {
+            countdownText.innerText = qrSecondsRemaining + "s";
+            if (qrSecondsRemaining <= 10) {
+              countdownText.className = "font-mono font-bold text-rose-400 animate-pulse";
+            } else if (qrSecondsRemaining <= 25) {
+              countdownText.className = "font-mono font-bold text-amber-300";
+            } else {
+              countdownText.className = "font-mono font-bold text-cyan-300";
+            }
+          }
+
+          if (qrSecondsRemaining <= 0) {
+            handleQrTimeout();
+          }
+        }, 1000);
+
       } catch (err) {
         showQrError(qrContainer, qrBadge, err);
       }
@@ -902,6 +1004,14 @@ git push origin main</pre>
         if (devText) devText.innerText = deviceName;
         overlay.classList.remove("opacity-0", "pointer-events-none", "scale-90");
         overlay.classList.add("opacity-100", "pointer-events-auto", "scale-100");
+      }
+
+      // Stop expiration countdown
+      clearQrTimer();
+      const countdownText = document.getElementById("qrCountdownText");
+      if (countdownText) {
+        countdownText.innerText = "কানেক্টেড (Active)";
+        countdownText.className = "font-mono font-bold text-emerald-400";
       }
 
       // 1. Play Web Audio confirmation sound
@@ -969,6 +1079,7 @@ git push origin main</pre>
         setTimeout(initQrCode, 100);
       } else {
         modal.classList.add("hidden");
+        clearQrTimer();
       }
     }
 
@@ -1120,6 +1231,14 @@ git push origin main</pre>
         if (overlay) {
           overlay.classList.remove("opacity-0", "pointer-events-none", "scale-90");
           overlay.classList.add("opacity-100", "pointer-events-auto", "scale-100");
+        }
+
+        // Stop expiration countdown
+        clearQrTimer();
+        const countdownText = document.getElementById("qrCountdownText");
+        if (countdownText) {
+          countdownText.innerText = "কানেক্টেড (Active)";
+          countdownText.className = "font-mono font-bold text-emerald-400";
         }
 
         // 3. Play Web Audio API confirmation sound effect immediately as scan finishes

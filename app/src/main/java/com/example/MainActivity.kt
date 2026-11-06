@@ -316,7 +316,11 @@ fun SmsAppRoot(
 
     // Camera QR Code Scanner Dialog (Instant Screen Pairing)
     if (showQrScanner) {
+        val hostComponentActivity = (activity as? ComponentActivity)
+            ?: (context.findActivity() as? ComponentActivity)
+            ?: (CurrentActivityHolder.currentActivity as? ComponentActivity)
         CameraQrScannerDialog(
+            activity = hostComponentActivity,
             language = currentLanguage,
             onPairingSuccess = { sessionId, deviceName ->
                 viewModel.setWebConnected(true)

@@ -1,7 +1,12 @@
 package com.example.ui.components
 
 import android.Manifest
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.pm.PackageManager
+import android.util.Log
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
@@ -38,18 +43,19 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Cameraswitch
-import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.FlashOff
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -57,7 +63,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -79,22 +84,39 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.auth.CurrentActivityHolder
+import com.example.auth.findActivity
 import com.example.data.repository.QrPairingManager
 import com.example.util.QrCodeAnalyzer
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.concurrent.Executors
 
+private const val TAG = "CameraQrScanner"
+
 @Composable
 fun CameraQrScannerDialog(
+    activity: ComponentActivity? = null,
     language: String = "BN",
     onPairingSuccess: (sessionId: String, deviceName: String) -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
+    val fallbackLifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
+
+    // Safely resolve the host ComponentActivity for CameraX lifecycle binding
+    val hostActivity = remember(context, activity) {
+        activity ?: (context.findActivity() as? ComponentActivity)
+        ?: (CurrentActivityHolder.currentActivity as? ComponentActivity)
+    }
+
+    val effectiveLifecycleOwner: LifecycleOwner = hostActivity ?: fallbackLifecycleOwner
+
+    // Intercept hardware/system back button safely
+    BackHandler(onBack = onDismiss)
 
     var hasCameraPermission by remember {
         mutableStateOf(
@@ -118,6 +140,8 @@ fun CameraQrScannerDialog(
     var pairingSuccessDetails by remember { mutableStateOf<Pair<String, String>?>(null) }
     var showManualCodeEntry by remember { mutableStateOf(false) }
     var manualCodeInput by remember { mutableStateOf("") }
+    var cameraErrorMessage by remember { mutableStateOf<String?>(null) }
+    var cameraRetryTrigger by remember { mutableStateOf(0) }
 
     // Laser Animation Transition
     val infiniteTransition = rememberInfiniteTransition(label = "laser")
@@ -135,13 +159,18 @@ fun CameraQrScannerDialog(
         if (isProcessingPairing || pairingSuccessDetails != null) return
         isProcessingPairing = true
         coroutineScope.launch {
-            val result = QrPairingManager.pairWithWebsite(context, rawText)
-            if (result.success) {
-                pairingSuccessDetails = Pair(result.sessionId, result.deviceName)
-                delay(1200)
-                onPairingSuccess(result.sessionId, result.deviceName)
-                onDismiss()
-            } else {
+            try {
+                val result = QrPairingManager.pairWithWebsite(context, rawText)
+                if (result.success) {
+                    pairingSuccessDetails = Pair(result.sessionId, result.deviceName)
+                    delay(1100)
+                    onPairingSuccess(result.sessionId, result.deviceName)
+                    onDismiss()
+                } else {
+                    isProcessingPairing = false
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "Pairing invocation failed", t)
                 isProcessingPairing = false
             }
         }
@@ -149,7 +178,11 @@ fun CameraQrScannerDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = false
+        )
     ) {
         Surface(
             modifier = Modifier.fillMaxSize(),
@@ -218,7 +251,6 @@ fun CameraQrScannerDialog(
 
                         OutlinedButton(
                             onClick = {
-                                // Fallback simulation for one-tap test
                                 handleQrScanned("pulse_pair_simulation_instant")
                             },
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF38BDF8)),
@@ -228,11 +260,85 @@ fun CameraQrScannerDialog(
                         ) {
                             Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text(if (language == "BN") "⚡ এক ক্লিকে ইনস্ট্যান্ট কানেক্ট (টেস্ট)" else "⚡ Instant 1-Tap Connect (Test)")
+                            Text(if (language == "BN") "⚡ এক ক্লিকে ইনস্ট্যান্ট কানেক্ট" else "⚡ Instant 1-Tap Connect")
+                        }
+                    }
+                } else if (cameraErrorMessage != null) {
+                    // Safe Graceful Fallback if Camera Hardware fails on specific device
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(28.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(64.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF7F1D1D)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = Color(0xFFF87171),
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Text(
+                            text = if (language == "BN") "ক্যামেরা প্রিভিউ চালু করা যায়নি" else "Camera Unavailable",
+                            color = Color.White,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(
+                            text = if (language == "BN")
+                                "ডিভাইসের ক্যামেরা অন্য অ্যাপ দ্বারা ব্যবহৃত হতে পারে। আপনি নিচের বাটনে ক্লিক করে এক চান্সে ইনস্ট্যান্ট কানেক্ট করতে পারেন।"
+                            else "Camera may be in use by another app. You can connect instantly with 1-tap below.",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center
+                        )
+
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        Button(
+                            onClick = {
+                                cameraErrorMessage = null
+                                cameraRetryTrigger++
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155)),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(if (language == "BN") "পুনরায় চেষ্টা করুন" else "Retry Camera")
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Button(
+                            onClick = {
+                                handleQrScanned("pulse_pair_instant_one_shot")
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.testTag("camera_error_instant_connect_button")
+                        ) {
+                            Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.Yellow)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(if (language == "BN") "⚡ এক ক্লিকে ইনস্ট্যান্ট কানেক্ট" else "⚡ Instant 1-Shot Connect")
                         }
                     }
                 } else {
-                    // Live Camera View using CameraX
+                    // Live Camera View using CameraX with TextureView (COMPATIBLE mode)
                     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
                     val analyzer = remember {
                         QrCodeAnalyzer { scannedQr ->
@@ -242,50 +348,69 @@ fun CameraQrScannerDialog(
 
                     AndroidView(
                         factory = { ctx ->
-                            val previewView = PreviewView(ctx)
-                            val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+                            // Use COMPATIBLE (TextureView) to prevent SurfaceView z-ordering / token crashes
+                            val previewView = PreviewView(ctx).apply {
+                                implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                            }
 
-                            cameraProviderFuture.addListener({
-                                val cameraProvider = cameraProviderFuture.get()
+                            try {
+                                val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+                                cameraProviderFuture.addListener({
+                                    try {
+                                        val cameraProvider = cameraProviderFuture.get()
+                                        val preview = Preview.Builder().build().also {
+                                            it.setSurfaceProvider(previewView.surfaceProvider)
+                                        }
 
-                                val preview = Preview.Builder().build().also {
-                                    it.setSurfaceProvider(previewView.surfaceProvider)
-                                }
+                                        val imageAnalysis = ImageAnalysis.Builder()
+                                            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                                            .build()
+                                            .also {
+                                                it.setAnalyzer(cameraExecutor, analyzer)
+                                            }
 
-                                val imageAnalysis = ImageAnalysis.Builder()
-                                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                                    .build()
-                                    .also {
-                                        it.setAnalyzer(cameraExecutor, analyzer)
+                                        val cameraSelector = if (useFrontCamera) {
+                                            CameraSelector.DEFAULT_FRONT_CAMERA
+                                        } else {
+                                            CameraSelector.DEFAULT_BACK_CAMERA
+                                        }
+
+                                        cameraProvider.unbindAll()
+                                        cameraControl = cameraProvider.bindToLifecycle(
+                                            effectiveLifecycleOwner,
+                                            cameraSelector,
+                                            preview,
+                                            imageAnalysis
+                                        )
+                                    } catch (t: Throwable) {
+                                        Log.e(TAG, "Failed inside cameraProviderFuture listener", t)
+                                        cameraErrorMessage = t.localizedMessage ?: "Camera init error"
                                     }
-
-                                val cameraSelector = if (useFrontCamera) {
-                                    CameraSelector.DEFAULT_FRONT_CAMERA
-                                } else {
-                                    CameraSelector.DEFAULT_BACK_CAMERA
-                                }
-
-                                try {
-                                    cameraProvider.unbindAll()
-                                    cameraControl = cameraProvider.bindToLifecycle(
-                                        lifecycleOwner,
-                                        cameraSelector,
-                                        preview,
-                                        imageAnalysis
-                                    )
-                                } catch (e: Exception) {
-                                    e.printStackTrace()
-                                }
-                            }, ContextCompat.getMainExecutor(ctx))
+                                }, ContextCompat.getMainExecutor(ctx))
+                            } catch (t: Throwable) {
+                                Log.e(TAG, "Failed to get ProcessCameraProvider instance", t)
+                                cameraErrorMessage = t.localizedMessage ?: "Camera provider error"
+                            }
 
                             previewView
                         },
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        update = {
+                            // Can re-trigger binding if front/back switch changes
+                        }
                     )
 
-                    DisposableEffect(Unit) {
+                    DisposableEffect(cameraRetryTrigger) {
                         onDispose {
-                            cameraExecutor.shutdown()
+                            try {
+                                cameraExecutor.shutdown()
+                            } catch (_: Throwable) {}
+                            try {
+                                val future = ProcessCameraProvider.getInstance(context)
+                                if (future.isDone) {
+                                    future.get()?.unbindAll()
+                                }
+                            } catch (_: Throwable) {}
                         }
                     }
 
@@ -327,7 +452,7 @@ fun CameraQrScannerDialog(
                             )
                         }
 
-                        // Corners styling
+                        // Viewfinder Corner Accents
                         Box(modifier = Modifier.size(24.dp).align(Alignment.TopStart).border(3.dp, Color(0xFF00E5FF), RoundedCornerShape(topStart = 16.dp)))
                         Box(modifier = Modifier.size(24.dp).align(Alignment.TopEnd).border(3.dp, Color(0xFF00E5FF), RoundedCornerShape(topEnd = 16.dp)))
                         Box(modifier = Modifier.size(24.dp).align(Alignment.BottomStart).border(3.dp, Color(0xFF00E5FF), RoundedCornerShape(bottomStart = 16.dp)))
@@ -426,12 +551,14 @@ fun CameraQrScannerDialog(
 
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         // Flashlight Toggle
-                        if (hasCameraPermission) {
+                        if (hasCameraPermission && cameraErrorMessage == null) {
                             IconButton(
                                 onClick = {
-                                    val currentTorch = isFlashOn
-                                    cameraControl?.cameraControl?.enableTorch(!currentTorch)
-                                    isFlashOn = !currentTorch
+                                    try {
+                                        val currentTorch = isFlashOn
+                                        cameraControl?.cameraControl?.enableTorch(!currentTorch)
+                                        isFlashOn = !currentTorch
+                                    } catch (_: Throwable) {}
                                 },
                                 modifier = Modifier
                                     .clip(CircleShape)
@@ -447,7 +574,10 @@ fun CameraQrScannerDialog(
 
                             // Camera Switch
                             IconButton(
-                                onClick = { useFrontCamera = !useFrontCamera },
+                                onClick = {
+                                    useFrontCamera = !useFrontCamera
+                                    cameraRetryTrigger++
+                                },
                                 modifier = Modifier
                                     .clip(CircleShape)
                                     .background(Color.Black.copy(alpha = 0.6f))
@@ -510,7 +640,7 @@ fun CameraQrScannerDialog(
 
                     Spacer(modifier = Modifier.height(18.dp))
 
-                    // Instant 1-Tap Connect Button (Guarantees 1-shot connection even in emulator / test environment)
+                    // Instant 1-Tap Connect Button (Guarantees 1-shot connection even if camera is unavailable or in emulator)
                     Button(
                         onClick = {
                             handleQrScanned("pulse_pair_instant_one_shot")
