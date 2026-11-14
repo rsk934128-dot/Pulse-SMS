@@ -27,8 +27,12 @@ jobs:
           if [ ! -f .env ]; then
             cp .env.example .env
           fi
-          if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
+          if [ -f debug.keystore.base64 ]; then
+            python3 -c "import base64; open('debug.keystore','wb').write(base64.b64decode(''.join(open('debug.keystore.base64').read().split())))"
+          fi
+          if [ ! -f debug.keystore ] || [ ! -s debug.keystore ] || ! keytool -list -keystore debug.keystore -alias androiddebugkey -storepass android >/dev/null 2>&1; then
+            rm -f debug.keystore
+            keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
           if [ -f ./gradlew ]; then
             chmod +x ./gradlew

@@ -2,9 +2,12 @@ package com.example.ui.auth
 
 import android.content.Context
 import androidx.credentials.CredentialManager
+import androidx.credentials.exceptions.GetCredentialCancellationException
 import com.example.auth.FirebaseAuthenticator
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 object AuthManager {
 
@@ -38,13 +41,15 @@ object AuthManager {
     ) {
         scope.launch {
             val result = authenticator.signInWithGoogle(context, credentialManager)
-            result.onSuccess {
-                onAuthSuccess()
-            }.onFailure { throwable ->
-                if (throwable is androidx.credentials.exceptions.GetCredentialCancellationException) {
-                    onAuthCancelled()
-                } else {
-                    onAuthError(throwable.localizedMessage ?: "Sign in failed")
+            withContext(Dispatchers.Main.immediate) {
+                result.onSuccess {
+                    onAuthSuccess()
+                }.onFailure { throwable ->
+                    if (throwable is GetCredentialCancellationException) {
+                        onAuthCancelled()
+                    } else {
+                        onAuthError(throwable.localizedMessage ?: "Sign in failed")
+                    }
                 }
             }
         }
@@ -58,8 +63,9 @@ object AuthManager {
     ) {
         scope.launch {
             authenticator.signOut(context, credentialManager)
-            onSignOutComplete()
+            withContext(Dispatchers.Main.immediate) {
+                onSignOutComplete()
+            }
         }
     }
 }
-

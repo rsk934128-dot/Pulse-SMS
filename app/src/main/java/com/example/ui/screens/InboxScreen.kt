@@ -20,27 +20,37 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ElectricBolt
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import com.google.firebase.auth.FirebaseUser
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,8 +68,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.data.model.ConversationEntity
+import com.example.ui.auth.GoogleSignInButton
 import com.example.ui.components.ConversationItem
 import com.example.ui.components.PermissionsBanner
+import kotlinx.coroutines.CoroutineScope
 
 @Composable
 fun InboxScreen(
@@ -71,6 +83,11 @@ fun InboxScreen(
     hasTelephonyPermissions: Boolean,
     isWebConnected: Boolean,
     language: String,
+    currentUser: FirebaseUser? = null,
+    activity: android.app.Activity? = null,
+    authScope: CoroutineScope? = null,
+    onAuthSuccess: () -> Unit = {},
+    onAuthError: (String) -> Unit = {},
     onCategorySelected: (String) -> Unit,
     onSearchQueryChanged: (String) -> Unit,
     onConversationClicked: (String) -> Unit,
@@ -80,6 +97,7 @@ fun InboxScreen(
     onOpenCompose: () -> Unit,
     onOpenWebSync: () -> Unit,
     onOpenQrScanner: () -> Unit = {},
+    onConnectToWeb: () -> Unit = {},
     onToggleLanguage: () -> Unit,
     onOpenSettings: () -> Unit,
     onRequestDefaultSms: () -> Unit,
@@ -245,6 +263,47 @@ fun InboxScreen(
                         }
                     }
 
+                    // User Profile Avatar button (Prominently displays avatar with Google initial or sign in)
+                    IconButton(
+                        onClick = onOpenSettings,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (currentUser != null) MaterialTheme.colorScheme.primaryContainer
+                                else MaterialTheme.colorScheme.surfaceVariant
+                            )
+                            .testTag("top_bar_user_profile_button")
+                    ) {
+                        if (currentUser != null) {
+                            BadgedBox(
+                                badge = {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF10B981))
+                                    )
+                                }
+                            ) {
+                                val initial = (currentUser.displayName?.firstOrNull() ?: currentUser.email?.firstOrNull() ?: 'U').uppercaseChar()
+                                Text(
+                                    text = "$initial",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.AccountCircle,
+                                contentDescription = if (language == "BN") "সাইন-ইন" else "Sign In",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+
                     // Settings button - Guaranteed visible with prominent circle background!
                     IconButton(
                         onClick = onOpenSettings,
@@ -304,6 +363,162 @@ fun InboxScreen(
                         .fillMaxWidth()
                         .testTag("search_sms_field")
                 )
+            }
+
+            // Google Profile & Web Screen Connect Card
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .testTag("profile_and_web_connect_card"),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (currentUser != null) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                )
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    // Profile Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(if (currentUser != null) MaterialTheme.colorScheme.primary else Color(0xFF64748B)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (currentUser != null) {
+                                    val initial = (currentUser.displayName?.firstOrNull() ?: currentUser.email?.firstOrNull() ?: 'U').uppercaseChar()
+                                    Text(
+                                        text = "$initial",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.AccountCircle,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f, fill = false)) {
+                                Text(
+                                    text = if (currentUser != null) (currentUser.displayName ?: "Google User")
+                                    else (if (language == "BN") "গুগল সাইন-ইন করা নেই" else "Not Signed In"),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = currentUser?.email ?: (if (language == "BN") "ক্লাউডে মেসেজ ব্যাকআপ রাখতে লগইন করুন" else "Sign in to backup messages to cloud"),
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        // Profile action button
+                        OutlinedButton(
+                            onClick = onOpenSettings,
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                            modifier = Modifier.testTag("profile_card_action_button")
+                        ) {
+                            Text(
+                                text = if (currentUser != null) (if (language == "BN") "প্রোফাইল" else "Profile")
+                                else (if (language == "BN") "লগইন" else "Sign In"),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    if (currentUser == null) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        GoogleSignInButton(
+                            activity = activity,
+                            actionScope = authScope,
+                            onAuthSuccess = onAuthSuccess,
+                            onAuthError = onAuthError,
+                            buttonTestTag = "inbox_google_sign_in_button",
+                            buttonText = if (language == "BN") "গুগল দিয়ে সাইন-ইন করুন" else "Sign in with Google",
+                            subtitleText = null
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Web Connection Buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = onConnectToWeb,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isWebConnected) Color(0xFF059669) else Color(0xFF2563EB)
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(40.dp)
+                                .testTag("inbox_instant_web_connect_button")
+                        ) {
+                            Icon(
+                                imageVector = if (isWebConnected) Icons.Default.CloudDone else Icons.Default.ElectricBolt,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = Color.White
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (isWebConnected) {
+                                    if (language == "BN") "🟢 ওয়েব কানেক্টেড (Live)" else "🟢 Web Connected"
+                                } else {
+                                    if (language == "BN") "⚡ ১-ক্লিকে ওয়েব কানেক্ট" else "⚡ 1-Click Web Connect"
+                                },
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = onOpenQrScanner,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .height(40.dp)
+                                .testTag("inbox_open_qr_scanner_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.QrCodeScanner,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (language == "BN") "QR স্ক্যান" else "QR Scan",
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
             }
 
             // Category Chips Row

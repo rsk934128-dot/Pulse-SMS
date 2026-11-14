@@ -20,7 +20,7 @@ import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(manifest = Config.NONE)
 class SmsNotificationManagerTest {
 
     private val context: Context get() = ApplicationProvider.getApplicationContext()

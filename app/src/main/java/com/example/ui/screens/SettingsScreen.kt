@@ -47,6 +47,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,11 +63,13 @@ import androidx.compose.ui.unit.sp
 import com.example.ui.auth.GoogleSignInButton
 import com.example.ui.auth.GoogleUserProfileCard
 import com.google.firebase.auth.FirebaseUser
+import kotlinx.coroutines.CoroutineScope
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     activity: android.app.Activity? = null,
+    actionScope: CoroutineScope? = null,
     isDefaultSms: Boolean,
     hasTelephonyPermissions: Boolean,
     language: String,
@@ -78,6 +85,13 @@ fun SettingsScreen(
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var inlineAuthError by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(currentUser) {
+        if (currentUser != null) {
+            inlineAuthError = null
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -173,11 +187,47 @@ fun SettingsScreen(
 
                         GoogleSignInButton(
                             activity = activity,
-                            onAuthSuccess = onAuthSuccess,
-                            onAuthError = onAuthError,
+                            actionScope = actionScope,
+                            onAuthSuccess = {
+                                inlineAuthError = null
+                                onAuthSuccess()
+                            },
+                            onAuthError = { msg ->
+                                inlineAuthError = msg
+                                onAuthError(msg)
+                            },
                             buttonText = if (language == "BN") "যেকোনো গুগল অ্যাকাউন্ট দিয়ে সাইন-ইন" else "Sign in with Any Google Account",
                             subtitleText = if (language == "BN") "যেকোনো অ্যাকাউন্ট বেছে নিন বা নতুন যোগ করুন • Zero-Trust" else "Choose any account or add new • Zero-Trust"
                         )
+
+                        if (!inlineAuthError.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.errorContainer,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("settings_auth_error_banner")
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Warning,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = inlineAuthError!!,
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }

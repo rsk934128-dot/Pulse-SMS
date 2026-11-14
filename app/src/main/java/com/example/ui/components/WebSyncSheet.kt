@@ -74,6 +74,7 @@ fun WebSyncSheet(
     onToggleConnection: () -> Unit,
     onSimulateIncoming: (sender: String, body: String) -> Unit,
     onOpenQrScanner: () -> Unit = {},
+    onConnectToWeb: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -187,10 +188,38 @@ fun WebSyncSheet(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Primary Camera QR Scan Button
+            // 1. Instant 1-Tap Connect to Web Button
             Button(
+                onClick = {
+                    onConnectToWeb()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("instant_one_tap_connect_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ElectricBolt,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (language == "BN") "⚡ ওয়েবসাইটে ১-ক্লিকে এখনই কানেক্ট করুন" else "⚡ Connect to Website in 1-Click",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    color = Color.White
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // 2. Camera QR Scan Button
+            OutlinedButton(
                 onClick = onOpenQrScanner,
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .fillMaxWidth()

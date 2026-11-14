@@ -12,6 +12,7 @@ import com.example.data.repository.WebSyncEvent
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.auth
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -44,12 +45,10 @@ class SmsViewModel(
     val currentLanguage = MutableStateFlow("BN") // "BN" or "EN"
     val selectedSimSlot = MutableStateFlow(0) // 0 for SIM 1, 1 for SIM 2
 
-    private val _isDefaultSmsApp = MutableStateFlow(repository.isDefaultSmsApp())
+    private val _isDefaultSmsApp = MutableStateFlow(false)
     val isDefaultSmsApp: StateFlow<Boolean> = _isDefaultSmsApp.asStateFlow()
 
-    private val _hasSmsPermissions = MutableStateFlow(
-        com.example.telephony.SmsPermissionManager.hasEssentialSmsPermissions(application)
-    )
+    private val _hasSmsPermissions = MutableStateFlow(false)
     val hasSmsPermissions: StateFlow<Boolean> = _hasSmsPermissions.asStateFlow()
 
     private val _isDeviceSmsSyncing = MutableStateFlow(false)
@@ -89,6 +88,8 @@ class SmsViewModel(
     val aiErrorMessage: StateFlow<String?> = _aiErrorMessage.asStateFlow()
 
     init {
+        authenticator.ensureInitialized(getApplication())
+
         // Track Firebase auth state and sync profile
         viewModelScope.launch {
             authenticator.authStateFlow.collect { user ->
@@ -148,15 +149,19 @@ class SmsViewModel(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     fun checkDefaultSmsStatus() {
-        _isDefaultSmsApp.value = repository.isDefaultSmsApp()
+        viewModelScope.launch(Dispatchers.IO) {
+            _isDefaultSmsApp.value = repository.isDefaultSmsApp()
+        }
     }
 
     fun refreshPermissionState() {
-        val granted = com.example.telephony.SmsPermissionManager.hasEssentialSmsPermissions(getApplication())
-        _hasSmsPermissions.value = granted
-        checkDefaultSmsStatus()
-        if (granted) {
-            syncDeviceSms()
+        viewModelScope.launch(Dispatchers.IO) {
+            val granted = com.example.telephony.SmsPermissionManager.hasEssentialSmsPermissions(getApplication())
+            _hasSmsPermissions.value = granted
+            _isDefaultSmsApp.value = repository.isDefaultSmsApp()
+            if (granted && !_isDeviceSmsSyncing.value) {
+                syncDeviceSms()
+            }
         }
     }
 
@@ -207,6 +212,30 @@ class SmsViewModel(
                 if (connected) "Web screen connected via Camera QR Scan (Pulse Live Sync Active)"
                 else "Web client disconnected from Android bridge"
             )
+        }
+    }
+
+    fun connectToWeb(
+        sessionId: String = "pulse_pair_instant_one_shot",
+        onComplete: (Boolean, String) -> Unit = { _, _ -> }
+    ) {
+        viewModelScope.launch {
+            try {
+                repository.emitSyncLog("WEB_PAIRING", "Connecting to website pairing session: $sessionId...")
+                val result = com.example.data.repository.QrPairingManager.pairWithWebsite(getApplication(), sessionId)
+                if (result.success) {
+                    setWebConnected(true)
+                    triggerCloudSyncNow()
+                    repository.emitSyncLog("WEB_PAIRING", "🎉 ওয়েবসাইটের সাথে ডিভাইস সফলভাবে কানেক্ট হয়েছে (${result.deviceName})")
+                    onComplete(true, result.message)
+                } else {
+                    repository.emitSyncLog("WEB_PAIRING", "পেয়ারিং ব্যর্থ: ${result.message}")
+                    onComplete(false, result.message)
+                }
+            } catch (e: Exception) {
+                repository.emitSyncLog("WEB_PAIRING", "Pairing error: ${e.message}")
+                onComplete(false, e.localizedMessage ?: "Failed to connect to web")
+            }
         }
     }
 

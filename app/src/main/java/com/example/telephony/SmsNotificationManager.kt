@@ -48,32 +48,30 @@ object SmsNotificationManager {
      * Initializes the High-Priority notification channel for Heads-Up alerts.
      */
     fun createNotificationChannel(context: Context) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-                ?: return
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                    ?: return
 
-            val existingChannel = notificationManager.getNotificationChannel(CHANNEL_ID)
-            if (existingChannel == null) {
-                val channel = NotificationChannel(
-                    CHANNEL_ID,
-                    CHANNEL_NAME,
-                    NotificationManager.IMPORTANCE_HIGH
-                ).apply {
-                    description = CHANNEL_DESC
-                    enableLights(true)
-                    lightColor = Color.BLUE
-                    enableVibration(true)
-                    vibrationPattern = longArrayOf(0, 250, 150, 250)
-                    lockscreenVisibility = android.app.Notification.VISIBILITY_PRIVATE
-                    setShowBadge(true)
-                    val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-                    setSound(soundUri, android.media.AudioAttributes.Builder()
-                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION_COMMUNICATION_INSTANT)
-                        .build())
+                val existingChannel = notificationManager.getNotificationChannel(CHANNEL_ID)
+                if (existingChannel == null) {
+                    val channel = NotificationChannel(
+                        CHANNEL_ID,
+                        CHANNEL_NAME,
+                        NotificationManager.IMPORTANCE_HIGH
+                    ).apply {
+                        description = CHANNEL_DESC
+                        enableLights(true)
+                        lightColor = Color.BLUE
+                        enableVibration(true)
+                        lockscreenVisibility = android.app.Notification.VISIBILITY_PRIVATE
+                        setShowBadge(true)
+                    }
+                    notificationManager.createNotificationChannel(channel)
                 }
-                notificationManager.createNotificationChannel(channel)
             }
+        } catch (t: Throwable) {
+            Log.e(TAG, "createNotificationChannel notice: ${t.message}")
         }
     }
 

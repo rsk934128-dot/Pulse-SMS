@@ -45,9 +45,14 @@ import com.example.auth.findActivity
 
 import android.content.Intent
 import com.example.telephony.SmsNotificationManager
+import androidx.compose.runtime.withFrameNanos
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 import com.example.auth.CurrentActivityHolder
 
@@ -57,13 +62,32 @@ class MainActivity : ComponentActivity() {
     val notificationThreadAddress: StateFlow<String?> = _notificationThreadAddress.asStateFlow()
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        CurrentActivityHolder.currentActivity = this
-        configureAppCheck(this, intent)
         enableEdgeToEdge()
+        super.onCreate(savedInstanceState)
+        try {
+            CurrentActivityHolder.currentActivity = this
+            try {
+                configureAppCheck(this, intent)
+            } catch (t: Throwable) {
+                android.util.Log.e("MainActivity", "configureAppCheck notice", t)
+            }
+            try {
+                AuthManager.authenticator.ensureInitialized(this)
+            } catch (t: Throwable) {
+                android.util.Log.e("MainActivity", "FirebaseAuthenticator init notice", t)
+            }
+            handleNotificationIntent(intent)
+        } catch (t: Throwable) {
+            android.util.Log.e("MainActivity", "onCreate init error", t)
+        }
 
-        SmsNotificationManager.createNotificationChannel(this)
-        handleNotificationIntent(intent)
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                SmsNotificationManager.createNotificationChannel(this@MainActivity)
+            } catch (t: Throwable) {
+                android.util.Log.e("MainActivity", "createNotificationChannel notice", t)
+            }
+        }
 
         setContent {
             MyApplicationTheme {
@@ -148,8 +172,10 @@ fun SmsAppRoot(
     var showQrScanner by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
 
-    // Silent Auto-Sign-In on App Startup
+    // Stagger silent Auto-Sign-In until after first Compose frame & SurfaceSyncGroup finish
     LaunchedEffect(Unit) {
+        withFrameNanos { }
+        delay(900)
         AuthManager.attemptAutoSignIn(
             context = activity ?: context,
             credentialManager = credentialManager,
@@ -220,14 +246,19 @@ fun SmsAppRoot(
         permissionLauncher.launch(SmsPermissionManager.getAllRequiredPermissions())
     }
 
-    // Auto-prompt essential telephony and SMS permissions on app launch
+    // Auto-prompt essential telephony and SMS permissions only after first frame renders cleanly
+    var hasPromptedStartupPermissions by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        if (!hasSmsPermissions) {
+        withFrameNanos { }
+        delay(450)
+        if (!hasPromptedStartupPermissions && !SmsPermissionManager.hasEssentialSmsPermissions(context)) {
+            hasPromptedStartupPermissions = true
             onRequestPermissions()
         }
     }
 
-    if (currentThreadAddress != null) {
+    val activeThread = currentThreadAddress
+    if (activeThread != null) {
         ChatThreadScreen(
             conversation = currentConversation,
             messages = activeThreadMessages,
@@ -237,10 +268,10 @@ fun SmsAppRoot(
                 viewModel.sendMessage(recipient, body, simSlot)
             },
             onDeleteMessage = { id ->
-                viewModel.deleteMessage(id, currentThreadAddress!!)
+                viewModel.deleteMessage(id, activeThread)
             },
             onDeleteConversation = {
-                viewModel.deleteConversation(currentThreadAddress!!)
+                viewModel.deleteConversation(activeThread)
             },
             smartReplies = smartReplies,
             aiSummary = aiSummary,
@@ -264,6 +295,19 @@ fun SmsAppRoot(
             hasTelephonyPermissions = hasSmsPermissions,
             isWebConnected = isWebConnected,
             language = currentLanguage,
+            currentUser = currentUser,
+            activity = activity,
+            authScope = coroutineScope,
+            onAuthSuccess = {
+                Toast.makeText(
+                    context,
+                    if (currentLanguage == "BN") "গুগল সাইন-ইন সফল হয়েছে! ক্লাউড সিঙ্ক সক্রিয়।" else "Google Sign-In successful! Cloud sync active.",
+                    Toast.LENGTH_SHORT
+                ).show()
+            },
+            onAuthError = { errorMsg ->
+                Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
+            },
             onCategorySelected = { viewModel.setCategory(it) },
             onSearchQueryChanged = { viewModel.setSearchQuery(it) },
             onConversationClicked = { viewModel.openThread(it) },
@@ -273,6 +317,11 @@ fun SmsAppRoot(
             onOpenCompose = { showCompose = true },
             onOpenWebSync = { showWebSync = true },
             onOpenQrScanner = { showQrScanner = true },
+            onConnectToWeb = {
+                viewModel.connectToWeb { success, msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                }
+            },
             onToggleLanguage = { viewModel.toggleLanguage() },
             onOpenSettings = { showSettings = true },
             onRequestDefaultSms = onRequestDefaultSms,
@@ -317,6 +366,11 @@ fun SmsAppRoot(
                 showWebSync = false
                 showQrScanner = true
             },
+            onConnectToWeb = {
+                viewModel.connectToWeb { success, msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                }
+            },
             onDismiss = { showWebSync = false }
         )
     }
@@ -348,6 +402,7 @@ fun SmsAppRoot(
         val hostActivity = activity ?: context.findActivity() ?: CurrentActivityHolder.currentActivity
         SettingsScreen(
             activity = hostActivity,
+            actionScope = coroutineScope,
             isDefaultSms = isDefaultSms,
             hasTelephonyPermissions = hasSmsPermissions,
             language = currentLanguage,

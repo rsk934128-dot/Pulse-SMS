@@ -70,6 +70,8 @@ fun GoogleSignInButton(
     onAuthError: (String) -> Unit,
     modifier: Modifier = Modifier,
     activity: android.app.Activity? = null,
+    actionScope: kotlinx.coroutines.CoroutineScope? = null,
+    buttonTestTag: String = "google_sign_in_button",
     buttonText: String = "যেকোনো গুগল অ্যাকাউন্ট দিয়ে সাইন-ইন",
     subtitleText: String? = "যেকোনো অ্যাকাউন্ট বেছে নিন বা নতুন যোগ করুন"
 ) {
@@ -77,7 +79,8 @@ fun GoogleSignInButton(
     val hostActivity = remember(activity, context) {
         activity ?: (context as? android.app.Activity) ?: context.findActivity() ?: com.example.auth.CurrentActivityHolder.currentActivity
     }
-    val coroutineScope = rememberCoroutineScope()
+    val localScope = rememberCoroutineScope()
+    val effectiveScope = actionScope ?: localScope
     var isLoading by remember { mutableStateOf(false) }
 
     val isDark = isSystemInDarkTheme()
@@ -101,6 +104,7 @@ fun GoogleSignInButton(
                         onAuthError("অ্যাক্টিভিটি পাওয়া যায়নি, অনুগ্রহ করে পুনরায় চেষ্টা করুন")
                         return@Surface
                     }
+                    AuthManager.authenticator.ensureInitialized(targetActivity)
                     val activeCredentialManager = CredentialManager.create(targetActivity)
                     isLoading = true
                     AuthManager.onGoogleSignInClicked(
@@ -114,7 +118,7 @@ fun GoogleSignInButton(
                             isLoading = false
                             onAuthError(errorMsg)
                         },
-                        scope = coroutineScope,
+                        scope = effectiveScope,
                         onAuthCancelled = {
                             isLoading = false
                         }
@@ -128,7 +132,7 @@ fun GoogleSignInButton(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(48.dp)
-                .testTag("google_sign_in_button")
+                .testTag(buttonTestTag)
         ) {
             Row(
                 modifier = Modifier

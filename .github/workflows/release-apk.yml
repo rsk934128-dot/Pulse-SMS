@@ -56,39 +56,64 @@ jobs:
           fi
 
       - name: Setup Keystores (Preserve Firebase SHA-1 Certificate)
+        env:
+          SECRET_KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          SECRET_STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          SECRET_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
+          set -euo pipefail
+
           # 1. Restore exact debug.keystore matching Firebase google-services.json (SHA-1: B6:4D:9F:4E:59:B7:5D:E0:84:42:1F:75:A9:CD:1F:85:BF:42:1A:E9)
           if [ -f debug.keystore.base64 ]; then
-            python3 -c "import base64; open('debug.keystore','wb').write(base64.b64decode(open('debug.keystore.base64').read().strip()))"
+            python3 -c "import base64; open('debug.keystore','wb').write(base64.b64decode(''.join(open('debug.keystore.base64').read().split())))"
           fi
 
-          if [ ! -f debug.keystore ] || [ ! -s debug.keystore ]; then
+          if [ ! -f debug.keystore ] || [ ! -s debug.keystore ] || ! keytool -list -keystore debug.keystore -alias androiddebugkey -storepass android >/dev/null 2>&1; then
             echo "Fallback generating debug.keystore..."
-            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+            rm -f debug.keystore
+            keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
 
-          # 2. Setup release keystore (my-upload-key.jks with alias 'upload' and matching SHA-1)
-          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+          # 2. Setup release keystore (my-upload-key.jks with alias 'upload') idempotently
+          if [ -n "${SECRET_KEYSTORE_BASE64}" ]; then
             echo "Custom release keystore secret found. Decoding..."
             rm -f my-upload-key.jks
-            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > my-upload-key.jks
-            echo "STORE_PASSWORD=${{ secrets.STORE_PASSWORD }}" >> $GITHUB_ENV
-            echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
+            python3 -c "import base64, os; open('my-upload-key.jks','wb').write(base64.b64decode(''.join(os.environ['SECRET_KEYSTORE_BASE64'].split())))"
+            STORE_PASS="${SECRET_STORE_PASSWORD:-android}"
+            KEY_PASS="${SECRET_KEY_PASSWORD:-$STORE_PASS}"
+            if ! keytool -list -keystore my-upload-key.jks -alias upload -storepass "$STORE_PASS" >/dev/null 2>&1; then
+              if keytool -list -keystore my-upload-key.jks -alias androiddebugkey -storepass "$STORE_PASS" >/dev/null 2>&1; then
+                keytool -changealias -keystore my-upload-key.jks -alias androiddebugkey -destalias upload -storepass "$STORE_PASS" -keypass "$KEY_PASS"
+              else
+                echo "Error: Custom keystore does not contain alias 'upload'."
+                exit 1
+              fi
+            fi
           else
-            echo "Cloning debug.keystore to my-upload-key.jks with alias 'upload' so Release APK has registered Firebase SHA-1..."
+            echo "Setting up my-upload-key.jks from debug.keystore with alias 'upload' so Release APK matches Firebase SHA-1..."
             rm -f my-upload-key.jks
-            cp debug.keystore my-upload-key.jks
-            keytool -changealias -keystore my-upload-key.jks -alias androiddebugkey -destalias upload -storepass android
-            echo "STORE_PASSWORD=android" >> $GITHUB_ENV
-            echo "KEY_PASSWORD=android" >> $GITHUB_ENV
+            cp -f debug.keystore my-upload-key.jks
+            STORE_PASS="android"
+            KEY_PASS="android"
+
+            if keytool -list -keystore my-upload-key.jks -alias upload -storepass "$STORE_PASS" >/dev/null 2>&1; then
+              echo "Alias 'upload' already exists in my-upload-key.jks; reusing existing alias."
+            elif keytool -list -keystore my-upload-key.jks -alias androiddebugkey -storepass "$STORE_PASS" >/dev/null 2>&1; then
+              keytool -changealias -keystore my-upload-key.jks -alias androiddebugkey -destalias upload -storepass "$STORE_PASS" -keypass "$KEY_PASS"
+            else
+              keytool -genkeypair -v -keystore my-upload-key.jks -storepass "$STORE_PASS" -alias upload -keypass "$KEY_PASS" -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Pulse SMS Release,O=Pulse,C=US"
+            fi
           fi
+
           echo "KEYSTORE_PATH=${{ github.workspace }}/my-upload-key.jks" >> $GITHUB_ENV
+          echo "STORE_PASSWORD=$STORE_PASS" >> $GITHUB_ENV
+          echo "KEY_PASSWORD=$KEY_PASS" >> $GITHUB_ENV
 
           # Display SHA-1 fingerprints in workflow log for verification
           echo "Debug Certificate SHA-1:"
           keytool -list -v -keystore debug.keystore -alias androiddebugkey -storepass android | grep -i sha1 || true
           echo "Release Certificate SHA-1:"
-          keytool -list -v -keystore my-upload-key.jks -alias upload -storepass android | grep -i sha1 || true
+          keytool -list -v -keystore my-upload-key.jks -alias upload -storepass "$STORE_PASS" | grep -i sha1 || true
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -104,11 +129,9 @@ jobs:
       - name: Build Debug & Release APKs
         run: |
           if [ -f ./gradlew ]; then
-            ./gradlew :app:assembleDebug
-            ./gradlew :app:assembleRelease || echo "Release build fallback to debug"
+            ./gradlew :app:assembleDebug :app:assembleRelease
           else
-            gradle :app:assembleDebug
-            gradle :app:assembleRelease || echo "Release build fallback to debug"
+            gradle :app:assembleDebug :app:assembleRelease
           fi
 
       - name: Organize APK Artifacts
