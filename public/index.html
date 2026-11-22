@@ -88,6 +88,35 @@
       animation: qrScanLaserMove 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
       opacity: 1 !important;
     }
+    #qrBoxContainer {
+      width: min(232px, calc(100vw - 4.5rem));
+      height: min(232px, calc(100vw - 4.5rem));
+      aspect-ratio: 1 / 1;
+      box-sizing: border-box;
+    }
+    #qrcode {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      background: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #qrcode > canvas,
+    #qrcode > img,
+    #qrcode > table {
+      position: absolute !important;
+      inset: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+      max-width: 100% !important;
+      max-height: 100% !important;
+      margin: 0 auto !important;
+      object-fit: contain !important;
+      display: block !important;
+      image-rendering: pixelated;
+    }
   </style>
 </head>
 
@@ -218,9 +247,9 @@
               </div>
 
               <!-- Full Screen Modal Launcher Button -->
-              <button onclick="toggleWebMessengerModal()" title="ফুল-স্ক্রিন মোড ও কিউআর পেয়ারিং" class="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs flex items-center gap-1 border border-slate-700 transition-colors">
-                <i class="ph ph-arrows-out-simple text-sm"></i>
-                <span class="text-[11px] hidden lg:inline">QR পেয়ারিং</span>
+              <button onclick="toggleWebMessengerModal()" title="ফুল-স্ক্রিন মোড ও কিউআর পেয়ারিং" class="px-2 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs flex items-center gap-1.5 border border-slate-700 transition-colors">
+                <i class="ph ph-qr-code text-sm text-cyan-400"></i>
+                <span class="text-[11px] hidden sm:inline">QR পেয়ারিং</span>
               </button>
             </div>
           </div>
@@ -305,8 +334,8 @@
   </header>
 
   <!-- Interactive Full Web Companion Modal (Hidden by default, opened on click) -->
-  <div id="webMessengerModal" class="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md hidden flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
-    <div class="bg-slate-900 border border-slate-800 w-full max-w-5xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] relative">
+  <div id="webMessengerModal" class="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md hidden flex items-start sm:items-center justify-center p-2 sm:p-6 overflow-y-auto">
+    <div class="bg-slate-900 border border-slate-800 w-full max-w-5xl rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[94dvh] sm:max-h-[92vh] my-auto relative">
       
       <!-- Floating Toast Notification inside Web Messenger Modal -->
       <div id="modalToastContainer" class="absolute top-4 left-1/2 -translate-x-1/2 z-50 pointer-events-none transition-all duration-300 -translate-y-20 opacity-0 scale-95">
@@ -328,54 +357,54 @@
       </div>
 
       <!-- Modal Top Bar -->
-      <div class="px-6 py-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+      <div class="px-4 sm:px-6 py-3 sm:py-4 bg-slate-950 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2.5">
         <div class="flex items-center gap-3">
-          <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold">
+          <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold shrink-0">
             <i class="ph ph-chat-centered-text text-xl"></i>
           </div>
           <div>
-            <h3 class="text-base font-bold text-white">Pulse SMS Web Messenger</h3>
-            <p class="text-xs text-slate-400">লাইভ ব্রাউজার চ্যাট ও ফায়ারবেস সিঙ্ক ইঞ্জিন</p>
+            <h3 class="text-sm sm:text-base font-bold text-white">Pulse SMS Web Messenger</h3>
+            <p class="text-[11px] sm:text-xs text-slate-400">লাইভ ব্রাউজার চ্যাট ও ফায়ারবেস সিঙ্ক ইঞ্জিন</p>
           </div>
         </div>
 
         <!-- Center View Switcher Tabs: Live Inbox vs 7-Day D3 Analytics -->
-        <div class="flex items-center bg-slate-900 border border-slate-800 p-1 rounded-xl text-xs gap-1">
-          <button id="modalTabInbox" onclick="switchModalView('INBOX')" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white font-semibold flex items-center gap-1.5 transition-all shadow-sm">
+        <div class="flex items-center bg-slate-900 border border-slate-800 p-1 rounded-xl text-xs gap-1 order-3 sm:order-2 w-full sm:w-auto justify-center">
+          <button id="modalTabInbox" onclick="switchModalView('INBOX')" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white font-semibold flex items-center gap-1.5 transition-all shadow-sm flex-1 sm:flex-initial justify-center">
             <i class="ph ph-chat-centered-text"></i>
             <span>লাইভ মেসেঞ্জার</span>
           </button>
-          <button id="modalTabAnalytics" onclick="switchModalView('ANALYTICS')" class="px-3 py-1.5 rounded-lg text-slate-300 hover:text-white font-medium flex items-center gap-1.5 transition-all">
+          <button id="modalTabAnalytics" onclick="switchModalView('ANALYTICS')" class="px-3 py-1.5 rounded-lg text-slate-300 hover:text-white font-medium flex items-center gap-1.5 transition-all flex-1 sm:flex-initial justify-center">
             <i class="ph ph-chart-bar"></i>
             <span>৭ দিনের পরিসংখ্যান (D3)</span>
           </button>
         </div>
 
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 order-2 sm:order-3">
           <!-- Firebase Auth Status -->
-          <div id="authStatusIndicator" class="text-xs px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-300 flex items-center gap-1.5">
-            <span class="w-2 h-2 rounded-full bg-amber-400"></span>
-            <span id="authStatusText">সাইন-ইন করা নেই</span>
+          <div id="authStatusIndicator" class="text-[11px] sm:text-xs px-2.5 sm:px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-300 flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span>
+            <span id="authStatusText" class="truncate max-w-[110px] sm:max-w-none">সাইন-ইন করা নেই</span>
           </div>
-          <button onclick="toggleWebMessengerModal()" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center">
+          <button onclick="toggleWebMessengerModal()" aria-label="মোডাল বন্ধ করুন" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center shrink-0">
             <i class="ph ph-x text-lg"></i>
           </button>
         </div>
       </div>
 
       <!-- Modal Main Area -->
-      <div id="modalInboxView" class="flex-1 overflow-y-auto custom-scrollbar p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div id="modalInboxView" class="flex-1 overflow-y-auto custom-scrollbar p-3 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
         
         <!-- Left: Device Pairing & QR Code -->
-        <div class="lg:col-span-5 bg-slate-950/70 border border-slate-800 rounded-2xl p-5 flex flex-col items-center text-center justify-between">
-          <div>
-            <h4 class="text-lg font-bold text-white mb-1">অ্যান্ড্রয়েড ফোনের সাথে কানেক্ট করুন</h4>
-            <p class="text-xs text-slate-400 mb-4">Pulse SMS অ্যাপ ওপেন করে 'Web Sync' থেকে এই QR কোডটি স্ক্যান করুন।</p>
+        <div class="lg:col-span-5 bg-slate-950/70 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col items-center text-center justify-between min-w-0">
+          <div class="w-full min-w-0 flex flex-col items-center">
+            <h4 class="text-base sm:text-lg font-bold text-white mb-1">অ্যান্ড্রয়েড ফোনের সাথে কানেক্ট করুন</h4>
+            <p class="text-xs text-slate-400 mb-3 max-w-xs">Pulse SMS অ্যাপ ওপেন করে 'Web Sync' থেকে এই QR কোডটি স্ক্যান করুন।</p>
 
-            <div id="qrBoxContainer" class="p-3 bg-white rounded-2xl inline-block shadow-lg relative my-2 overflow-hidden transition-all duration-300">
-              <div id="qrcode" class="w-44 h-44 flex items-center justify-center"></div>
-              <div id="qrLogoBadge" class="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div class="w-10 h-10 rounded-lg bg-blue-600/90 text-white flex items-center justify-center shadow">
+            <div id="qrBoxContainer" class="p-4 bg-white rounded-2xl shadow-xl relative my-2 mx-auto flex items-center justify-center shrink-0 overflow-hidden transition-all duration-300">
+              <div id="qrcode" class="w-full h-full"></div>
+              <div id="qrLogoBadge" class="absolute inset-0 flex items-center justify-center pointer-events-none z-[5]">
+                <div class="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md ring-4 ring-white">
                   <i class="ph ph-chat-centered-text text-xl"></i>
                 </div>
               </div>
@@ -384,7 +413,7 @@
               <div id="qrScanLaser" class="absolute left-0 right-0 h-1 bg-gradient-to-r from-transparent via-cyan-400 via-blue-500 to-transparent shadow-[0_0_12px_#38bdf8] opacity-0 pointer-events-none z-10 transition-opacity duration-200"></div>
 
               <!-- Visual Success Animation Overlay inside QR Box -->
-              <div id="qrSuccessOverlay" class="absolute inset-0 bg-emerald-950/95 backdrop-blur-sm flex flex-col items-center justify-center text-center p-3 opacity-0 pointer-events-none transition-all duration-500 scale-90">
+              <div id="qrSuccessOverlay" class="absolute inset-0 bg-emerald-950/95 backdrop-blur-sm flex flex-col items-center justify-center text-center p-3 opacity-0 pointer-events-none transition-all duration-500 scale-90 z-20">
                 <div class="w-14 h-14 rounded-full bg-emerald-500/20 border-2 border-emerald-400 flex items-center justify-center text-emerald-400 mb-2 relative">
                   <i class="ph ph-check-bold text-2xl animate-pulse"></i>
                   <span class="absolute inset-0 rounded-full border-2 border-emerald-400 animate-ping opacity-30"></span>
@@ -1282,11 +1311,6 @@ git push origin main</pre>
       qrContainer.innerHTML = "";
 
       try {
-        // Validate QRCode library availability
-        if (typeof QRCode === "undefined") {
-          throw new Error("QRCode rendering engine not loaded. Please verify internet connectivity.");
-        }
-
         // Generate and validate pairing token
         const randomPart = Math.random().toString(36).substring(2, 10);
         if (!randomPart) {
@@ -1300,14 +1324,63 @@ git push origin main</pre>
           time: Date.now()
         });
 
-        qrInstance = new QRCode(qrContainer, {
-          text: payload,
-          width: 176,
-          height: 176,
-          colorDark: "#0f172a",
-          colorLight: "#ffffff",
-          correctLevel: QRCode.CorrectLevel.M
-        });
+        const renderFallbackQrImage = () => {
+          qrContainer.innerHTML = "";
+          const fallbackImg = document.createElement("img");
+          fallbackImg.alt = "Pulse SMS Pairing QR Code";
+          fallbackImg.decoding = "async";
+          fallbackImg.src = "https://api.qrserver.com/v1/create-qr-code/?size=240x240&ecc=H&margin=0&color=0f172a&bgcolor=ffffff&data=" + encodeURIComponent(payload);
+          fallbackImg.onload = () => {
+            if (qrBadge) qrBadge.style.display = "flex";
+          };
+          fallbackImg.onerror = () => {
+            showQrError(qrContainer, qrBadge, new Error("QR code rendering engine not loaded. Please verify internet connectivity."));
+          };
+          qrContainer.appendChild(fallbackImg);
+        };
+
+        if (typeof QRCode !== "undefined") {
+          qrInstance = new QRCode(qrContainer, {
+            text: payload,
+            width: 240,
+            height: 240,
+            colorDark: "#0f172a",
+            colorLight: "#ffffff",
+            correctLevel: QRCode.CorrectLevel.H
+          });
+
+          // Ensure canvas & img never fight visually inside #qrcode
+          const renderedImg = qrContainer.querySelector("img");
+          const renderedCanvas = qrContainer.querySelector("canvas");
+          if (renderedImg) {
+            renderedImg.alt = "Pulse SMS Pairing QR Code";
+            renderedImg.addEventListener("load", () => {
+              if (renderedCanvas) renderedCanvas.style.display = "none";
+            });
+            if (renderedImg.complete && renderedImg.naturalWidth > 0 && renderedCanvas) {
+              renderedCanvas.style.display = "none";
+            }
+          }
+        } else {
+          // Dynamically load fallback QRCode script or fall back cleanly to remote QR image
+          const existingFallback = document.getElementById("qrcodeFallbackScript");
+          if (!existingFallback) {
+            const script = document.createElement("script");
+            script.id = "qrcodeFallbackScript";
+            script.src = "https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js";
+            script.onload = () => {
+              if (typeof QRCode !== "undefined") {
+                initQrCode();
+              } else {
+                renderFallbackQrImage();
+              }
+            };
+            script.onerror = renderFallbackQrImage;
+            document.head.appendChild(script);
+          } else {
+            renderFallbackQrImage();
+          }
+        }
 
         const tokenDisplay = document.getElementById("qrPairingTokenDisplay");
         if (tokenDisplay) tokenDisplay.innerText = pairingToken;
@@ -1316,13 +1389,14 @@ git push origin main</pre>
 
         // Verify that canvas or image was successfully appended
         setTimeout(() => {
+          if (typeof QRCode === "undefined" && !qrContainer.querySelector("img")) return;
           const hasContent = qrContainer.querySelector("canvas") || qrContainer.querySelector("img");
           if (!hasContent) {
-            showQrError(qrContainer, qrBadge, new Error("QR code canvas failed to render."));
+            renderFallbackQrImage();
           } else if (qrBadge) {
             qrBadge.style.display = "flex";
           }
-        }, 120);
+        }, 150);
 
         if (qrBadge) qrBadge.style.display = "flex";
 
@@ -1505,7 +1579,7 @@ git push origin main</pre>
         <div class="flex flex-col items-center justify-center p-2 text-center w-full h-full text-slate-800">
           <i class="ph ph-warning-circle text-amber-500 text-3xl mb-1.5 animate-bounce"></i>
           <p class="text-[11px] font-bold text-slate-800 leading-tight mb-1">QR কোড তৈরি করা যায়নি</p>
-          <p class="text-[10px] text-slate-500 leading-tight mb-3 px-1 max-w-[150px] truncate" title="${errorMsg}">${errorMsg}</p>
+          <p class="text-[10px] text-slate-500 leading-snug mb-2.5 px-1 line-clamp-2" title="${errorMsg}">${errorMsg}</p>
           <button onclick="initQrCode()" class="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-semibold shadow-md flex items-center gap-1.5 transition-all">
             <i class="ph ph-arrow-counter-clockwise text-sm"></i>
             <span>Retry</span>
