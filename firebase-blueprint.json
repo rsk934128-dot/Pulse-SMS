@@ -113,6 +113,23 @@
         }
       },
       "required": ["address", "snippet", "category", "unreadCount", "isPinned", "createdAt", "updatedAt"]
+    },
+    "CloudNotification": {
+      "title": "CloudNotification",
+      "description": "Two-way mirrored notification across paired Mobile and Web devices",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "appName": { "type": "string" },
+        "packageName": { "type": "string" },
+        "sourceDevice": { "type": "string", "enum": ["MOBILE", "WEB"] },
+        "category": { "type": "string", "enum": ["SMS", "APP", "OTP", "WEB_ALERT", "TEST"] },
+        "isTest": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "body", "appName", "packageName", "sourceDevice", "category", "isTest", "createdAt"]
     }
   },
   "firestore": {
@@ -133,6 +150,12 @@
         "$ref": "#/entities/CloudConversation"
       },
       "description": "User's synchronized conversations list"
+    },
+    "/pairing_sessions/{sessionId}/notifications/{notificationId}": {
+      "schema": {
+        "$ref": "#/entities/CloudNotification"
+      },
+      "description": "Real-time two-way mirrored notifications between paired Mobile and Web"
     }
   }
 }

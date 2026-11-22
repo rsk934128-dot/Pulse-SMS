@@ -218,10 +218,14 @@
       </a>
 
       <!-- Center Links (Desktop) -->
-      <div class="hidden md:flex items-center gap-8 text-sm font-medium text-slate-300">
+      <div class="hidden md:flex items-center gap-6 text-sm font-medium text-slate-300">
         <a href="#qr-connect" class="hover:text-cyan-400 transition-colors flex items-center gap-1.5 text-cyan-300 font-semibold">
           <i class="ph ph-qr-code text-cyan-400"></i>
           <span>QR কানেক্ট</span>
+        </a>
+        <a href="#notification-mirror" class="hover:text-emerald-400 transition-colors flex items-center gap-1.5 text-emerald-300 font-semibold">
+          <i class="ph ph-bell-ringing text-emerald-400"></i>
+          <span>নোটিফিকেশন সিঙ্ক</span>
         </a>
         <a href="#features" class="hover:text-blue-400 transition-colors">ফিচারসমূহ</a>
         <a href="#booking-hub" class="hover:text-blue-400 transition-colors flex items-center gap-1.5 text-blue-300 font-semibold">
@@ -255,6 +259,25 @@
       </div>
     </div>
   </nav>
+
+  <!-- Global Real-Time Floating Heads-Up Notification Toast (Visible anywhere on page) -->
+  <div id="globalPageNotifToast" class="fixed top-20 right-4 left-4 sm:left-auto sm:w-96 z-[95] pointer-events-none transition-all duration-300 -translate-y-8 opacity-0 scale-95">
+    <div class="pointer-events-auto flex items-start gap-3 p-3.5 rounded-2xl bg-slate-900/95 border border-cyan-500/40 text-white shadow-2xl backdrop-blur-xl">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-600 to-blue-600 flex items-center justify-center text-xl shrink-0 shadow">
+        <i class="ph ph-bell-ringing animate-pulse"></i>
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center justify-between gap-2">
+          <span id="globalToastSourceBadge" class="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-bold">📱 লাইভ নোটিফিকেশন</span>
+          <button type="button" onclick="hideGlobalNotifToast()" aria-label="Close notification" class="text-slate-400 hover:text-white p-0.5">
+            <i class="ph ph-x text-sm"></i>
+          </button>
+        </div>
+        <div id="globalToastTitle" class="text-xs font-bold text-white mt-1 truncate">নতুন নোটিফিকেশন</div>
+        <p id="globalToastDesc" class="text-[11px] text-slate-300 mt-0.5 line-clamp-2"></p>
+      </div>
+    </div>
+  </div>
 
   <!-- Hero Section -->
   <header class="relative pt-12 pb-20 px-4 overflow-hidden gradient-glow">
@@ -313,9 +336,16 @@
 
             <!-- Top Actions & Auth status -->
             <div class="flex items-center gap-2">
+              <!-- Jump to Live Notification Mirror -->
+              <a href="#notification-mirror" id="btnNotificationSyncJump" class="px-2.5 py-1 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-medium flex items-center gap-1.5 transition-all active:scale-95 shadow-sm" title="মোবাইল ও ওয়েব লাইভ নোটিফিকেশন মিরর">
+                <i class="ph ph-bell-ringing text-cyan-400"></i>
+                <span class="hidden lg:inline">নোটিফিকেশন</span>
+                <span id="liveNotifBadgeCount" class="px-1.5 py-0.2 rounded-full bg-cyan-500/30 text-cyan-200 text-[10px] font-mono font-bold">0</span>
+              </a>
+
               <!-- Simulate Incoming SMS CTA for Instant Testing -->
               <button onclick="triggerSimulatedIncomingSms()" class="px-2.5 py-1 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-medium flex items-center gap-1.5 transition-all active:scale-95 shadow-sm" title="মোবাইল থেকে আসা নতুন এসএমএস সিমুলেশন করুন">
-                <i class="ph ph-bell-ringing text-emerald-400"></i>
+                <i class="ph ph-chat-dots text-emerald-400"></i>
                 <span class="hidden md:inline">টেস্ট এসএমএস পাঠান</span>
                 <span class="md:hidden">টেস্ট</span>
               </button>
@@ -414,6 +444,144 @@
 
     </div>
   </header>
+
+  <!-- Two-Way Real-Time Notification Mirror & Simultaneous Test Studio -->
+  <section id="notification-mirror" class="relative z-10 py-6 sm:py-10 px-4 max-w-6xl mx-auto scroll-mt-24">
+    <div class="rounded-3xl bg-slate-900/95 border border-emerald-500/30 shadow-2xl p-5 sm:p-7 lg:p-8">
+      <!-- Top Studio Header -->
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 mb-6 border-b border-slate-800">
+        <div>
+          <div class="flex flex-wrap items-center gap-2 mb-1.5">
+            <span class="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-300 bg-emerald-950/70 px-3 py-1 rounded-full border border-emerald-500/30">
+              <i class="ph ph-arrows-left-right text-sm"></i>
+              <span>Simultaneous Notification Bridge</span>
+            </span>
+            <span id="notifBridgeStatusPill" class="text-[11px] px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 font-semibold">
+              পেয়ারিং অপেক্ষমাণ
+            </span>
+          </div>
+          <h2 class="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
+            মোবাইল ⇄ ওয়েবসাইট রিয়েল-টাইম নোটিফিকেশন মিরর ও টেস্ট
+          </h2>
+          <p class="text-xs sm:text-sm text-slate-400 mt-1">
+            মোবাইল ও ওয়েবসাইটে একই সময়ে (Same-Time) নোটিফিকেশন দেখুন এবং ১-ক্লিকে দুই-মুখী সিঙ্ক টেস্ট করুন।
+          </p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2 shrink-0">
+          <button type="button" id="btnEnableBrowserNotif" onclick="requestBrowserNotificationsPermission()" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95">
+            <i class="ph ph-desktop text-cyan-400 text-base"></i>
+            <span id="browserNotifBtnLabel">ব্রাউজার পপআপ চালু করুন</span>
+          </button>
+          <button type="button" onclick="runTwoWayNotificationPingTest()" class="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-emerald-600/25 transition-all active:scale-95">
+            <i class="ph ph-lightning text-base"></i>
+            <span>দুই ডিভাইসে সেম-টাইম টেস্ট</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 2-Column Studio Grid -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <!-- Left: Send to Phone + Test Controls -->
+        <div class="lg:col-span-5 space-y-4">
+          <!-- Simultaneous Dual-Device Ping Card -->
+          <div class="p-4 rounded-2xl bg-slate-950/90 border border-cyan-500/25 space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
+                <i class="ph ph-broadcast text-base"></i>
+                <span>এক-ক্লিক সেম-টাইম টেস্ট সুইট</span>
+              </span>
+              <span id="twoWayLatencyBadge" class="hidden text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">0ms</span>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2">
+              <button type="button" onclick="runTwoWayNotificationPingTest()" class="w-full py-2.5 px-3.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-200 border border-blue-500/30 font-semibold text-xs flex items-center justify-center gap-2 transition-all active:scale-95">
+                <i class="ph ph-arrows-clockwise text-base text-cyan-400"></i>
+                <span>🔄 অটো-পিং টেস্ট (Web ⇄ Mobile)</span>
+              </button>
+              <button type="button" onclick="sendTestNotificationFromWeb()" class="w-full py-2.5 px-3.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-200 border border-emerald-500/30 font-semibold text-xs flex items-center justify-center gap-2 transition-all active:scale-95">
+                <i class="ph ph-paper-plane-right text-base text-emerald-400"></i>
+                <span>🌐→📱 ওয়েব থেকে মোবাইলে টেস্ট পিং</span>
+              </button>
+            </div>
+
+            <div id="twoWayTestStatusText" class="text-[11px] text-slate-400 bg-slate-900/90 border border-slate-800 rounded-xl px-3 py-2 leading-relaxed">
+              ফোন ও ওয়েব পেয়ার করা অবস্থায় ওপরের বাটনে ক্লিক করলে মোবাইলে আসল Heads-Up নোটিফিকেশন এবং ওয়েবে একই সাথে লাইভ এলার্ট দেখাবে।
+            </div>
+          </div>
+
+          <!-- Custom Notification Dispatcher Form (Website -> Mobile Phone) -->
+          <form onsubmit="sendCustomNotificationToMobile(event)" class="p-4 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-3">
+            <div class="text-xs font-bold text-white flex items-center gap-1.5">
+              <i class="ph ph-device-mobile text-blue-400 text-base"></i>
+              <span>ওয়েব থেকে মোবাইলে কাস্টম নোটিফিকেশন পাঠান</span>
+            </div>
+
+            <div class="grid grid-cols-3 gap-2">
+              <div class="col-span-2">
+                <label for="webNotifTitleInput" class="block text-[10px] font-semibold text-slate-400 mb-1">শিরোনাম (Title)</label>
+                <input type="text" id="webNotifTitleInput" value="জরুরি রিমাইন্ডার" required maxlength="200" placeholder="নোটিফিকেশনের শিরোনাম..." class="w-full bg-slate-900 border border-slate-700 focus:border-cyan-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none" />
+              </div>
+              <div>
+                <label for="webNotifCategorySelect" class="block text-[10px] font-semibold text-slate-400 mb-1">ধরন</label>
+                <select id="webNotifCategorySelect" class="w-full bg-slate-900 border border-slate-700 focus:border-cyan-500 rounded-xl px-2 py-2 text-xs text-white focus:outline-none">
+                  <option value="WEB_ALERT">Alert</option>
+                  <option value="TEST">Test</option>
+                  <option value="OTP">OTP</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label for="webNotifBodyInput" class="block text-[10px] font-semibold text-slate-400 mb-1">বিস্তারিত বার্তা (Body)</label>
+              <input type="text" id="webNotifBodyInput" value="ব্রাউজার থেকে আপনার ফোনে পাঠানো রিয়েল-টাইম নোটিফিকেশন!" required maxlength="2000" placeholder="ফোনে কী নোটিফিকেশন যাবে লিখুন..." class="w-full bg-slate-900 border border-slate-700 focus:border-cyan-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none" />
+            </div>
+
+            <button type="submit" id="btnSendWebNotif" class="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-blue-600/25 active:scale-95 transition-all">
+              <i class="ph ph-bell-simple-ringing text-base"></i>
+              <span>📱 এখনই মোবাইলে নোটিফিকেশন পাঠান</span>
+            </button>
+          </form>
+        </div>
+
+        <!-- Right: Simultaneous Real-Time Unified Notification Feed (Mobile + Web) -->
+        <div class="lg:col-span-7 bg-slate-950/90 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between">
+          <div>
+            <div class="flex flex-wrap items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-800">
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <h3 class="text-sm font-bold text-white">সেম-টাইম লাইভ নোটিফিকেশন ফিড (Mobile + Web)</h3>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <span id="notifFeedCountBadge" class="text-[11px] px-2 py-0.5 rounded-full bg-slate-800 text-cyan-300 font-mono font-bold">০টি</span>
+                <button type="button" onclick="clearAllMirroredNotifications()" class="text-[11px] px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 border border-slate-800 transition-colors">
+                  ক্লিয়ার
+                </button>
+              </div>
+            </div>
+
+            <!-- Feed Source Filter Pills -->
+            <div class="flex items-center gap-1.5 overflow-x-auto pb-2 mb-2 text-[11px]">
+              <button type="button" onclick="setNotifFeedFilter('ALL')" id="notifFilterALL" class="px-2.5 py-1 rounded-lg bg-cyan-600 text-white font-semibold whitespace-nowrap">সব</button>
+              <button type="button" onclick="setNotifFeedFilter('MOBILE')" id="notifFilterMOBILE" class="px-2.5 py-1 rounded-lg bg-slate-900 text-slate-300 border border-slate-800 whitespace-nowrap">📱 মোবাইল থেকে</button>
+              <button type="button" onclick="setNotifFeedFilter('WEB')" id="notifFilterWEB" class="px-2.5 py-1 rounded-lg bg-slate-900 text-slate-300 border border-slate-800 whitespace-nowrap">🌐 ওয়েব থেকে</button>
+              <button type="button" onclick="setNotifFeedFilter('TEST')" id="notifFilterTEST" class="px-2.5 py-1 rounded-lg bg-slate-900 text-slate-300 border border-slate-800 whitespace-nowrap">🧪 টেস্ট</button>
+            </div>
+
+            <!-- Live Feed Items -->
+            <div id="liveMirrorNotificationsFeed" class="space-y-2 max-h-[340px] overflow-y-auto custom-scrollbar pr-1">
+              <!-- Populated dynamically -->
+            </div>
+          </div>
+
+          <div class="mt-3 pt-2.5 border-t border-slate-800/80 flex flex-wrap items-center justify-between text-[10px] text-slate-500 gap-2">
+            <span>টিপস: মোবাইলে WhatsApp/bKash-সহ সব অ্যাপের নোটিফিকেশন পেতে অ্যাপের Web Sync থেকে "সব অ্যাপ নোটিফিকেশন চালু করুন"।</span>
+            <span class="text-emerald-400 font-mono">Two-Way Realtime Sync</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
 
   <!-- Dedicated Always-Visible QR Code Connect Section (Cleanly above Features, never overlapped on any screen) -->
   <section id="qr-connect" class="relative z-10 py-10 sm:py-14 px-4 max-w-6xl mx-auto scroll-mt-24">
@@ -1862,6 +2030,7 @@ git push origin main</pre>
 
       if (pairedSessionId) {
         attachPairingSessionMessageListener(pairedSessionId);
+        attachPairingSessionNotificationListener(pairedSessionId);
       }
 
       // Only attach per-user Firestore listener if browser Auth matches the phone's Firebase Auth UID
@@ -2172,10 +2341,16 @@ git push origin main</pre>
         try { pairedMessagesUnsubscribe(); } catch (_) {}
         pairedMessagesUnsubscribe = null;
       }
+      if (pairedNotificationsUnsubscribe) {
+        try { pairedNotificationsUnsubscribe(); } catch (_) {}
+        pairedNotificationsUnsubscribe = null;
+      }
       activePairedSessionId = null;
       activePairedDeviceName = null;
       isUsingRealPairedInbox = false;
       pairedSessionMessages = [];
+      sessionMirroredNotifications = [];
+      renderLiveNotificationFeed();
       try {
         localStorage.removeItem(PAIRED_SESSION_STORAGE_KEY);
         localStorage.removeItem(PAIRED_DEVICE_STORAGE_KEY);
@@ -4788,12 +4963,428 @@ git push origin main</pre>
       addLogEntry("BOOKING", `Booking.com SMS সনাক্ত হয়েছে: ${hotelName} (Ref: ${confNo})`);
     }
 
+    // ==========================================
+    // 🔔 TWO-WAY REAL-TIME NOTIFICATION MIRROR & TEST ENGINE
+    // ==========================================
+    let pairedNotificationsUnsubscribe = null;
+    let sessionMirroredNotifications = [];
+    let notifFeedFilter = "ALL";
+    let notifListenStartedAtMs = Date.now();
+    let seenNotifDocIds = new Set();
+    let lastPingSentAtMap = {};
+    let globalToastTimer = null;
+
+    function showGlobalNotifToast(title, desc, badgeText) {
+      const toast = document.getElementById("globalPageNotifToast");
+      if (!toast) return;
+      const titleEl = document.getElementById("globalToastTitle");
+      const descEl = document.getElementById("globalToastDesc");
+      const badgeEl = document.getElementById("globalToastSourceBadge");
+      if (titleEl) titleEl.innerText = title || "নতুন নোটিফিকেশন";
+      if (descEl) descEl.innerText = desc || "";
+      if (badgeEl) badgeEl.innerText = badgeText || "🔔 লাইভ নোটিফিকেশন";
+
+      toast.classList.remove("-translate-y-8", "opacity-0", "scale-95");
+      toast.classList.add("translate-y-0", "opacity-100", "scale-100");
+
+      if (globalToastTimer) clearTimeout(globalToastTimer);
+      globalToastTimer = setTimeout(hideGlobalNotifToast, 5200);
+    }
+
+    function hideGlobalNotifToast() {
+      const toast = document.getElementById("globalPageNotifToast");
+      if (toast) {
+        toast.classList.add("-translate-y-8", "opacity-0", "scale-95");
+        toast.classList.remove("translate-y-0", "opacity-100", "scale-100");
+      }
+    }
+
+    function updateBrowserNotifButtonState() {
+      const label = document.getElementById("browserNotifBtnLabel");
+      const btn = document.getElementById("btnEnableBrowserNotif");
+      if (!label || !btn) return;
+      if (!("Notification" in window)) {
+        label.innerText = "ব্রাউজার সাপোর্ট নেই";
+        return;
+      }
+      if (Notification.permission === "granted") {
+        label.innerText = "✅ ব্রাউজার পপআপ চালু";
+        btn.classList.remove("bg-slate-800", "text-slate-200");
+        btn.classList.add("bg-emerald-600/20", "text-emerald-300", "border-emerald-500/30");
+      } else if (Notification.permission === "denied") {
+        label.innerText = "ব্রাউজার অনুমতি ব্লকড";
+      } else {
+        label.innerText = "ব্রাউজার পপআপ চালু করুন";
+      }
+    }
+
+    async function requestBrowserNotificationsPermission() {
+      warmUpWebAudioContext();
+      if (!("Notification" in window)) {
+        showGlobalNotifToast("সাপোর্ট নেই", "এই ব্রাউজারে ডেস্কটপ Notification API সক্রিয় নয়।", "⚠️ সতর্কতা");
+        return;
+      }
+      try {
+        const result = await Notification.requestPermission();
+        updateBrowserNotifButtonState();
+        if (result === "granted") {
+          new Notification("Pulse SMS ব্রাউজার নোটিফিকেশন চালু!", {
+            body: "এখন থেকে মোবাইল ও ওয়েবের সব নোটিফিকেশন সাথে সাথে পপআপ হবে।"
+          });
+          showGlobalNotifToast("ব্রাউজার নোটিফিকেশন সক্রিয়!", "মোবাইলের প্রতিটি নোটিফিকেশন এখন পপআপ আকারে দেখাবে।", "✅ সক্রিয়");
+        } else {
+          showGlobalNotifToast("অনুমতি দেওয়া হয়নি", "ব্রাউজার সেটিংস থেকে Notification অনুমতি দিন।", "⚠️ তথ্য");
+        }
+      } catch (e) {
+        console.warn("Notification permission error:", e);
+      }
+    }
+
+    function triggerBrowserDesktopNotification(title, body) {
+      try {
+        if ("Notification" in window && Notification.permission === "granted") {
+          new Notification(title, { body: body || "" });
+        }
+      } catch (_) {}
+    }
+
+    function setNotifFeedFilter(filter) {
+      notifFeedFilter = filter;
+      ["ALL", "MOBILE", "WEB", "TEST"].forEach((key) => {
+        const btn = document.getElementById("notifFilter" + key);
+        if (!btn) return;
+        if (key === filter) {
+          btn.className = "px-2.5 py-1 rounded-lg bg-cyan-600 text-white font-semibold whitespace-nowrap";
+        } else {
+          btn.className = "px-2.5 py-1 rounded-lg bg-slate-900 text-slate-300 border border-slate-800 whitespace-nowrap";
+        }
+      });
+      renderLiveNotificationFeed();
+    }
+
+    function renderLiveNotificationFeed() {
+      const container = document.getElementById("liveMirrorNotificationsFeed");
+      const countBadge = document.getElementById("notifFeedCountBadge");
+      const jumpBadge = document.getElementById("liveNotifBadgeCount");
+      const bridgePill = document.getElementById("notifBridgeStatusPill");
+
+      if (bridgePill) {
+        if (activePairedSessionId) {
+          bridgePill.className = "text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
+          bridgePill.innerText = `📱 ${activePairedDeviceName || "Android"} ⇄ 🌐 লাইভ`;
+        } else {
+          bridgePill.className = "text-[11px] px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 font-semibold";
+          bridgePill.innerText = "পেয়ারিং অপেক্ষমাণ";
+        }
+      }
+
+      if (countBadge) countBadge.innerText = `${sessionMirroredNotifications.length}টি`;
+      if (jumpBadge) jumpBadge.innerText = String(sessionMirroredNotifications.length);
+
+      if (!container) return;
+
+      let list = sessionMirroredNotifications.slice();
+      if (notifFeedFilter === "MOBILE") list = list.filter((n) => n.sourceDevice === "MOBILE");
+      else if (notifFeedFilter === "WEB") list = list.filter((n) => n.sourceDevice === "WEB");
+      else if (notifFeedFilter === "TEST") list = list.filter((n) => n.isTest || n.category === "TEST");
+
+      if (list.length === 0) {
+        const guideMsg = activePairedSessionId
+          ? "এখনো কোনো নোটিফিকেশন আসেনি। বাম পাশের '🔄 অটো-পিং টেস্ট' বা মোবাইল থেকে 'সেম-টাইম টেস্ট' চাপুন!"
+          : "প্রথমে নিচের QR কোড স্ক্যান করে বা ফোনের '১-ক্লিক কানেক্ট' বাটনে ক্লিক করে মোবাইল পেয়ার করুন।";
+        container.innerHTML = `
+          <div class="p-6 rounded-2xl bg-slate-900/60 border border-dashed border-slate-800 text-center space-y-2">
+            <div class="w-11 h-11 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center text-2xl mx-auto">
+              <i class="ph ph-bell-simple-slash"></i>
+            </div>
+            <p class="text-xs font-semibold text-slate-300">কোনো নোটিফিকেশন পাওয়া যায়নি</p>
+            <p class="text-[11px] text-slate-400 max-w-md mx-auto leading-relaxed">${escapeHtmlText(guideMsg)}</p>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = list.map((item, idx) => {
+        const isMobile = item.sourceDevice !== "WEB";
+        const sourceBadge = isMobile
+          ? `<span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">📱 মোবাইল</span>`
+          : `<span class="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 font-semibold">🌐 ওয়েব</span>`;
+
+        const cat = (item.category || "APP").toUpperCase();
+        let catBadge = `<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">${escapeHtmlText(cat)}</span>`;
+        if (cat === "TEST" || item.isTest) {
+          catBadge = `<span class="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-bold">🧪 টেস্ট</span>`;
+        } else if (cat === "OTP") {
+          catBadge = `<span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">🔑 OTP</span>`;
+        } else if (cat === "SMS") {
+          catBadge = `<span class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-bold">💬 SMS</span>`;
+        }
+
+        const timeMs = getFirestoreTimeMillis(item.createdAt) || Date.now();
+        const clockStr = new Date(timeMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        const docKey = escapeHtmlAttr(item._docId || item.id || `n_${idx}`);
+
+        return `
+          <div class="p-3 rounded-xl bg-slate-900 border ${item.isTest ? "border-cyan-500/35" : "border-slate-800"} hover:border-slate-700 transition-all flex items-start justify-between gap-3">
+            <div class="min-w-0 flex-1 space-y-1">
+              <div class="flex flex-wrap items-center gap-1.5">
+                ${sourceBadge}
+                <span class="text-[11px] font-semibold text-slate-300">${escapeHtmlText(item.appName || "Pulse")}</span>
+                ${catBadge}
+                <span class="text-[10px] text-slate-500 font-mono ml-auto">${escapeHtmlText(clockStr)}</span>
+              </div>
+              <div class="text-xs font-bold text-white break-words">${escapeHtmlText(item.title || "")}</div>
+              ${item.body ? `<p class="text-[11px] text-slate-300 leading-relaxed break-words">${escapeHtmlText(item.body)}</p>` : ""}
+            </div>
+            <button type="button" onclick="deleteMirroredNotification('${docKey}')" title="মুছুন" aria-label="Delete notification" class="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/15 transition-colors shrink-0">
+              <i class="ph ph-trash text-sm"></i>
+            </button>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function attachPairingSessionNotificationListener(sessionId) {
+      if (!sessionId) return;
+      notifListenStartedAtMs = Date.now();
+      seenNotifDocIds = new Set();
+
+      if (pairedNotificationsUnsubscribe) {
+        try { pairedNotificationsUnsubscribe(); } catch (_) {}
+        pairedNotificationsUnsubscribe = null;
+      }
+
+      withPulseFirebase((fb) => {
+        try {
+          const { db, collection, query, orderBy, limit, onSnapshot } = fb;
+          const q = query(
+            collection(db, "pairing_sessions", sessionId, "notifications"),
+            orderBy("createdAt", "desc"),
+            limit(50)
+          );
+          let isFirstSnapshot = true;
+          pairedNotificationsUnsubscribe = onSnapshot(q, (snapshot) => {
+            const items = [];
+            snapshot.forEach((docSnap) => {
+              const data = docSnap.data();
+              items.push({ ...data, _docId: docSnap.id, id: data.id || docSnap.id });
+            });
+            sessionMirroredNotifications = items;
+
+            items.forEach((item) => {
+              const id = String(item.id || item._docId);
+              if (!seenNotifDocIds.has(id)) {
+                seenNotifDocIds.add(id);
+
+                // Check for 2-way auto-ping acknowledgement coming back from Android phone
+                if (id.startsWith("ack_ping_")) {
+                  const origPingId = id.replace(/^ack_/, "");
+                  const sentAt = lastPingSentAtMap[origPingId];
+                  const statusEl = document.getElementById("twoWayTestStatusText");
+                  const latBadge = document.getElementById("twoWayLatencyBadge");
+                  if (sentAt) {
+                    const rtt = Math.max(1, Date.now() - sentAt);
+                    if (latBadge) {
+                      latBadge.classList.remove("hidden");
+                      latBadge.innerText = `${rtt}ms`;
+                    }
+                    if (statusEl) {
+                      statusEl.className = "text-[11px] text-emerald-300 bg-emerald-950/60 border border-emerald-500/35 rounded-xl px-3 py-2 leading-relaxed font-semibold";
+                      statusEl.innerText = `✅ ডুয়াল-ডিভাইস টেস্ট সফল! ওয়েব ⇄ মোবাইল দুই দিকেই লাইভ সিঙ্ক ভেরিফাইড (${rtt}ms)।`;
+                    }
+                  }
+                }
+
+                // Alert user for fresh incoming Mobile notifications arriving after listener start
+                const ts = getFirestoreTimeMillis(item.createdAt);
+                const isFresh = !isFirstSnapshot || (ts > 0 && ts >= notifListenStartedAtMs - 10000);
+                if (isFresh && item.sourceDevice === "MOBILE") {
+                  playIncomingMessageSound();
+                  showGlobalNotifToast(
+                    `${item.appName ? item.appName + ": " : ""}${item.title}`,
+                    item.body || "",
+                    item.isTest ? "🧪 মোবাইল টেস্ট" : "📱 মোবাইল নোটিফিকেশন"
+                  );
+                  showModalToast(`📱 ${item.title}`, (item.body || "").slice(0, 70));
+                  triggerBrowserDesktopNotification(`📱 ${item.title}`, item.body || "");
+                }
+              }
+            });
+
+            isFirstSnapshot = false;
+            renderLiveNotificationFeed();
+          }, (err) => {
+            console.warn("Notification mirror listener error:", err);
+          });
+        } catch (e) {
+          console.warn("Failed attaching notification mirror listener:", e);
+        }
+      });
+    }
+
+    async function dispatchWebNotificationToSession({ notifId, title, body, category, isTest }) {
+      const cleanId = String(notifId).replace(/[^a-zA-Z0-9_\-+]/g, "_").slice(0, 120);
+      const safeTitle = String(title || "Pulse Web Alert").trim().slice(0, 200);
+      const safeBody = String(body || "").trim().slice(0, 2000);
+      const safeCat = ["SMS", "APP", "OTP", "WEB_ALERT", "TEST"].includes(category) ? category : "WEB_ALERT";
+
+      // Optimistic local insert so web shows it immediately
+      const localItem = {
+        id: cleanId,
+        _docId: cleanId,
+        title: safeTitle,
+        body: safeBody,
+        appName: "Pulse Web",
+        packageName: "web.pulse.companion",
+        sourceDevice: "WEB",
+        category: safeCat,
+        isTest: Boolean(isTest),
+        createdAt: { seconds: Math.floor(Date.now() / 1000) }
+      };
+      seenNotifDocIds.add(cleanId);
+      sessionMirroredNotifications = [localItem, ...sessionMirroredNotifications.filter((n) => n.id !== cleanId)];
+      renderLiveNotificationFeed();
+
+      if (!activePairedSessionId) {
+        showGlobalNotifToast(
+          "পেয়ারিং প্রয়োজন!",
+          "মোবাইলে পাঠাতে আগে QR স্ক্যান করে বা ফোনের ১-ক্লিক কানেক্ট বাটন দিয়ে পেয়ার করুন।",
+          "⚠️ অফলাইন"
+        );
+        return false;
+      }
+
+      const fb = await waitForPulseFirebase(2500);
+      if (!fb || !fb.db) return false;
+      try {
+        await fb.setDoc(fb.doc(fb.db, "pairing_sessions", activePairedSessionId, "notifications", cleanId), {
+          id: cleanId,
+          title: safeTitle,
+          body: safeBody,
+          appName: "Pulse Web",
+          packageName: "web.pulse.companion",
+          sourceDevice: "WEB",
+          category: safeCat,
+          isTest: Boolean(isTest),
+          createdAt: fb.serverTimestamp()
+        });
+        return true;
+      } catch (err) {
+        console.warn("Failed dispatching web notification:", err);
+        return false;
+      }
+    }
+
+    async function sendCustomNotificationToMobile(e) {
+      if (e) e.preventDefault();
+      warmUpWebAudioContext();
+      const titleInput = document.getElementById("webNotifTitleInput");
+      const bodyInput = document.getElementById("webNotifBodyInput");
+      const catSelect = document.getElementById("webNotifCategorySelect");
+      const title = titleInput ? titleInput.value.trim() : "";
+      const body = bodyInput ? bodyInput.value.trim() : "";
+      const category = catSelect ? catSelect.value : "WEB_ALERT";
+      if (!title || !body) return;
+
+      const notifId = "webnotif_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6);
+      const ok = await dispatchWebNotificationToSession({
+        notifId,
+        title,
+        body,
+        category,
+        isTest: category === "TEST"
+      });
+      if (ok) {
+        playSuccessSound();
+        showGlobalNotifToast("📱 মোবাইলে পাঠানো হয়েছে!", `${title} — ফোনে ও ওয়েবে একসাথে দেখুন`, "🌐→📱 পাঠানো");
+        addLogEntry("NOTIF_OUT", `Web → Mobile নোটিফিকেশন পাঠানো হয়েছে: "${title}"`);
+      }
+    }
+
+    async function sendTestNotificationFromWeb() {
+      warmUpWebAudioContext();
+      const notifId = "webtest_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6);
+      const title = "🌐→📱 ওয়েব টেস্ট নোটিফিকেশন";
+      const body = `ব্রাউজার থেকে ${new Date().toLocaleTimeString()} সময়ে পাঠানো টেস্ট এলার্ট — মোবাইলে Heads-Up ব্যানার দেখুন!`;
+      const ok = await dispatchWebNotificationToSession({
+        notifId,
+        title,
+        body,
+        category: "TEST",
+        isTest: true
+      });
+      if (ok) {
+        playSuccessSound();
+        showGlobalNotifToast(title, body, "🧪 টেস্ট পিং");
+        addLogEntry("NOTIF_TEST", "ওয়েব থেকে মোবাইলে লাইভ টেস্ট নোটিফিকেশন পাঠানো হয়েছে।");
+      }
+    }
+
+    async function runTwoWayNotificationPingTest() {
+      warmUpWebAudioContext();
+      const pingId = "ping_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6);
+      lastPingSentAtMap[pingId] = Date.now();
+
+      const statusEl = document.getElementById("twoWayTestStatusText");
+      const latBadge = document.getElementById("twoWayLatencyBadge");
+      if (latBadge) latBadge.classList.add("hidden");
+      if (statusEl) {
+        statusEl.className = "text-[11px] text-cyan-200 bg-cyan-950/50 border border-cyan-500/30 rounded-xl px-3 py-2 leading-relaxed";
+        statusEl.innerText = activePairedSessionId
+          ? "⏳ মোবাইলে ডুয়াল-ডিভাইস পিং পাঠানো হচ্ছে... ফোনে নোটিফিকেশন ও অটো-রিপ্লাই অপেক্ষমাণ!"
+          : "⚠️ আগে QR কোড স্ক্যান করে বা ফোনের ১-ক্লিক কানেক্ট বাটন দিয়ে মোবাইল পেয়ার করুন!";
+      }
+
+      const ok = await dispatchWebNotificationToSession({
+        notifId: pingId,
+        title: "🔄 দুই-মুখী সেম-টাইম পিং টেস্ট",
+        body: "ওয়েব থেকে ফোনে পিং পাঠানো হয়েছে — ফোনে নোটিফিকেশন দেখিয়ে সাথে সাথে ওয়েবে কনফার্মেশন পাঠাচ্ছে!",
+        category: "TEST",
+        isTest: true
+      });
+      if (ok) {
+        playSuccessSound();
+        showGlobalNotifToast("🔄 ডুয়াল-ডিভাইস পিং শুরু হয়েছে", "ফোনের স্ক্রিনে নোটিফিকেশন ও অটো-রিপ্লাই দেখুন", "🧪 ২-মুখী টেস্ট");
+      }
+    }
+
+    async function deleteMirroredNotification(docId) {
+      sessionMirroredNotifications = sessionMirroredNotifications.filter((n) => (n._docId || n.id) !== docId);
+      renderLiveNotificationFeed();
+      if (!activePairedSessionId) return;
+      const fb = await waitForPulseFirebase(1500);
+      if (fb && fb.db) {
+        try {
+          await fb.deleteDoc(fb.doc(fb.db, "pairing_sessions", activePairedSessionId, "notifications", String(docId)));
+        } catch (err) {
+          console.warn("Delete notification error:", err);
+        }
+      }
+    }
+
+    async function clearAllMirroredNotifications() {
+      const toDelete = sessionMirroredNotifications.slice();
+      sessionMirroredNotifications = [];
+      renderLiveNotificationFeed();
+      if (!activePairedSessionId || toDelete.length === 0) return;
+      const fb = await waitForPulseFirebase(2000);
+      if (fb && fb.db) {
+        for (const item of toDelete) {
+          try {
+            await fb.deleteDoc(fb.doc(fb.db, "pairing_sessions", activePairedSessionId, "notifications", String(item._docId || item.id)));
+          } catch (_) {}
+        }
+      }
+    }
+
     // Auto-render default hotels, live messenger, and resume paired session or inline QR connect on load
     let initialPageBootstrapped = false;
     function bootstrapPulseWebUi() {
       if (initialPageBootstrapped) return;
       initialPageBootstrapped = true;
       renderBookingHotels("Cox's Bazar");
+      updateBrowserNotifButtonState();
+      renderLiveNotificationFeed();
 
       if (activePairedSessionId) {
         handleSuccessfulScreenPairing({

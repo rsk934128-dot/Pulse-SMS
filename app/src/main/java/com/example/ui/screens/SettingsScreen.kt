@@ -81,6 +81,7 @@ fun SettingsScreen(
     actionScope: CoroutineScope? = null,
     isDefaultSms: Boolean,
     hasTelephonyPermissions: Boolean,
+    hasNotificationAccess: Boolean = false,
     language: String,
     currentUser: FirebaseUser?,
     isCloudSyncing: Boolean,
@@ -97,6 +98,8 @@ fun SettingsScreen(
     onAuthError: (String) -> Unit,
     onOpenQrScanner: () -> Unit = {},
     onOpenWebSync: () -> Unit = {},
+    onOpenNotificationAccessSettings: () -> Unit = {},
+    onSendSimultaneousTestNotification: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -422,6 +425,63 @@ fun SettingsScreen(
                                 text = if (language == "BN") "ওয়েব সিঙ্ক" else "Web Sync",
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 13.sp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onOpenNotificationAccessSettings,
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .testTag("settings_notification_access_btn"),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (hasNotificationAccess) Icons.Default.CheckCircle else Icons.Default.Notifications,
+                                contentDescription = null,
+                                tint = if (hasNotificationAccess) Color(0xFF10B981) else MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (hasNotificationAccess) {
+                                    if (language == "BN") "অ্যাপ অ্যাক্সেস চালু" else "Notif Access On"
+                                } else {
+                                    if (language == "BN") "অ্যাপ নোটিফিকেশন চালু" else "Enable Notif Sync"
+                                },
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 11.sp,
+                                maxLines = 1
+                            )
+                        }
+
+                        Button(
+                            onClick = onSendSimultaneousTestNotification,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .testTag("settings_test_notification_btn"),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Notifications,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (language == "BN") "সেম-টাইম টেস্ট" else "Test Alert Sync",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 11.sp,
+                                maxLines = 1
                             )
                         }
                     }

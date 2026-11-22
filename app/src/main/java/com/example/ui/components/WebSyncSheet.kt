@@ -21,11 +21,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cable
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.ElectricBolt
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Sensors
@@ -60,6 +62,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.repository.MirroredNotificationItem
 import com.example.data.repository.WebSyncEvent
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -71,10 +74,17 @@ fun WebSyncSheet(
     isConnected: Boolean,
     syncLogs: List<WebSyncEvent>,
     language: String,
+    activePairingSessionId: String? = null,
+    hasNotificationAccess: Boolean = false,
+    hasPostNotificationPermission: Boolean = true,
+    mirroredNotifications: List<MirroredNotificationItem> = emptyList(),
     onToggleConnection: () -> Unit,
     onSimulateIncoming: (sender: String, body: String) -> Unit,
     onOpenQrScanner: () -> Unit = {},
     onConnectToWeb: () -> Unit = {},
+    onOpenNotificationAccessSettings: () -> Unit = {},
+    onRequestPermissions: () -> Unit = {},
+    onSendSimultaneousTestNotification: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -237,6 +247,208 @@ fun WebSyncSheet(
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.sp
                 )
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // 3. Two-Way Notification Sync & Simultaneous Test Card
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.28f)
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.28f),
+                        shape = RoundedCornerShape(16.dp)
+                    )
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.NotificationsActive,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = if (language == "BN") "দুই-মুখী নোটিফিকেশন সিঙ্ক ও টেস্ট" else "Two-Way Notification Mirror",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    text = if (activePairingSessionId != null) {
+                                        if (language == "BN") "মোবাইল ⇄ ওয়েব সেম-টাইম লাইভ মিরর সক্রিয়" else "Mobile ⇄ Web Live Mirror Active"
+                                    } else {
+                                        if (language == "BN") "লাইভ সিঙ্কের জন্য উপরে QR বা ১-ক্লিকে কানেক্ট করুন" else "Pair above for live cross-device alerts"
+                                    },
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(999.dp),
+                            color = if (activePairingSessionId != null) Color(0xFF10B981).copy(alpha = 0.18f) else Color(0xFFF59E0B).copy(alpha = 0.18f)
+                        ) {
+                            Text(
+                                text = if (activePairingSessionId != null) "LIVE" else "OFFLINE",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (activePairingSessionId != null) Color(0xFF059669) else Color(0xFFD97706),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Status pills for Notification Access & POST_NOTIFICATIONS
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onOpenNotificationAccessSettings,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .testTag("grant_notification_listener_button")
+                        ) {
+                            Icon(
+                                imageVector = if (hasNotificationAccess) Icons.Default.CheckCircle else Icons.Default.NotificationsActive,
+                                contentDescription = null,
+                                tint = if (hasNotificationAccess) Color(0xFF10B981) else MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (hasNotificationAccess) {
+                                    if (language == "BN") "সব অ্যাপ চালু" else "All Apps On"
+                                } else {
+                                    if (language == "BN") "সব অ্যাপ নোটিফিকেশন চালু করুন" else "Enable All Apps"
+                                },
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1
+                            )
+                        }
+
+                        if (!hasPostNotificationPermission) {
+                            OutlinedButton(
+                                onClick = onRequestPermissions,
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 48.dp)
+                                    .testTag("grant_post_notification_button")
+                            ) {
+                                Text(
+                                    text = if (language == "BN") "পুশ অনুমতি দিন" else "Allow Alerts",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Button(
+                        onClick = onSendSimultaneousTestNotification,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .testTag("send_simultaneous_test_notification_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.NotificationsActive,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (language == "BN") "🧪 মোবাইল ও ওয়েবে একসাথে টেস্ট নোটিফিকেশন পাঠান" else "🧪 Send Simultaneous Test (Mobile + Web)",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+
+                    if (mirroredNotifications.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = if (language == "BN") "সাম্প্রতিক সেম-টাইম নোটিফিকেশন (${mirroredNotifications.size}টি):" else "Live Mirrored Feed (${mirroredNotifications.size}):",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        val timeFmt = remember { SimpleDateFormat("hh:mm:ss a", Locale.getDefault()) }
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            mirroredNotifications.take(4).forEach { item ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
+                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = if (item.sourceDevice == "WEB") "🌐" else "📱",
+                                        fontSize = 16.sp
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = item.title,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1
+                                        )
+                                        if (item.body.isNotBlank()) {
+                                            Text(
+                                                text = item.body,
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = timeFmt.format(Date(item.createdAtMs)),
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(20.dp))

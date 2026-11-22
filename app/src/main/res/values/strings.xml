@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Pulse SMS</string>
+    <string name="notification_listener_label">Pulse SMS Web Notification Sync</string>
 </resources>

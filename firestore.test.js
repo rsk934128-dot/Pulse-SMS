@@ -221,3 +221,54 @@ test("Pairing session: web can enqueue outgoing SMS request and phone can mark S
 
   await assertSucceeds(reqRef.update({ status: "SENT" }));
 });
+
+test("Pairing session: mobile and web can write and list real-time mirrored notifications", async () => {
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+  const notifCol = unauthDb.collection("pairing_sessions").doc("pulse_pair_test123").collection("notifications");
+
+  await assertSucceeds(
+    notifCol.doc("mobnotif_1001_ab12").set({
+      id: "mobnotif_1001_ab12",
+      title: "WhatsApp • Rahim",
+      body: "ভাই, মিটিং কখন?",
+      appName: "WhatsApp",
+      packageName: "com.whatsapp",
+      sourceDevice: "MOBILE",
+      category: "APP",
+      isTest: false,
+      createdAt: new Date(),
+    })
+  );
+
+  await assertSucceeds(
+    notifCol.doc("webnotif_1002_cd34").set({
+      id: "webnotif_1002_cd34",
+      title: "Web Test Ping",
+      body: "Simultaneous browser -> mobile notification",
+      appName: "Pulse Web",
+      packageName: "web.pulse.companion",
+      sourceDevice: "WEB",
+      category: "TEST",
+      isTest: true,
+      createdAt: new Date(),
+    })
+  );
+
+  await assertSucceeds(notifCol.get());
+
+  // Invalid sourceDevice must fail
+  await assertFails(
+    notifCol.doc("bad_notif_1").set({
+      id: "bad_notif_1",
+      title: "Bad Source",
+      body: "Should reject",
+      appName: "Unknown",
+      packageName: "com.unknown",
+      sourceDevice: "SERVER",
+      category: "TEST",
+      isTest: true,
+      createdAt: new Date(),
+    })
+  );
+});
+

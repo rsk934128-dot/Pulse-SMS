@@ -375,6 +375,30 @@ class SmsRepository(private val context: Context) {
             Log.e("SmsRepository", "Failed to trigger incoming SMS notification: ${e.message}")
         }
 
+        // Mirror SMS notification to paired Web Companion in real time
+        try {
+            val activeSession = QrPairingManager.getActiveSessionId(context)
+            if (activeSession != null) {
+                val notifTitle = if (otpCode != null) "🔑 OTP: $otpCode • $cleanSender" else cleanSender
+                val notifId = "smsnotif_${timestamp}_${(cleanSender + cleanBody).hashCode().toLong() and 0xFFFFFFFFL}"
+                QrPairingManager.syncNotificationToPairedSession(
+                    context = context,
+                    notifId = notifId,
+                    title = notifTitle,
+                    body = cleanBody,
+                    appName = "Pulse SMS",
+                    packageName = context.packageName,
+                    sourceDevice = "MOBILE",
+                    category = if (otpCode != null) "OTP" else "SMS",
+                    isTest = false,
+                    timestampMs = timestamp,
+                    overrideSessionId = activeSession
+                )
+            }
+        } catch (e: Exception) {
+            Log.w("SmsRepository", "Paired web notification mirror for SMS: ${e.message}")
+        }
+
         savedMessage
     }
 

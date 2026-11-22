@@ -10,43 +10,71 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.core.content.ContextCompat
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.credentials.CredentialManager
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.ui.SmsViewModel
-import com.example.ui.auth.AuthManager
-import com.example.ui.components.ComposeDialog
-import com.example.ui.components.WebSyncSheet
-import com.example.ui.components.CameraQrScannerDialog
-import com.example.ui.screens.ChatThreadScreen
-import com.example.ui.screens.InboxScreen
-import com.example.ui.screens.SettingsScreen
-import com.example.ai.configureAppCheck
-import com.example.telephony.SmsPermissionManager
-import com.example.ui.components.SmsPermissionRationaleDialog
-import com.example.ui.theme.MyApplicationTheme
-import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.example.auth.findActivity
-
-import android.content.Intent
-import com.example.telephony.SmsNotificationManager
-import androidx.compose.runtime.withFrameNanos
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.viewmodel.compose.viewModel
+import android.content.Intent
+import com.example.ai.configureAppCheck
+import com.example.auth.CurrentActivityHolder
+import com.example.auth.findActivity
+import com.example.telephony.SmsNotificationManager
+import com.example.telephony.SmsPermissionManager
+import com.example.ui.SmsViewModel
+import com.example.ui.auth.AuthManager
+import com.example.ui.components.CameraQrScannerDialog
+import com.example.ui.components.ComposeDialog
+import com.example.ui.components.SmsPermissionRationaleDialog
+import com.example.ui.components.WebSyncSheet
+import com.example.ui.screens.ChatThreadScreen
+import com.example.ui.screens.InboxScreen
+import com.example.ui.screens.SettingsScreen
+import com.example.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -54,12 +82,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-import com.example.auth.CurrentActivityHolder
-
 class MainActivity : ComponentActivity() {
 
     private val _notificationThreadAddress = MutableStateFlow<String?>(null)
     val notificationThreadAddress: StateFlow<String?> = _notificationThreadAddress.asStateFlow()
+
+    private val _openWebSyncFromNotification = MutableStateFlow(false)
+    val openWebSyncFromNotification: StateFlow<Boolean> = _openWebSyncFromNotification.asStateFlow()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -92,7 +121,11 @@ class MainActivity : ComponentActivity() {
         setContent {
             MyApplicationTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    SmsAppRoot(notificationThreadAddress = notificationThreadAddress)
+                    SmsAppRoot(
+                        notificationThreadAddress = notificationThreadAddress,
+                        openWebSyncSignal = openWebSyncFromNotification,
+                        onConsumedWebSyncSignal = { _openWebSyncFromNotification.value = false }
+                    )
                 }
             }
         }
@@ -121,13 +154,18 @@ class MainActivity : ComponentActivity() {
         if (!address.isNullOrBlank()) {
             _notificationThreadAddress.value = address
         }
+        if (intent?.getBooleanExtra(SmsNotificationManager.EXTRA_OPEN_WEB_SYNC, false) == true) {
+            _openWebSyncFromNotification.value = true
+        }
     }
 }
 
 @Composable
 fun SmsAppRoot(
     viewModel: SmsViewModel = viewModel(),
-    notificationThreadAddress: StateFlow<String?>? = null
+    notificationThreadAddress: StateFlow<String?>? = null,
+    openWebSyncSignal: StateFlow<Boolean>? = null,
+    onConsumedWebSyncSignal: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val activity = remember(context) { (context as? android.app.Activity) ?: context.findActivity() }
@@ -153,6 +191,11 @@ fun SmsAppRoot(
     val isWebConnected by viewModel.isWebConnected.collectAsStateWithLifecycle()
     val syncLogs by viewModel.syncLogs.collectAsStateWithLifecycle()
     val currentLanguage by viewModel.currentLanguage.collectAsStateWithLifecycle()
+    val activePairingSessionId by viewModel.activePairingSessionId.collectAsStateWithLifecycle()
+    val mirroredNotifications by viewModel.mirroredNotifications.collectAsStateWithLifecycle()
+    val latestIncomingWebNotification by viewModel.latestIncomingWebNotification.collectAsStateWithLifecycle()
+    val hasNotificationAccess by viewModel.hasNotificationAccess.collectAsStateWithLifecycle()
+    val hasPostNotificationPermission by viewModel.hasPostNotificationPermission.collectAsStateWithLifecycle()
 
     val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
     val isCloudSyncing by viewModel.isCloudSyncing.collectAsStateWithLifecycle()
@@ -172,6 +215,22 @@ fun SmsAppRoot(
     var showWebSync by remember { mutableStateOf(false) }
     var showQrScanner by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+
+    LaunchedEffect(openWebSyncSignal) {
+        openWebSyncSignal?.collect { open ->
+            if (open) {
+                showWebSync = true
+                onConsumedWebSyncSignal()
+            }
+        }
+    }
+
+    LaunchedEffect(latestIncomingWebNotification?.id) {
+        if (latestIncomingWebNotification != null) {
+            delay(6500)
+            viewModel.dismissWebNotificationBanner()
+        }
+    }
 
     // Stagger silent Auto-Sign-In until after first Compose frame & SurfaceSyncGroup finish
     LaunchedEffect(Unit) {
@@ -360,6 +419,10 @@ fun SmsAppRoot(
             isConnected = isWebConnected,
             syncLogs = syncLogs,
             language = currentLanguage,
+            activePairingSessionId = activePairingSessionId,
+            hasNotificationAccess = hasNotificationAccess,
+            hasPostNotificationPermission = hasPostNotificationPermission,
+            mirroredNotifications = mirroredNotifications,
             onToggleConnection = { viewModel.toggleWebConnection() },
             onSimulateIncoming = { sender, body ->
                 viewModel.simulateIncomingSms(sender, body)
@@ -370,6 +433,15 @@ fun SmsAppRoot(
             },
             onConnectToWeb = {
                 viewModel.connectToWeb { success, msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                }
+            },
+            onOpenNotificationAccessSettings = {
+                viewModel.openNotificationAccessSettings()
+            },
+            onRequestPermissions = onRequestPermissions,
+            onSendSimultaneousTestNotification = {
+                viewModel.sendSimultaneousTestNotification { _, msg ->
                     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                 }
             },
@@ -406,6 +478,7 @@ fun SmsAppRoot(
             actionScope = coroutineScope,
             isDefaultSms = isDefaultSms,
             hasTelephonyPermissions = hasSmsPermissions,
+            hasNotificationAccess = hasNotificationAccess,
             language = currentLanguage,
             currentUser = currentUser,
             isCloudSyncing = isCloudSyncing,
@@ -450,7 +523,86 @@ fun SmsAppRoot(
                 showSettings = false
                 showWebSync = true
             },
+            onOpenNotificationAccessSettings = {
+                viewModel.openNotificationAccessSettings()
+            },
+            onSendSimultaneousTestNotification = {
+                viewModel.sendSimultaneousTestNotification { _, msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                }
+            },
             onDismiss = { showSettings = false }
         )
+    }
+
+    // Live In-App Heads-Up Banner whenever a mirrored Web notification arrives
+    Box(modifier = Modifier.fillMaxSize()) {
+        AnimatedVisibility(
+            visible = latestIncomingWebNotification != null,
+            enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+        ) {
+            latestIncomingWebNotification?.let { notif ->
+                Card(
+                    onClick = {
+                        viewModel.dismissWebNotificationBanner()
+                        showWebSync = true
+                    },
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.NotificationsActive,
+                                contentDescription = null,
+                                tint = Color(0xFF38BDF8),
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "🌐 ${notif.title}",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    maxLines = 1
+                                )
+                                if (notif.body.isNotBlank()) {
+                                    Text(
+                                        text = notif.body,
+                                        color = Color(0xFFCBD5E1),
+                                        fontSize = 12.sp,
+                                        maxLines = 2
+                                    )
+                                }
+                            }
+                        }
+                        IconButton(onClick = { viewModel.dismissWebNotificationBanner() }) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Dismiss notification banner",
+                                tint = Color(0xFF94A3B8)
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }

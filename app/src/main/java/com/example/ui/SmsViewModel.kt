@@ -8,10 +8,14 @@ import com.example.data.model.ConversationEntity
 import com.example.data.model.MessageEntity
 import com.example.data.remote.CloudMessage
 import com.example.data.remote.FirebaseSyncRepository
+import com.example.data.repository.MirroredNotificationItem
 import com.example.data.repository.ProfileAvatarManager
 import com.example.data.repository.ProfileAvatarSelection
+import com.example.data.repository.QrPairingManager
 import com.example.data.repository.SmsRepository
 import com.example.data.repository.WebSyncEvent
+import com.example.telephony.PulseNotificationListenerService
+import com.example.telephony.SmsNotificationManager
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.auth
@@ -76,12 +80,31 @@ class SmsViewModel(
     val profileAvatar: StateFlow<ProfileAvatarSelection> = _profileAvatar.asStateFlow()
 
     private val _activePairingSessionId = MutableStateFlow(
-        com.example.data.repository.QrPairingManager.getActiveSessionId(application)
+        QrPairingManager.getActiveSessionId(application)
     )
     val activePairingSessionId: StateFlow<String?> = _activePairingSessionId.asStateFlow()
 
+    private val _mirroredNotifications = MutableStateFlow<List<MirroredNotificationItem>>(emptyList())
+    val mirroredNotifications: StateFlow<List<MirroredNotificationItem>> = _mirroredNotifications.asStateFlow()
+
+    private val _latestIncomingWebNotification = MutableStateFlow<MirroredNotificationItem?>(null)
+    val latestIncomingWebNotification: StateFlow<MirroredNotificationItem?> = _latestIncomingWebNotification.asStateFlow()
+
+    private val _hasNotificationAccess = MutableStateFlow(
+        PulseNotificationListenerService.isNotificationAccessEnabled(application)
+    )
+    val hasNotificationAccess: StateFlow<Boolean> = _hasNotificationAccess.asStateFlow()
+
+    private val _hasPostNotificationPermission = MutableStateFlow(
+        SmsNotificationManager.hasPostNotificationsPermission(application)
+    )
+    val hasPostNotificationPermission: StateFlow<Boolean> = _hasPostNotificationPermission.asStateFlow()
+
     private var outgoingRequestListener: com.google.firebase.firestore.ListenerRegistration? = null
+    private var sessionNotificationsListener: com.google.firebase.firestore.ListenerRegistration? = null
+    private var notificationListenStartedMs: Long = 0L
     private val processedWebRequestIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    private val processedIncomingNotifIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
     // Gemini AI Service and State
     private val aiService = com.example.ai.GeminiAiService.getInstance()
@@ -107,6 +130,7 @@ class SmsViewModel(
         // Resume active web pairing session listener & sync if already paired
         _activePairingSessionId.value?.let { savedSessionId ->
             attachOutgoingWebRequestListener(savedSessionId)
+            attachSessionNotificationsListener(savedSessionId)
             triggerCloudSyncNow()
         }
 
@@ -140,14 +164,14 @@ class SmsViewModel(
 
     private fun attachOutgoingWebRequestListener(sessionId: String) {
         outgoingRequestListener?.remove()
-        outgoingRequestListener = com.example.data.repository.QrPairingManager.listenToOutgoingWebRequests(
+        outgoingRequestListener = QrPairingManager.listenToOutgoingWebRequests(
             context = getApplication(),
             sessionId = sessionId
         ) { requestId, recipient, body ->
             if (!processedWebRequestIds.add(requestId)) return@listenToOutgoingWebRequests
             viewModelScope.launch {
                 val res = repository.sendMessage(recipient, body, selectedSimSlot.value)
-                com.example.data.repository.QrPairingManager.markOutgoingWebRequestStatus(
+                QrPairingManager.markOutgoingWebRequestStatus(
                     context = getApplication(),
                     sessionId = sessionId,
                     requestId = requestId,
@@ -158,9 +182,65 @@ class SmsViewModel(
         }
     }
 
+    private fun attachSessionNotificationsListener(sessionId: String) {
+        sessionNotificationsListener?.remove()
+        notificationListenStartedMs = System.currentTimeMillis()
+        sessionNotificationsListener = QrPairingManager.listenToSessionNotifications(
+            context = getApplication(),
+            sessionId = sessionId
+        ) { items ->
+            _mirroredNotifications.value = items
+            val appContext = getApplication<Application>()
+            items.forEach { item ->
+                if (item.sourceDevice == "WEB") {
+                    val isRecentOrTest = item.isTest || item.createdAtMs >= (notificationListenStartedMs - 20_000L)
+                    if (isRecentOrTest &&
+                        !QrPairingManager.isWebNotificationSeen(appContext, item.id) &&
+                        processedIncomingNotifIds.add(item.id)
+                    ) {
+                        QrPairingManager.markWebNotificationSeen(appContext, item.id)
+                        SmsNotificationManager.showMirroredWebNotification(
+                            context = appContext,
+                            notifId = item.id,
+                            title = item.title,
+                            body = item.body,
+                            appName = item.appName,
+                            category = item.category,
+                            isTest = item.isTest
+                        )
+                        _latestIncomingWebNotification.value = item
+
+                        viewModelScope.launch {
+                            repository.emitSyncLog("WEB_NOTIF", "🌐 ওয়েব থেকে নোটিফিকেশন: ${item.title}")
+                            if (item.id.startsWith("ping_")) {
+                                val ackId = "ack_${item.id}".take(120)
+                                val deviceModel = "${android.os.Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${android.os.Build.MODEL}"
+                                QrPairingManager.syncNotificationToPairedSession(
+                                    context = appContext,
+                                    notifId = ackId,
+                                    title = "✅ মোবাইল থেকে অটো-রিপ্লাই ভেরিফাইড",
+                                    body = "$deviceModel-এ ওয়েব নোটিফিকেশন পৌঁছেছে! দুই ডিভাইসেই সিঙ্ক সক্রিয়।",
+                                    appName = "Pulse Android",
+                                    packageName = appContext.packageName,
+                                    sourceDevice = "MOBILE",
+                                    category = "TEST",
+                                    isTest = true,
+                                    timestampMs = System.currentTimeMillis(),
+                                    overrideSessionId = sessionId
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     override fun onCleared() {
         outgoingRequestListener?.remove()
         outgoingRequestListener = null
+        sessionNotificationsListener?.remove()
+        sessionNotificationsListener = null
         super.onCleared()
     }
 
@@ -200,7 +280,78 @@ class SmsViewModel(
         }
     }
 
+    fun refreshNotificationBridgeState() {
+        val appContext = getApplication<Application>()
+        _hasNotificationAccess.value = PulseNotificationListenerService.isNotificationAccessEnabled(appContext)
+        _hasPostNotificationPermission.value = SmsNotificationManager.hasPostNotificationsPermission(appContext)
+    }
+
+    fun openNotificationAccessSettings() {
+        PulseNotificationListenerService.openNotificationAccessSettings(getApplication())
+    }
+
+    fun dismissWebNotificationBanner() {
+        _latestIncomingWebNotification.value = null
+    }
+
+    fun sendSimultaneousTestNotification(
+        customTitle: String? = null,
+        customBody: String? = null,
+        onComplete: (Boolean, String) -> Unit = { _, _ -> }
+    ) {
+        viewModelScope.launch {
+            val appContext = getApplication<Application>()
+            val now = System.currentTimeMillis()
+            val notifId = "mobtest_${now}_${(100..999).random()}"
+            val deviceLabel = "${android.os.Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${android.os.Build.MODEL}"
+            val title = customTitle?.takeIf { it.isNotBlank() } ?: "🧪 মোবাইল + ওয়েব সেম-টাইম টেস্ট"
+            val body = customBody?.takeIf { it.isNotBlank() }
+                ?: "$deviceLabel থেকে পাঠানো লাইভ টেস্ট নোটিফিকেশন — মোবাইল ও ওয়েবসাইটে একসাথে প্রদর্শিত!"
+
+            // 1. Trigger immediate real Android Heads-Up Notification on Mobile
+            SmsNotificationManager.showMirroredWebNotification(
+                context = appContext,
+                notifId = notifId,
+                title = title,
+                body = body,
+                appName = "Pulse Test Bridge",
+                category = "TEST",
+                isTest = true
+            )
+
+            // 2. Push to paired Website session simultaneously
+            val activeSession = _activePairingSessionId.value ?: QrPairingManager.getActiveSessionId(appContext)
+            if (activeSession == null) {
+                repository.emitSyncLog("NOTIF_TEST", "📱 মোবাইলে টেস্ট নোটিফিকেশন দেখানো হয়েছে (ওয়েব পেয়ার করা নেই)")
+                onComplete(false, if (currentLanguage.value == "BN") "মোবাইলে দেখানো হয়েছে, তবে ওয়েবসাইট আগে QR/১-ক্লিকে পেয়ার করুন!" else "Shown on mobile; pair with website first to mirror!")
+                return@launch
+            }
+
+            val synced = QrPairingManager.syncNotificationToPairedSession(
+                context = appContext,
+                notifId = notifId,
+                title = title,
+                body = body,
+                appName = deviceLabel,
+                packageName = appContext.packageName,
+                sourceDevice = "MOBILE",
+                category = "TEST",
+                isTest = true,
+                timestampMs = now,
+                overrideSessionId = activeSession
+            )
+
+            if (synced) {
+                repository.emitSyncLog("NOTIF_TEST", "✅ সেম-টাইম টেস্ট নোটিফিকেশন মোবাইল ও ওয়েবে পাঠানো হয়েছে!")
+                onComplete(true, if (currentLanguage.value == "BN") "✅ মোবাইল ও ওয়েবসাইটে একসাথে নোটিফিকেশন পাঠানো হয়েছে!" else "✅ Sent to both Mobile and Web simultaneously!")
+            } else {
+                onComplete(false, if (currentLanguage.value == "BN") "ওয়েব ক্লাউডে পাঠাতে ব্যর্থ — ইন্টারনেট চেক করুন।" else "Failed pushing to web cloud; check internet.")
+            }
+        }
+    }
+
     fun refreshPermissionState() {
+        refreshNotificationBridgeState()
         viewModelScope.launch(Dispatchers.IO) {
             val granted = com.example.telephony.SmsPermissionManager.hasEssentialSmsPermissions(getApplication())
             _hasSmsPermissions.value = granted
@@ -283,14 +434,15 @@ class SmsViewModel(
 
     fun onQrPairingCompleted(sessionId: String, deviceName: String) {
         if (sessionId.isNotBlank()) {
-            com.example.data.repository.QrPairingManager.saveActiveSession(getApplication(), sessionId, deviceName)
+            QrPairingManager.saveActiveSession(getApplication(), sessionId, deviceName)
             _activePairingSessionId.value = sessionId
             attachOutgoingWebRequestListener(sessionId)
+            attachSessionNotificationsListener(sessionId)
         }
         setWebConnected(true)
         triggerCloudSyncNow()
         viewModelScope.launch {
-            repository.emitSyncLog("WEB_PAIRING", "🎉 ওয়েবসাইটের সাথে ডিভাইস কানেক্টেড ও লাইভ এসএমএস সিঙ্ক সক্রিয় ($deviceName)")
+            repository.emitSyncLog("WEB_PAIRING", "🎉 ওয়েবসাইটের সাথে ডিভাইস কানেক্টেড ও লাইভ এসএমএস ও নোটিফিকেশন সিঙ্ক সক্রিয় ($deviceName)")
         }
     }
 

@@ -39,15 +39,29 @@ data class PairingResult(
     val syncedMessagesCount: Int = 0
 )
 
+data class MirroredNotificationItem(
+    val id: String,
+    val title: String,
+    val body: String,
+    val appName: String,
+    val packageName: String,
+    val sourceDevice: String,
+    val category: String,
+    val isTest: Boolean,
+    val createdAtMs: Long
+)
+
 object QrPairingManager {
     private const val TAG = "QrPairingManager"
     private const val PREFS_NAME = "pulse_pairing_prefs"
     private const val KEY_ACTIVE_SESSION_ID = "active_pairing_session_id"
     private const val KEY_ACTIVE_DEVICE_NAME = "active_device_name"
+    private const val KEY_SEEN_NOTIF_IDS = "seen_web_notification_ids"
     private const val DEFAULT_PROJECT_ID = "gen-lang-client-0040983236"
     private const val DEFAULT_DATABASE_ID = "ai-studio-android-pulsesms-d91f8c0e-d0eb-454c-a3c4-23804c092a8d"
 
     private val ALLOWED_CATEGORIES = setOf("PERSONAL", "OTP", "TRANSACTION", "PROMOTION", "SPAM", "TRAVEL")
+    private val ALLOWED_NOTIF_CATEGORIES = setOf("SMS", "APP", "OTP", "WEB_ALERT", "TEST")
 
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
@@ -405,6 +419,151 @@ object QrPairingManager {
         }
     }
 
+    /**
+     * Pushes a mobile or simultaneous-test notification into `/pairing_sessions/{sessionId}/notifications`
+     * so the paired Website displays it in real time (with Firestore REST API fallback).
+     */
+    suspend fun syncNotificationToPairedSession(
+        context: Context,
+        notifId: String,
+        title: String,
+        body: String,
+        appName: String,
+        packageName: String,
+        sourceDevice: String = "MOBILE",
+        category: String = "APP",
+        isTest: Boolean = false,
+        timestampMs: Long = System.currentTimeMillis(),
+        overrideSessionId: String? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        val appContext = context.applicationContext ?: context
+        val sessionId = overrideSessionId?.takeIf { it.isNotBlank() } ?: getActiveSessionId(appContext) ?: return@withContext false
+        val dbId = resolveDatabaseId(appContext)
+        val safeId = notifId.replace(Regex("[^a-zA-Z0-9_\\-+]"), "_").take(120).ifBlank { "notif_$timestampMs" }
+        val safeTitle = title.ifBlank { appName.ifBlank { "Notification" } }.take(200)
+        val safeBody = body.take(2000)
+        val safeAppName = appName.ifBlank { "Pulse SMS" }.take(100)
+        val safePkg = packageName.ifBlank { appContext.packageName }.take(200)
+        val safeSource = if (sourceDevice == "WEB") "WEB" else "MOBILE"
+        val safeCat = category.uppercase(Locale.US).let { if (it in ALLOWED_NOTIF_CATEGORIES) it else "APP" }
+        val safeTs = timestampMs.coerceIn(1L, System.currentTimeMillis())
+
+        val payload = mapOf(
+            "id" to safeId,
+            "title" to safeTitle,
+            "body" to safeBody,
+            "appName" to safeAppName,
+            "packageName" to safePkg,
+            "sourceDevice" to safeSource,
+            "category" to safeCat,
+            "isTest" to isTest,
+            "createdAt" to Timestamp(Date(safeTs))
+        )
+
+        var ok = false
+        if (ensureFirebaseAvailable(appContext)) {
+            val fs = getNamedFirestore(appContext, dbId)
+            if (fs != null) {
+                try {
+                    fs.collection("pairing_sessions")
+                        .document(sessionId)
+                        .collection("notifications")
+                        .document(safeId)
+                        .set(payload, SetOptions.merge())
+                        .await()
+                    ok = true
+                } catch (e: Exception) {
+                    Log.w(TAG, "Firestore notification write error: ${e.message}")
+                }
+            }
+        }
+
+        if (!ok) {
+            val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
+            ok = writeNotificationViaRest(
+                projectId = projectId,
+                databaseId = dbId,
+                sessionId = sessionId,
+                docId = safeId,
+                title = safeTitle,
+                body = safeBody,
+                appName = safeAppName,
+                packageName = safePkg,
+                sourceDevice = safeSource,
+                category = safeCat,
+                isTest = isTest,
+                timestampMs = safeTs
+            )
+        }
+        ok
+    }
+
+    /**
+     * Real-time listener on `/pairing_sessions/{sessionId}/notifications` ordered newest-first.
+     * Both Mobile and Web listen to this exact same stream simultaneously.
+     */
+    fun listenToSessionNotifications(
+        context: Context,
+        sessionId: String,
+        onNotificationsUpdated: (List<MirroredNotificationItem>) -> Unit
+    ): ListenerRegistration? {
+        val appContext = context.applicationContext ?: context
+        if (!ensureFirebaseAvailable(appContext)) return null
+        val fs = getNamedFirestore(appContext, resolveDatabaseId(appContext)) ?: return null
+
+        return try {
+            fs.collection("pairing_sessions")
+                .document(sessionId)
+                .collection("notifications")
+                .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                .limit(50)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null || snapshot == null) return@addSnapshotListener
+                    val items = snapshot.documents.mapNotNull { doc ->
+                        val title = doc.getString("title")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                        val ts = doc.getTimestamp("createdAt")?.toDate()?.time ?: System.currentTimeMillis()
+                        MirroredNotificationItem(
+                            id = doc.getString("id") ?: doc.id,
+                            title = title,
+                            body = doc.getString("body") ?: "",
+                            appName = doc.getString("appName") ?: "Pulse",
+                            packageName = doc.getString("packageName") ?: "",
+                            sourceDevice = doc.getString("sourceDevice") ?: "WEB",
+                            category = doc.getString("category") ?: "WEB_ALERT",
+                            isTest = doc.getBoolean("isTest") ?: false,
+                            createdAtMs = ts
+                        )
+                    }
+                    onNotificationsUpdated(items)
+                }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Could not attach session notifications listener: ${t.message}")
+            null
+        }
+    }
+
+    fun isWebNotificationSeen(context: Context, notifId: String): Boolean {
+        return try {
+            val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val set = prefs.getStringSet(KEY_SEEN_NOTIF_IDS, emptySet()) ?: emptySet()
+            notifId in set
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    fun markWebNotificationSeen(context: Context, notifId: String) {
+        try {
+            val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val existing = prefs.getStringSet(KEY_SEEN_NOTIF_IDS, emptySet())?.toMutableList() ?: mutableListOf()
+            if (notifId !in existing) {
+                existing.add(notifId)
+                val trimmed = existing.takeLast(80).toSet()
+                prefs.edit().putStringSet(KEY_SEEN_NOTIF_IDS, trimmed).apply()
+            }
+        } catch (_: Throwable) {}
+    }
+
     private fun getNamedFirestore(context: Context, databaseId: String): FirebaseFirestore? {
         return try {
             FirebaseFirestore.getInstance(databaseId)
@@ -527,6 +686,56 @@ object QrPairingManager {
             }
         } catch (t: Throwable) {
             Log.w(TAG, "Firestore REST message sync exception: ${t.message}")
+            false
+        }
+    }
+
+    private suspend fun writeNotificationViaRest(
+        projectId: String,
+        databaseId: String,
+        sessionId: String,
+        docId: String,
+        title: String,
+        body: String,
+        appName: String,
+        packageName: String,
+        sourceDevice: String,
+        category: String,
+        isTest: Boolean,
+        timestampMs: Long
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val msgIso = isoFormat.format(Date(timestampMs))
+
+            val fields = JSONObject().apply {
+                put("id", JSONObject().put("stringValue", docId))
+                put("title", JSONObject().put("stringValue", title))
+                put("body", JSONObject().put("stringValue", body))
+                put("appName", JSONObject().put("stringValue", appName))
+                put("packageName", JSONObject().put("stringValue", packageName))
+                put("sourceDevice", JSONObject().put("stringValue", sourceDevice))
+                put("category", JSONObject().put("stringValue", category))
+                put("isTest", JSONObject().put("booleanValue", isTest))
+                put("createdAt", JSONObject().put("timestampValue", msgIso))
+            }
+            val bodyJson = JSONObject().put("fields", fields).toString()
+
+            val url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/$databaseId/documents/pairing_sessions/$sessionId/notifications/$docId" +
+                "?updateMask.fieldPaths=id&updateMask.fieldPaths=title&updateMask.fieldPaths=body&updateMask.fieldPaths=appName&updateMask.fieldPaths=packageName&updateMask.fieldPaths=sourceDevice&updateMask.fieldPaths=category&updateMask.fieldPaths=isTest&updateMask.fieldPaths=createdAt"
+
+            val request = Request.Builder()
+                .url(url)
+                .patch(bodyJson.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                response.isSuccessful
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Firestore REST notification sync exception: ${t.message}")
             false
         }
     }

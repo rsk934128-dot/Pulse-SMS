@@ -35,9 +35,14 @@ object SmsNotificationManager {
     private const val CHANNEL_NAME = "Incoming SMS & OTP Alerts"
     private const val CHANNEL_DESC = "Real-time Heads-Up display notifications for incoming SMS messages"
 
+    const val CHANNEL_WEB_MIRROR_ID = "pulse_web_mirrored_notifications"
+    private const val CHANNEL_WEB_MIRROR_NAME = "Web & Cross-Device Alerts"
+    private const val CHANNEL_WEB_MIRROR_DESC = "Real-time Heads-Up notifications synced from paired Web Companion"
+
     const val EXTRA_THREAD_ADDRESS = "extra_thread_address"
     const val EXTRA_NOTIFICATION_ID = "extra_notification_id"
     const val EXTRA_OTP_CODE = "extra_otp_code"
+    const val EXTRA_OPEN_WEB_SYNC = "extra_open_web_sync"
     const val KEY_TEXT_REPLY = "key_text_reply"
 
     const val ACTION_MARK_READ = "com.example.telephony.ACTION_MARK_READ"
@@ -69,9 +74,36 @@ object SmsNotificationManager {
                     }
                     notificationManager.createNotificationChannel(channel)
                 }
+
+                if (notificationManager.getNotificationChannel(CHANNEL_WEB_MIRROR_ID) == null) {
+                    val webChannel = NotificationChannel(
+                        CHANNEL_WEB_MIRROR_ID,
+                        CHANNEL_WEB_MIRROR_NAME,
+                        NotificationManager.IMPORTANCE_HIGH
+                    ).apply {
+                        description = CHANNEL_WEB_MIRROR_DESC
+                        enableLights(true)
+                        lightColor = Color.CYAN
+                        enableVibration(true)
+                        lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+                        setShowBadge(true)
+                    }
+                    notificationManager.createNotificationChannel(webChannel)
+                }
             }
         } catch (t: Throwable) {
             Log.e(TAG, "createNotificationChannel notice: ${t.message}")
+        }
+    }
+
+    fun hasPostNotificationsPermission(context: Context): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            NotificationManagerCompat.from(context).areNotificationsEnabled()
         }
     }
 
@@ -214,6 +246,78 @@ object SmsNotificationManager {
             Log.e(TAG, "SecurityException posting notification: ${e.message}")
         } catch (e: Exception) {
             Log.e(TAG, "Error posting notification: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Displays a high-priority Heads-Up Android notification synced in real time from Website
+     * or triggered by the simultaneous dual-device test suite.
+     */
+    fun showMirroredWebNotification(
+        context: Context,
+        notifId: String,
+        title: String,
+        body: String,
+        appName: String = "Pulse Web",
+        category: String = "WEB_ALERT",
+        isTest: Boolean = false
+    ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                Log.w(TAG, "POST_NOTIFICATIONS not granted. Skipping mirrored web notification.")
+                return
+            }
+        }
+
+        createNotificationChannel(context)
+
+        val numericId = 50000 + Math.abs(notifId.hashCode() % 40000)
+        val openIntent = Intent(context, MainActivity::class.java).apply {
+            action = Intent.ACTION_VIEW
+            putExtra(EXTRA_OPEN_WEB_SYNC, true)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            numericId,
+            openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val prefix = if (isTest) "🧪" else "🌐"
+        val displayTitle = "$prefix $title"
+        val subText = if (isTest) "$appName • Simultaneous Test" else "$appName • $category"
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_WEB_MIRROR_ID)
+            .setSmallIcon(R.drawable.ic_notification_sms)
+            .setLargeIcon(createAvatarBitmap(appName))
+            .setContentTitle(displayTitle)
+            .setContentText(body.ifBlank { displayTitle })
+            .setSubText(subText)
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .bigText(body.ifBlank { displayTitle })
+                    .setBigContentTitle(displayTitle)
+                    .setSummaryText(subText)
+            )
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .setColor(0xFF06B6D4.toInt())
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+
+        try {
+            NotificationManagerCompat.from(context).notify(numericId, builder.build())
+        } catch (e: SecurityException) {
+            Log.e(TAG, "SecurityException posting mirrored web notification: ${e.message}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error posting mirrored web notification: ${e.message}", e)
         }
     }
 
