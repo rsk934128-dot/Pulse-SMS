@@ -68,9 +68,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.data.model.ConversationEntity
+import com.example.data.repository.ProfileAvatarSelection
 import com.example.ui.auth.GoogleSignInButton
 import com.example.ui.components.ConversationItem
 import com.example.ui.components.PermissionsBanner
+import com.example.ui.components.ProfileAvatarImage
 import kotlinx.coroutines.CoroutineScope
 
 @Composable
@@ -84,6 +86,7 @@ fun InboxScreen(
     isWebConnected: Boolean,
     language: String,
     currentUser: FirebaseUser? = null,
+    profileAvatar: ProfileAvatarSelection = ProfileAvatarSelection.DefaultInitials,
     activity: android.app.Activity? = null,
     authScope: CoroutineScope? = null,
     onAuthSuccess: () -> Unit = {},
@@ -263,7 +266,7 @@ fun InboxScreen(
                         }
                     }
 
-                    // User Profile Avatar button (Prominently displays avatar with Google initial or sign in)
+                    // User Profile Avatar button (Displays chosen avatar/photo, Google initial, or sign in icon)
                     IconButton(
                         onClick = onOpenSettings,
                         modifier = Modifier
@@ -275,23 +278,26 @@ fun InboxScreen(
                             )
                             .testTag("top_bar_user_profile_button")
                     ) {
-                        if (currentUser != null) {
+                        val hasCustomAvatar = profileAvatar !is ProfileAvatarSelection.DefaultInitials
+                        if (hasCustomAvatar || currentUser != null) {
                             BadgedBox(
                                 badge = {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(8.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFF10B981))
-                                    )
+                                    if (currentUser != null) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(8.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFF10B981))
+                                        )
+                                    }
                                 }
                             ) {
-                                val initial = (currentUser.displayName?.firstOrNull() ?: currentUser.email?.firstOrNull() ?: 'U').uppercaseChar()
-                                Text(
-                                    text = "$initial",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                ProfileAvatarImage(
+                                    selection = profileAvatar,
+                                    currentUser = currentUser,
+                                    size = 36.dp,
+                                    initialFontSize = 15.sp,
+                                    showGradientRing = currentUser != null
                                 )
                             }
                         } else {

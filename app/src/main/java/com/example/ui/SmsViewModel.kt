@@ -1,12 +1,15 @@
 package com.example.ui
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.model.ConversationEntity
 import com.example.data.model.MessageEntity
 import com.example.data.remote.CloudMessage
 import com.example.data.remote.FirebaseSyncRepository
+import com.example.data.repository.ProfileAvatarManager
+import com.example.data.repository.ProfileAvatarSelection
 import com.example.data.repository.SmsRepository
 import com.example.data.repository.WebSyncEvent
 import com.google.firebase.Firebase
@@ -68,6 +71,9 @@ class SmsViewModel(
 
     private val _isCloudSyncing = MutableStateFlow(false)
     val isCloudSyncing: StateFlow<Boolean> = _isCloudSyncing.asStateFlow()
+
+    private val _profileAvatar = MutableStateFlow(ProfileAvatarManager.loadSelection(application))
+    val profileAvatar: StateFlow<ProfileAvatarSelection> = _profileAvatar.asStateFlow()
 
     // Gemini AI Service and State
     private val aiService = com.example.ai.GeminiAiService.getInstance()
@@ -197,6 +203,26 @@ class SmsViewModel(
 
     fun toggleLanguage() {
         currentLanguage.value = if (currentLanguage.value == "BN") "EN" else "BN"
+    }
+
+    fun selectPresetAvatar(presetId: String) {
+        _profileAvatar.value = ProfileAvatarManager.selectPreset(getApplication(), presetId)
+    }
+
+    fun saveCustomAvatarFromUri(uri: Uri, onComplete: (Boolean, String?) -> Unit = { _, _ -> }) {
+        viewModelScope.launch {
+            val result = ProfileAvatarManager.saveAvatarFromUri(getApplication(), uri)
+            result.onSuccess { selection ->
+                _profileAvatar.value = selection
+                onComplete(true, null)
+            }.onFailure { err ->
+                onComplete(false, err.localizedMessage)
+            }
+        }
+    }
+
+    fun resetProfileAvatar() {
+        _profileAvatar.value = ProfileAvatarManager.resetToDefault(getApplication())
     }
 
     fun toggleWebConnection() {

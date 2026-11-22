@@ -1,7 +1,9 @@
 package com.example.ui.screens
 
+import android.net.Uri
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDone
@@ -62,8 +65,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.repository.ProfileAvatarManager
+import com.example.data.repository.ProfileAvatarSelection
 import com.example.ui.auth.GoogleSignInButton
 import com.example.ui.auth.GoogleUserProfileCard
+import com.example.ui.components.ProfileAvatarImage
+import com.example.ui.components.ProfileAvatarPickerDialog
 import com.google.firebase.auth.FirebaseUser
 import kotlinx.coroutines.CoroutineScope
 
@@ -77,6 +84,10 @@ fun SettingsScreen(
     language: String,
     currentUser: FirebaseUser?,
     isCloudSyncing: Boolean,
+    profileAvatar: ProfileAvatarSelection = ProfileAvatarSelection.DefaultInitials,
+    onSelectPresetAvatar: (String) -> Unit = {},
+    onSaveCustomAvatarUri: (Uri, (Boolean, String?) -> Unit) -> Unit = { _, cb -> cb(false, null) },
+    onResetAvatar: () -> Unit = {},
     onToggleLanguage: () -> Unit,
     onRequestDefaultSms: () -> Unit,
     onRequestPermissions: () -> Unit,
@@ -90,6 +101,7 @@ fun SettingsScreen(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var inlineAuthError by remember { mutableStateOf<String?>(null) }
+    var showAvatarPicker by remember { mutableStateOf(false) }
 
     LaunchedEffect(currentUser) {
         if (currentUser != null) {
@@ -136,13 +148,98 @@ fun SettingsScreen(
             )
             Spacer(modifier = Modifier.height(8.dp))
 
+            // Profile Avatar Selection Card in Account Settings
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                ),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showAvatarPicker = true }
+                    .testTag("settings_profile_avatar_card")
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        ProfileAvatarImage(
+                            selection = profileAvatar,
+                            currentUser = currentUser,
+                            size = 50.dp,
+                            initialFontSize = 18.sp,
+                            showGradientRing = true
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = if (language == "BN") "প্রোফাইল অবতার ও ছবি" else "Profile Avatar",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            val subtitle = when (profileAvatar) {
+                                is ProfileAvatarSelection.CustomPhoto ->
+                                    if (language == "BN") "কাস্টম ক্যামেরা / গ্যালারি ছবি" else "Custom camera / gallery photo"
+                                is ProfileAvatarSelection.PresetAvatar -> {
+                                    val preset = ProfileAvatarManager.findPreset(profileAvatar.presetId)
+                                    if (language == "BN") "অবতার: ${preset?.labelBn ?: profileAvatar.presetId}"
+                                    else "Avatar: ${preset?.labelEn ?: profileAvatar.presetId}"
+                                }
+                                is ProfileAvatarSelection.DefaultInitials ->
+                                    if (language == "BN") "ক্যামেরা ছবি তুলুন বা অবতার বাছুন" else "Take camera photo or pick an avatar"
+                            }
+                            Text(
+                                text = subtitle,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    OutlinedButton(
+                        onClick = { showAvatarPicker = true },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("settings_change_avatar_btn")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CameraAlt,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (language == "BN") "পরিবর্তন" else "Edit",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
             if (currentUser != null) {
                 GoogleUserProfileCard(
                     user = currentUser,
                     isCloudSyncing = isCloudSyncing,
                     onTriggerCloudSync = onTriggerCloudSync,
                     onSignOut = onSignOut,
-                    language = language
+                    language = language,
+                    avatarSelection = profileAvatar,
+                    onEditAvatar = { showAvatarPicker = true }
                 )
             } else {
                 Card(
@@ -510,5 +607,17 @@ fun SettingsScreen(
                 }
             }
         }
+    }
+
+    if (showAvatarPicker) {
+        ProfileAvatarPickerDialog(
+            currentSelection = profileAvatar,
+            currentUser = currentUser,
+            language = language,
+            onSelectPreset = onSelectPresetAvatar,
+            onSaveCustomPhotoUri = onSaveCustomAvatarUri,
+            onResetToDefault = onResetAvatar,
+            onDismiss = { showAvatarPicker = false }
+        )
     }
 }

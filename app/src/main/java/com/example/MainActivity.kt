@@ -156,6 +156,7 @@ fun SmsAppRoot(
 
     val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
     val isCloudSyncing by viewModel.isCloudSyncing.collectAsStateWithLifecycle()
+    val profileAvatar by viewModel.profileAvatar.collectAsStateWithLifecycle()
 
     val smartReplies by viewModel.smartReplies.collectAsStateWithLifecycle()
     val aiSummary by viewModel.aiSummary.collectAsStateWithLifecycle()
@@ -296,6 +297,7 @@ fun SmsAppRoot(
             isWebConnected = isWebConnected,
             language = currentLanguage,
             currentUser = currentUser,
+            profileAvatar = profileAvatar,
             activity = activity,
             authScope = coroutineScope,
             onAuthSuccess = {
@@ -408,6 +410,10 @@ fun SmsAppRoot(
             language = currentLanguage,
             currentUser = currentUser,
             isCloudSyncing = isCloudSyncing,
+            profileAvatar = profileAvatar,
+            onSelectPresetAvatar = { viewModel.selectPresetAvatar(it) },
+            onSaveCustomAvatarUri = { uri, callback -> viewModel.saveCustomAvatarFromUri(uri, callback) },
+            onResetAvatar = { viewModel.resetProfileAvatar() },
             onToggleLanguage = { viewModel.toggleLanguage() },
             onRequestDefaultSms = onRequestDefaultSms,
             onRequestPermissions = onRequestPermissions,

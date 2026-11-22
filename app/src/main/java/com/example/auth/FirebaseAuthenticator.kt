@@ -17,6 +17,7 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.Companion.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
 import com.google.firebase.Firebase
 import com.google.firebase.FirebaseApp
+import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
@@ -104,10 +105,23 @@ class FirebaseAuthenticator(
         }
 
         if (context != null) {
-            val appContext = context.applicationContext
+            val appContext = context.applicationContext ?: context
             try {
                 if (FirebaseApp.getApps(appContext).isEmpty()) {
-                    FirebaseApp.initializeApp(appContext)
+                    val initialized = FirebaseApp.initializeApp(appContext)
+                    if (initialized == null) {
+                        val appId = resolveStringRes(appContext, "google_app_id")
+                        val apiKey = resolveStringRes(appContext, "google_api_key")
+                        if (!appId.isNullOrBlank() && !apiKey.isNullOrBlank()) {
+                            val builder = FirebaseOptions.Builder()
+                                .setApplicationId(appId)
+                                .setApiKey(apiKey)
+                            resolveStringRes(appContext, "project_id")?.let { builder.setProjectId(it) }
+                            resolveStringRes(appContext, "gcm_defaultSenderId")?.let { builder.setGcmSenderId(it) }
+                            resolveStringRes(appContext, "google_storage_bucket")?.let { builder.setStorageBucket(it) }
+                            FirebaseApp.initializeApp(appContext, builder.build())
+                        }
+                    }
                 }
             } catch (t: Throwable) {
                 Log.w(TAG, "FirebaseApp.initializeApp notice: ${t.message}")
@@ -130,6 +144,16 @@ class FirebaseAuthenticator(
             _authStateFlow.value = resolved.currentUser
         }
         return resolved
+    }
+
+    @Suppress("DiscouragedApi")
+    private fun resolveStringRes(context: Context, key: String): String? {
+        return try {
+            val resId = context.resources.getIdentifier(key, "string", context.packageName)
+            if (resId != 0) context.getString(resId).takeIf { it.isNotBlank() } else null
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     private val activeAuth: FirebaseAuth?
@@ -239,7 +263,15 @@ class FirebaseAuthenticator(
             ?: return Result.failure(IllegalStateException("Activity context unavailable to display Google Sign-In UI."))
 
         ensureInitialized(targetActivity)
-            ?: return Result.failure(IllegalStateException("Firebase Authentication failed to initialize. Check google-services.json configuration."))
+            ?: return Result.failure(
+                IllegalStateException(
+                    if (resolveStringRes(targetActivity, "google_app_id") == null) {
+                        "এই APK-তে google-services.json যুক্ত হয়নি। GitHub-এ app/google-services.json ফাইলটি পুশ করে নতুন APK বিল্ড করুন।"
+                    } else {
+                        "Firebase Authentication failed to initialize. Check google-services.json configuration."
+                    }
+                )
+            )
 
         val clientId = resolveServerClientId(targetActivity)
             ?: return Result.failure(IllegalStateException("Google Sign-In configuration missing: default_web_client_id not found."))

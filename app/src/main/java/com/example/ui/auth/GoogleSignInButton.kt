@@ -5,6 +5,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Security
@@ -54,6 +57,8 @@ import androidx.compose.ui.unit.sp
 import androidx.credentials.CredentialManager
 import com.example.R
 import com.example.auth.findActivity
+import com.example.data.repository.ProfileAvatarSelection
+import com.example.ui.components.ProfileAvatarImage
 import com.google.firebase.auth.FirebaseUser
 
 /**
@@ -206,6 +211,8 @@ fun GoogleUserProfileCard(
     onTriggerCloudSync: () -> Unit,
     onSignOut: () -> Unit,
     language: String = "BN",
+    avatarSelection: ProfileAvatarSelection = ProfileAvatarSelection.DefaultInitials,
+    onEditAvatar: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -223,41 +230,43 @@ fun GoogleUserProfileCard(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                // Avatar with Google-colored ring
                 Box(
+                    contentAlignment = Alignment.BottomEnd,
                     modifier = Modifier
-                        .size(46.dp)
+                        .size(50.dp)
                         .clip(CircleShape)
-                        .background(
-                            Brush.sweepGradient(
-                                listOf(
-                                    Color(0xFF4285F4),
-                                    Color(0xFF34A853),
-                                    Color(0xFFFBBC05),
-                                    Color(0xFFEA4335),
-                                    Color(0xFF4285F4)
-                                )
-                            )
+                        .then(
+                            if (onEditAvatar != null) {
+                                Modifier.clickable(onClick = onEditAvatar)
+                            } else {
+                                Modifier
+                            }
                         )
-                        .padding(2.5.dp)
+                        .testTag("profile_card_avatar_button")
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(46.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF1E3A8A)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        val initial = user.displayName?.firstOrNull()?.uppercaseChar()?.toString()
-                            ?: user.email?.firstOrNull()?.uppercaseChar()?.toString()
-                            ?: "G"
-                        Text(
-                            text = initial,
-                            color = Color.White,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                    ProfileAvatarImage(
+                        selection = avatarSelection,
+                        currentUser = user,
+                        size = 48.dp,
+                        initialFontSize = 18.sp,
+                        showGradientRing = true
+                    )
+                    if (onEditAvatar != null) {
+                        Box(
+                            modifier = Modifier
+                                .size(18.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary)
+                                .border(1.5.dp, MaterialTheme.colorScheme.surface, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CameraAlt,
+                                contentDescription = if (language == "BN") "অবতার পরিবর্তন" else "Change avatar",
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(10.dp)
+                            )
+                        }
                     }
                 }
 

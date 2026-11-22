@@ -352,8 +352,8 @@
           <div id="inlineQrBoxContainer" class="p-4 bg-white rounded-2xl shadow-xl relative my-1 mx-auto flex items-center justify-center shrink-0 overflow-hidden transition-all duration-300">
             <div id="inlineQrcode" class="w-full h-full"></div>
             <div id="inlineQrLogoBadge" class="absolute inset-0 flex items-center justify-center pointer-events-none z-[5]">
-              <div class="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md ring-4 ring-white">
-                <i class="ph ph-chat-centered-text text-xl"></i>
+              <div class="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-sm ring-2 ring-white">
+                <i class="ph ph-chat-centered-text text-sm"></i>
               </div>
             </div>
 
@@ -536,8 +536,8 @@
             <div id="qrBoxContainer" class="p-4 bg-white rounded-2xl shadow-xl relative my-2 mx-auto flex items-center justify-center shrink-0 overflow-hidden transition-all duration-300">
               <div id="qrcode" class="w-full h-full"></div>
               <div id="qrLogoBadge" class="absolute inset-0 flex items-center justify-center pointer-events-none z-[5]">
-                <div class="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md ring-4 ring-white">
-                  <i class="ph ph-chat-centered-text text-xl"></i>
+                <div class="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-sm ring-2 ring-white">
+                  <i class="ph ph-chat-centered-text text-sm"></i>
                 </div>
               </div>
 
@@ -1486,18 +1486,14 @@ git push origin main</pre>
         }
         const pairingToken = "pulse_pair_" + randomPart;
 
-        const payload = JSON.stringify({
-          app: "PulseSMS",
-          token: pairingToken,
-          time: Date.now()
-        });
+        const payload = pairingToken;
 
         const renderFallbackQrImageInto = (target) => {
           target.container.innerHTML = "";
           const fallbackImg = document.createElement("img");
           fallbackImg.alt = "Pulse SMS Pairing QR Code";
           fallbackImg.decoding = "async";
-          fallbackImg.src = "https://api.qrserver.com/v1/create-qr-code/?size=240x240&ecc=H&margin=0&color=0f172a&bgcolor=ffffff&data=" + encodeURIComponent(payload);
+          fallbackImg.src = "https://api.qrserver.com/v1/create-qr-code/?size=240x240&ecc=H&margin=0&color=000000&bgcolor=ffffff&data=" + encodeURIComponent(payload);
           fallbackImg.onload = () => {
             if (target.badge) target.badge.style.display = "flex";
           };
@@ -1513,7 +1509,7 @@ git push origin main</pre>
               text: payload,
               width: 240,
               height: 240,
-              colorDark: "#0f172a",
+              colorDark: "#000000",
               colorLight: "#ffffff",
               correctLevel: QRCode.CorrectLevel.H
             });
