@@ -45,6 +45,9 @@ interface MessageDao {
     @Query("SELECT * FROM messages ORDER BY timestamp DESC LIMIT :limit")
     suspend fun getRecentMessages(limit: Int = 100): List<MessageEntity>
 
+    @Query("SELECT EXISTS(SELECT 1 FROM messages WHERE threadAddress = :address AND timestamp = :timestamp AND body = :body)")
+    suspend fun messageExists(address: String, timestamp: Long, body: String): Boolean
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessage(message: MessageEntity): Long
 

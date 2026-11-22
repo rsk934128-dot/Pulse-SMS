@@ -32,10 +32,83 @@
   <!-- D3.js v7 CDN for Data Visualization -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 
-  <!-- Firebase v10 Compat for Instant Web Sync -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <!-- Firebase v10 Modular SDK (Supports Named Firestore Database + Auth) -->
+  <script type="module">
+    import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import {
+      getAuth,
+      onAuthStateChanged,
+      signInWithPopup,
+      GoogleAuthProvider,
+      signInWithEmailAndPassword,
+      createUserWithEmailAndPassword,
+      updateProfile,
+      signOut,
+      setPersistence,
+      browserLocalPersistence
+    } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import {
+      getFirestore,
+      collection,
+      doc,
+      setDoc,
+      updateDoc,
+      deleteDoc,
+      getDoc,
+      getDocs,
+      onSnapshot,
+      query,
+      where,
+      orderBy,
+      limit,
+      serverTimestamp,
+      Timestamp
+    } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+    const cfg = {
+      apiKey: "AIzaSyAPXA-x3XgEYgOL_ex3UG7mhbG5bHdDxZM",
+      authDomain: "gen-lang-client-0040983236.firebaseapp.com",
+      projectId: "gen-lang-client-0040983236",
+      storageBucket: "gen-lang-client-0040983236.firebasestorage.app",
+      messagingSenderId: "836906134294",
+      appId: "1:836906134294:android:c35f8f3d9c103484f53e37"
+    };
+    const dbId = "ai-studio-android-pulsesms-d91f8c0e-d0eb-454c-a3c4-23804c092a8d";
+
+    const app = getApps().length ? getApp() : initializeApp(cfg);
+    const auth = getAuth(app);
+    const db = getFirestore(app, dbId);
+    setPersistence(auth, browserLocalPersistence).catch(() => {});
+
+    window.PulseFirebase = {
+      app,
+      auth,
+      db,
+      databaseId: dbId,
+      onAuthStateChanged,
+      signInWithPopup,
+      GoogleAuthProvider,
+      signInWithEmailAndPassword,
+      createUserWithEmailAndPassword,
+      updateProfile,
+      signOut,
+      collection,
+      doc,
+      setDoc,
+      updateDoc,
+      deleteDoc,
+      getDoc,
+      getDocs,
+      onSnapshot,
+      query,
+      where,
+      orderBy,
+      limit,
+      serverTimestamp,
+      Timestamp
+    };
+    window.dispatchEvent(new CustomEvent("pulse-firebase-ready"));
+  </script>
 
   <script>
     tailwind.config = {
@@ -1294,35 +1367,57 @@ git push origin main</pre>
 
     const FIRESTORE_DATABASE_ID = "ai-studio-android-pulsesms-d91f8c0e-d0eb-454c-a3c4-23804c092a8d";
 
+    const PAIRED_SESSION_STORAGE_KEY = "pulse_paired_session_id";
+    const PAIRED_DEVICE_STORAGE_KEY = "pulse_paired_device_name";
+
     let firebaseApp = null;
     let firestoreDb = null;
     let currentCloudUser = null;
     let cloudMessagesUnsubscribe = null;
+    let pairedMessagesUnsubscribe = null;
     let loadedCloudMessages = [];
+    let pairedSessionMessages = [];
+    let userCloudMessages = [];
+    let isUsingRealPairedInbox = false;
+    let hasUserCloudSnapshot = false;
+    let activePairedSessionId = null;
+    let activePairedDeviceName = null;
+    try {
+      activePairedSessionId = localStorage.getItem(PAIRED_SESSION_STORAGE_KEY) || null;
+      activePairedDeviceName = localStorage.getItem(PAIRED_DEVICE_STORAGE_KEY) || null;
+    } catch (_) {}
     let activeCategoryFilter = "ALL";
 
-    function getFirestoreInstance() {
-      if (firestoreDb) return firestoreDb;
-      try {
-        if (typeof firebase === "undefined") {
-          console.warn("Firebase SDK not yet loaded.");
-          return null;
-        }
-        if (!firebase.apps.length) {
-          firebaseApp = firebase.initializeApp(FIREBASE_CONFIG);
-        } else {
-          firebaseApp = firebase.app();
-        }
-        try {
-          firestoreDb = firebaseApp.firestore(FIRESTORE_DATABASE_ID);
-        } catch (e) {
-          firestoreDb = firebase.firestore();
-        }
-        return firestoreDb;
-      } catch (err) {
-        console.warn("Firestore init exception:", err);
-        return null;
+    function withPulseFirebase(callback) {
+      if (window.PulseFirebase && window.PulseFirebase.db) {
+        callback(window.PulseFirebase);
+      } else {
+        window.addEventListener("pulse-firebase-ready", () => {
+          if (window.PulseFirebase && window.PulseFirebase.db) {
+            callback(window.PulseFirebase);
+          }
+        }, { once: true });
       }
+    }
+
+    function waitForPulseFirebase(timeoutMs = 5000) {
+      if (window.PulseFirebase && window.PulseFirebase.db) {
+        return Promise.resolve(window.PulseFirebase);
+      }
+      return new Promise((resolve) => {
+        let settled = false;
+        const done = (val) => {
+          if (settled) return;
+          settled = true;
+          resolve(val);
+        };
+        window.addEventListener("pulse-firebase-ready", () => done(window.PulseFirebase || null), { once: true });
+        setTimeout(() => done(window.PulseFirebase || null), timeoutMs);
+      });
+    }
+
+    function getFirestoreInstance() {
+      return (window.PulseFirebase && window.PulseFirebase.db) ? window.PulseFirebase.db : null;
     }
 
     // 1. Initialize Dynamic Pairing QR Code with 60-Second Security Timeout & Optional Auto-Refresh
@@ -1617,6 +1712,7 @@ git push origin main</pre>
 
     let pairingSessionUnsubscribes = [];
     let currentPairingSessionId = null;
+    let pairingListenStartedAtMs = Date.now();
 
     function cleanupPairingListeners() {
       pairingSessionUnsubscribes.forEach(unsub => {
@@ -1625,67 +1721,79 @@ git push origin main</pre>
       pairingSessionUnsubscribes = [];
     }
 
+    function getFirestoreTimeMillis(val) {
+      if (!val) return 0;
+      if (typeof val === "number") return val;
+      if (typeof val.toMillis === "function") return val.toMillis();
+      if (val.seconds) return val.seconds * 1000;
+      if (val instanceof Date) return val.getTime();
+      return 0;
+    }
+
     function listenForMobileCameraPairing(sessionId) {
       currentPairingSessionId = sessionId;
+      pairingListenStartedAtMs = Date.now();
       cleanupPairingListeners();
 
-      try {
-        const dbs = [];
-        const primaryDb = getFirestoreInstance();
-        if (primaryDb) dbs.push(primaryDb);
-
+      withPulseFirebase((fb) => {
         try {
-          if (typeof firebase !== "undefined" && firebase.apps && firebase.apps.length) {
-            const defaultDb = firebase.app().firestore();
-            if (defaultDb && !dbs.includes(defaultDb)) {
-              dbs.push(defaultDb);
-            }
-          }
-        } catch (_) {}
+          const { db, doc, setDoc, onSnapshot, serverTimestamp } = fb;
 
-        const tokensToWatch = [sessionId, "pulse_pair_instant_one_shot", "pulse_pair_simulation_instant"];
+          // Initialize pending state for the freshly generated QR session
+          setDoc(doc(db, "pairing_sessions", sessionId), {
+            sessionId: sessionId,
+            status: "PENDING",
+            createdAt: serverTimestamp()
+          }, { merge: true }).catch(() => {});
 
-        dbs.forEach(db => {
-          // Initialize pending state for active QR session
-          try {
-            db.collection("pairing_sessions").doc(sessionId).set({
-              sessionId: sessionId,
-              status: "PENDING",
-              createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            }, { merge: true }).catch(() => {});
-          } catch (_) {}
-
-          // Watch target session and fast fallback instant connect tokens
-          tokensToWatch.forEach(token => {
+          const tokensToWatch = [sessionId, "pulse_pair_instant_one_shot", "pulse_pair_simulation_instant"];
+          tokensToWatch.forEach((token) => {
             try {
-              const unsub = db.collection("pairing_sessions").doc(token)
-                .onSnapshot((doc) => {
-                  if (!doc.exists) return;
-                  const data = doc.data();
-                  if (data && data.status === "CONNECTED") {
-                    handleSuccessfulScreenPairing(data);
+              const unsub = onSnapshot(doc(db, "pairing_sessions", token), (snap) => {
+                if (!snap.exists()) return;
+                const data = snap.data();
+                if (!data || data.status !== "CONNECTED") return;
+
+                // Prevent stale instant-one-shot documents from prior days from auto-firing on page load
+                if (token !== sessionId) {
+                  const connectedMs = getFirestoreTimeMillis(data.connectedAt) || getFirestoreTimeMillis(data.createdAt);
+                  if (connectedMs > 0 && connectedMs < pairingListenStartedAtMs - 15000) {
+                    return;
                   }
-                }, (err) => {
-                  console.warn("Pairing snapshot listener notice (" + token + "):", err);
-                });
+                }
+
+                handleSuccessfulScreenPairing(data, token);
+              }, (err) => {
+                console.warn("Pairing snapshot listener notice (" + token + "):", err);
+              });
               pairingSessionUnsubscribes.push(unsub);
             } catch (err) {
               console.warn("Snapshot setup error:", err);
             }
           });
-        });
-      } catch (err) {
-        console.warn("Error initializing mobile camera pairing listener:", err);
-      }
+        } catch (err) {
+          console.warn("Error initializing mobile camera pairing listener:", err);
+        }
+      });
     }
 
-    function handleSuccessfulScreenPairing(data) {
-      const deviceName = data.deviceName || "Samsung Galaxy S24";
+    function handleSuccessfulScreenPairing(data, matchedToken, options) {
+      const isSilentResume = Boolean(options && options.silent);
+      const deviceName = data.deviceName || "Android Phone";
+      const pairedSessionId = data.sessionId || matchedToken || currentPairingSessionId;
       const authStatus = document.getElementById("authStatusIndicator");
       const btn = document.getElementById("btnSimulatePair");
       const label = document.getElementById("pairBtnLabel");
       const inlineBtn = document.getElementById("btnInlineSimulatePair");
       const inlineLabel = document.getElementById("inlinePairBtnLabel");
+
+      activePairedSessionId = pairedSessionId;
+      activePairedDeviceName = deviceName;
+      isUsingRealPairedInbox = true;
+      try {
+        if (pairedSessionId) localStorage.setItem(PAIRED_SESSION_STORAGE_KEY, pairedSessionId);
+        localStorage.setItem(PAIRED_DEVICE_STORAGE_KEY, deviceName);
+      } catch (_) {}
 
       getQrUiTargets().forEach((t) => {
         if (t.laser) t.laser.classList.remove("qr-scanning-laser-active");
@@ -1702,19 +1810,17 @@ git push origin main</pre>
         }
       });
 
-      // Stop expiration countdown & listeners
       pairingSessionStatus = "CONNECTED";
       clearQrTimer();
       cleanupPairingListeners();
 
-      // 1. Play Web Audio confirmation sound
-      playQrScanConfirmationSound();
-
-      // 2. Trigger Floating Toast Notification inside the modal
-      showModalToast("QR কোড সফলভাবে স্ক্যান হয়েছে!", `${deviceName} এক চান্সে কানেক্টেড • রিয়েল-টাইম স্ক্রিন সিঙ্ক সক্রিয়`);
+      if (!isSilentResume) {
+        playQrScanConfirmationSound();
+        showModalToast("মোবাইল কানেক্টেড!", `${deviceName} যুক্ত হয়েছে • রিয়েল-টাইম এসএমএস ইনবক্স লোড হচ্ছে...`);
+      }
 
       if (authStatus) {
-        authStatus.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span id="authStatusText">কানেক্টেড (${deviceName})</span>`;
+        authStatus.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span><span id="authStatusText">কানেক্টেড (${escapeHtmlText(deviceName)})</span>`;
         authStatus.classList.remove("bg-slate-800");
         authStatus.classList.add("bg-emerald-950/60", "border-emerald-500/30");
       }
@@ -1724,23 +1830,43 @@ git push origin main</pre>
         { b: inlineBtn, l: inlineLabel }
       ].forEach(({ b, l }) => {
         if (b && l) {
-          l.innerText = `কানেক্টেড (${deviceName})`;
+          l.innerText = `কানেক্টেড (${deviceName}) • পুনরায় স্ক্যান`;
           b.classList.remove("bg-blue-600/20", "text-blue-300", "border-blue-500/30");
           b.classList.add("bg-emerald-600/20", "text-emerald-300", "border-emerald-500/30");
+          b.onclick = resetQrScanState;
         }
       });
 
-      const syncLabel = document.getElementById("mainMessengerSyncStatus");
-      if (syncLabel) {
-        syncLabel.innerText = `কানেক্টেড • ${deviceName} লাইভ`;
+      const headerBadge = document.getElementById("headerSyncLiveBadge");
+      if (headerBadge) {
+        headerBadge.className = "text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1 font-semibold";
+        headerBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>📱 ${escapeHtmlText(deviceName)} লাইভ</span>`;
+      }
+
+      const syncStatusBadge = document.getElementById("cloudSyncStatusBadge");
+      if (syncStatusBadge) {
+        syncStatusBadge.className = "text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
+        syncStatusBadge.innerText = `📱 মোবাইল লাইভ (${deviceName})`;
       }
 
       if (typeof addLogEntry === "function") {
-        addLogEntry("PAIRING", `মোবাইল ক্যামেরা স্ক্যানে এক চান্সে স্ক্রিন কানেক্টেড: ${deviceName}`);
+        addLogEntry("PAIRING", `মোবাইল কানেক্টেড (${deviceName} • Session: ${pairedSessionId})। ফোনের এসএমএস ইনবক্স সিঙ্ক হচ্ছে...`);
       }
 
-      // If mobile user ID is provided, attach messages in real time
-      if (data.userId && typeof attachFirestoreMessageListener === "function") {
+      // Clear preview demo items immediately so real mobile SMS take over cleanly
+      loadedCloudMessages = [];
+      pairedSessionMessages = [];
+      hasInitializedMessages = true;
+      activeSelectedSender = null;
+      renderLiveMessenger();
+
+      if (pairedSessionId) {
+        attachPairingSessionMessageListener(pairedSessionId);
+      }
+
+      // Only attach per-user Firestore listener if browser Auth matches the phone's Firebase Auth UID
+      const webAuthUid = window.PulseFirebase?.auth?.currentUser?.uid || null;
+      if (data.userId && webAuthUid && webAuthUid === data.userId) {
         attachFirestoreMessageListener(data.userId);
       }
     }
@@ -2042,6 +2168,19 @@ git push origin main</pre>
       const inlineBtn = document.getElementById("btnInlineSimulatePair");
       const inlineLabel = document.getElementById("inlinePairBtnLabel");
 
+      if (pairedMessagesUnsubscribe) {
+        try { pairedMessagesUnsubscribe(); } catch (_) {}
+        pairedMessagesUnsubscribe = null;
+      }
+      activePairedSessionId = null;
+      activePairedDeviceName = null;
+      isUsingRealPairedInbox = false;
+      pairedSessionMessages = [];
+      try {
+        localStorage.removeItem(PAIRED_SESSION_STORAGE_KEY);
+        localStorage.removeItem(PAIRED_DEVICE_STORAGE_KEY);
+      } catch (_) {}
+
       getQrUiTargets().forEach((t) => {
         if (t.laser) t.laser.classList.remove("qr-laser-active", "qr-scanning-laser-active");
         if (t.box) t.box.classList.remove("ring-4", "ring-cyan-500/40");
@@ -2062,6 +2201,7 @@ git push origin main</pre>
         }
       });
 
+      recomputeMergedMessages();
       initQrCode();
     }
 
@@ -2232,63 +2372,51 @@ git push origin main</pre>
     let webAuthListenerAttached = false;
 
     function getWebFirebaseAuth() {
-      try {
-        if (typeof firebase === "undefined" || typeof firebase.auth !== "function") {
-          return null;
-        }
-        if (!firebase.apps.length) {
-          firebaseApp = firebase.initializeApp(FIREBASE_CONFIG);
-        } else {
-          firebaseApp = firebase.app();
-        }
-        const authInstance = firebase.auth();
-        if (authInstance && !webAuthListenerAttached) {
-          webAuthListenerAttached = true;
-          if (firebase.auth.Auth && firebase.auth.Auth.Persistence && typeof authInstance.setPersistence === "function") {
-            authInstance.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
-          }
-          authInstance.onAuthStateChanged((user) => {
-            if (user) {
-              currentCloudUser = user;
-              saveWebSessionUser({
-                uid: user.uid,
-                email: user.email || "",
-                displayName: user.displayName || (user.email ? user.email.split("@")[0] : "User"),
-                photoURL: user.photoURL || null,
-                provider: "firebase"
-              });
-              applySignedInUI(user);
-              attachFirestoreMessageListener(user.uid);
-            } else {
-              const savedUser = getSavedWebSessionUser();
-              if (savedUser && savedUser.uid) {
-                currentCloudUser = savedUser;
-                applySignedInUI(savedUser);
-                attachFirestoreMessageListener(savedUser.uid);
-              } else if (!currentCloudUser) {
-                applySignedOutUI();
-              }
-            }
-          });
-        }
-        return authInstance;
-      } catch (e) {
-        console.warn("Firebase Auth setup notice:", e);
-        return null;
+      if (window.PulseFirebase && window.PulseFirebase.auth) {
+        return window.PulseFirebase.auth;
       }
+      return null;
     }
 
-    // Initialize Firebase Auth listener on script load
-    getWebFirebaseAuth();
+    function initWebAuthObserver() {
+      withPulseFirebase((fb) => {
+        if (webAuthListenerAttached) return;
+        webAuthListenerAttached = true;
+        fb.onAuthStateChanged(fb.auth, (user) => {
+          if (user) {
+            currentCloudUser = user;
+            saveWebSessionUser({
+              uid: user.uid,
+              email: user.email || "",
+              displayName: user.displayName || (user.email ? user.email.split("@")[0] : "User"),
+              photoURL: user.photoURL || null,
+              provider: "firebase"
+            });
+            applySignedInUI(user);
+            attachFirestoreMessageListener(user.uid);
+          } else {
+            const savedUser = getSavedWebSessionUser();
+            if (savedUser && savedUser.uid) {
+              currentCloudUser = savedUser;
+              applySignedInUI(savedUser);
+            } else if (!currentCloudUser) {
+              applySignedOutUI();
+            }
+          }
+        });
+      });
+    }
+
+    initWebAuthObserver();
 
     // Google Sign-In Handler for Web Companion (always prompts account selection for any Google account)
     async function handleWebGoogleSignIn(fromModal) {
       try {
-        const authInstance = getWebFirebaseAuth();
-        if (authInstance && typeof firebase !== "undefined" && firebase.auth) {
-          const provider = new firebase.auth.GoogleAuthProvider();
+        const fb = await waitForPulseFirebase(5000);
+        if (fb && fb.auth) {
+          const provider = new fb.GoogleAuthProvider();
           provider.setCustomParameters({ prompt: "select_account" });
-          const result = await authInstance.signInWithPopup(provider);
+          const result = await fb.signInWithPopup(fb.auth, provider);
           if (result && result.user) {
             currentCloudUser = result.user;
             saveWebSessionUser({
@@ -2315,7 +2443,6 @@ git push origin main</pre>
         }
       }
 
-      // If popup is blocked or domain isn't authorized for OAuth popup, open Universal Account Login Modal
       openWebAccountModal("এই প্রিভিউ ব্রাউজারে Google পপআপ অনুমোদিত না হলে, নিচে যেকোনো ইমেইল ও নাম দিয়ে সরাসরি লগইন করুন।");
     }
 
@@ -2341,20 +2468,19 @@ git push origin main</pre>
       showWebLoginFeedback("অ্যাকাউন্ট যাচাই ও লগইন করা হচ্ছে...", "info");
 
       let authenticatedUser = null;
+      const fb = await waitForPulseFirebase(4000);
 
-      // Attempt real Firebase Email/Password authentication if password >= 6 chars is supplied
-      const authInstance = getWebFirebaseAuth();
-      if (password.length >= 6 && authInstance) {
+      if (password.length >= 6 && fb && fb.auth) {
         try {
-          const signInRes = await authInstance.signInWithEmailAndPassword(email, password);
+          const signInRes = await fb.signInWithEmailAndPassword(fb.auth, email, password);
           authenticatedUser = signInRes.user;
         } catch (signInErr) {
           if (signInErr && (signInErr.code === "auth/user-not-found" || signInErr.code === "auth/invalid-credential")) {
             try {
-              const signUpRes = await authInstance.createUserWithEmailAndPassword(email, password);
+              const signUpRes = await fb.createUserWithEmailAndPassword(fb.auth, email, password);
               authenticatedUser = signUpRes.user;
-              if (authenticatedUser && typeof authenticatedUser.updateProfile === "function") {
-                await authenticatedUser.updateProfile({ displayName }).catch(() => {});
+              if (authenticatedUser) {
+                await fb.updateProfile(authenticatedUser, { displayName }).catch(() => {});
               }
             } catch (signUpErr) {
               if (signUpErr && signUpErr.code === "auth/email-already-in-use") {
@@ -2385,7 +2511,9 @@ git push origin main</pre>
       currentCloudUser = authenticatedUser;
       saveWebSessionUser(authenticatedUser);
       applySignedInUI(authenticatedUser);
-      attachFirestoreMessageListener(authenticatedUser.uid);
+      if (fb && fb.auth && fb.auth.currentUser && fb.auth.currentUser.uid === authenticatedUser.uid) {
+        attachFirestoreMessageListener(authenticatedUser.uid);
+      }
 
       if (passwordInput) passwordInput.value = "";
       if (submitBtn) submitBtn.disabled = false;
@@ -2503,14 +2631,21 @@ git push origin main</pre>
     function applySignedOutUI() {
       currentCloudUser = null;
       activeFirestoreUserId = null;
+      hasUserCloudSnapshot = false;
+      userCloudMessages = [];
       if (cloudMessagesUnsubscribe) {
         cloudMessagesUnsubscribe();
         cloudMessagesUnsubscribe = null;
       }
-      loadLocalFallbackMessages();
+
+      if (!isUsingRealPairedInbox && !activePairedSessionId) {
+        loadLocalFallbackMessages();
+      } else {
+        recomputeMergedMessages();
+      }
 
       const authStatus = document.getElementById("authStatusIndicator");
-      if (authStatus) {
+      if (authStatus && !activePairedSessionId) {
         authStatus.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400"></span><span id="authStatusText">সাইন-ইন করা নেই</span>';
         authStatus.classList.remove("bg-emerald-950/60", "border-emerald-500/30");
         authStatus.classList.add("bg-slate-800", "border-slate-700");
@@ -2544,9 +2679,9 @@ git push origin main</pre>
       }
 
       const syncStatusBadge = document.getElementById("cloudSyncStatusBadge");
-      if (syncStatusBadge) {
+      if (syncStatusBadge && !activePairedSessionId) {
         syncStatusBadge.className = "text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-normal";
-        syncStatusBadge.innerText = "ডেমো সিঙ্ক মোড";
+        syncStatusBadge.innerText = "ডেমো প্রিভিউ (QR স্ক্যান করুন)";
       }
 
       renderLiveMessenger();
@@ -2555,9 +2690,9 @@ git push origin main</pre>
     async function handleWebGoogleSignOut() {
       saveWebSessionUser(null);
       try {
-        const authInstance = getWebFirebaseAuth();
-        if (authInstance) {
-          await authInstance.signOut();
+        const fb = await waitForPulseFirebase(2000);
+        if (fb && fb.auth) {
+          await fb.signOut(fb.auth);
         }
       } catch (e) {
         console.warn("Sign out exception:", e);
@@ -2570,68 +2705,141 @@ git push origin main</pre>
     let activeFirestoreUserId = null;
     let hasUserDeletedMessage = false;
 
-    // Attach real-time snapshot listener to Firestore
-    function attachFirestoreMessageListener(userId) {
-      const db = getFirestoreInstance();
-      activeFirestoreUserId = userId || null;
-
-      if (cloudMessagesUnsubscribe) {
-        cloudMessagesUnsubscribe();
-        cloudMessagesUnsubscribe = null;
-      }
-
-      if (!db || !userId) {
-        loadLocalFallbackMessages();
+    function recomputeMergedMessages() {
+      const hasRealSource = isUsingRealPairedInbox || hasUserCloudSnapshot;
+      if (!hasRealSource) {
+        if (loadedCloudMessages.length === 0 && !hasInitializedMessages) {
+          loadLocalFallbackMessages();
+        } else {
+          renderLiveMessenger();
+        }
         return;
       }
 
-      try {
-        cloudMessagesUnsubscribe = db.collection("users").doc(userId).collection("messages")
-          .orderBy("createdAt", "desc")
-          .onSnapshot((snapshot) => {
+      const prevTopId = loadedCloudMessages[0]?.id || null;
+      const hadRealBefore = hasInitializedMessages && loadedCloudMessages.length > 0 && !String(loadedCloudMessages[0]?.id || "").startsWith("msg_");
+
+      const dedup = new Map();
+      [...pairedSessionMessages, ...userCloudMessages].forEach((m) => {
+        const key = String(m.id || m._docId || `${m.threadAddress}_${getMsgTimestampNumber(m)}_${m.body}`);
+        if (!dedup.has(key)) {
+          dedup.set(key, m);
+        }
+      });
+
+      const merged = Array.from(dedup.values()).sort((a, b) => getMsgTimestampNumber(b) - getMsgTimestampNumber(a));
+      hasInitializedMessages = true;
+      loadedCloudMessages = merged;
+
+      if (merged.length > 0) {
+        if (!hadRealBefore || (activeSelectedSender && !merged.some(m => (m.threadAddress || m.senderAddress) === activeSelectedSender))) {
+          activeSelectedSender = merged[0].threadAddress || merged[0].senderAddress || null;
+        }
+        if (hadRealBefore && merged[0]?.id && merged[0].id !== prevTopId && merged[0].isIncoming) {
+          const incomingSender = merged[0].threadAddress || merged[0].senderAddress || "Unknown";
+          activeSelectedSender = incomingSender;
+          playIncomingMessageSound();
+          showModalToast(`📱 নতুন মোবাইল এসএমএস: ${incomingSender}`, (merged[0].body || "").substring(0, 60));
+        }
+      }
+
+      renderLiveMessenger();
+    }
+
+    // Real-time listener for the paired phone's SMS inbox channel (`/pairing_sessions/{sessionId}/messages`)
+    function attachPairingSessionMessageListener(sessionId) {
+      if (!sessionId) return;
+      activePairedSessionId = sessionId;
+      isUsingRealPairedInbox = true;
+
+      if (pairedMessagesUnsubscribe) {
+        try { pairedMessagesUnsubscribe(); } catch (_) {}
+        pairedMessagesUnsubscribe = null;
+      }
+
+      withPulseFirebase((fb) => {
+        try {
+          const { db, collection, query, orderBy, limit, onSnapshot } = fb;
+          const q = query(
+            collection(db, "pairing_sessions", sessionId, "messages"),
+            orderBy("createdAt", "desc"),
+            limit(120)
+          );
+          pairedMessagesUnsubscribe = onSnapshot(q, (snapshot) => {
             const list = [];
-            snapshot.forEach((doc) => {
-              const data = doc.data();
-              list.push({ ...data, _docId: doc.id, id: data.id || doc.id });
+            snapshot.forEach((docSnap) => {
+              const data = docSnap.data();
+              list.push({ ...data, _docId: docSnap.id, _source: "paired", id: data.id || docSnap.id });
             });
-            hasInitializedMessages = true;
+            pairedSessionMessages = list;
+            recomputeMergedMessages();
             if (list.length > 0) {
-              const prevLen = loadedCloudMessages.length;
-              const prevFirstId = loadedCloudMessages[0]?.id;
-              loadedCloudMessages = list;
-
-              // If a new incoming SMS arrived in real time
-              if (prevLen > 0 && list[0]?.id !== prevFirstId && list[0]?.isIncoming) {
-                const incomingSender = list[0].threadAddress || list[0].senderAddress || "Unknown";
-                activeSelectedSender = incomingSender;
-                playIncomingMessageSound();
-                showModalToast(`📱 নতুন মোবাইল এসএমএস: ${incomingSender}`, (list[0].body || "").substring(0, 60) + "...");
-              }
-
-              renderLiveMessenger();
-              addLogEntry("SYNC", `ক্লাউড থেকে ${list.length}টি লাইভ এসএমএস রিয়েল-টাইমে পাওয়া গেছে।`);
-            } else if (hasUserDeletedMessage) {
-              loadedCloudMessages = [];
-              renderLiveMessenger();
-            } else {
-              loadLocalFallbackMessages();
+              addLogEntry("SYNC", `মোবাইল ইনবক্স থেকে ${list.length}টি রিয়েল-টাইম এসএমএস লোড হয়েছে।`);
             }
           }, (err) => {
-            console.warn("Firestore snapshot listener:", err);
-            addLogEntry("NOTICE", "ক্লাউড ডাটাবেজ পর্যবেক্ষণ করা হচ্ছে (অনলাইন)");
-            loadLocalFallbackMessages();
+            console.warn("Paired session messages listener error:", err);
+            addLogEntry("ERROR", `পেয়ার্ড ইনবক্স সিঙ্ক ত্রুটি: ${err?.message || err}`);
           });
-      } catch (e) {
-        console.warn("Firestore listener init error:", e);
-        loadLocalFallbackMessages();
+        } catch (e) {
+          console.warn("Paired session listener init error:", e);
+        }
+      });
+    }
+
+    // Attach real-time snapshot listener to Firestore `/users/{uid}/messages` (only when authenticated UID matches)
+    function attachFirestoreMessageListener(userId) {
+      activeFirestoreUserId = userId || null;
+
+      if (cloudMessagesUnsubscribe) {
+        try { cloudMessagesUnsubscribe(); } catch (_) {}
+        cloudMessagesUnsubscribe = null;
       }
+
+      if (!userId) {
+        recomputeMergedMessages();
+        return;
+      }
+
+      withPulseFirebase((fb) => {
+        const authUid = fb.auth?.currentUser?.uid || null;
+        if (!authUid || authUid !== userId) {
+          // Avoid PERMISSION_DENIED when web Auth doesn't match target UID; paired session stream handles sync
+          return;
+        }
+
+        try {
+          const { db, collection, query, orderBy, limit, onSnapshot } = fb;
+          const q = query(
+            collection(db, "users", userId, "messages"),
+            orderBy("createdAt", "desc"),
+            limit(120)
+          );
+          cloudMessagesUnsubscribe = onSnapshot(q, (snapshot) => {
+            const list = [];
+            snapshot.forEach((docSnap) => {
+              const data = docSnap.data();
+              list.push({ ...data, _docId: docSnap.id, _source: "user", id: data.id || docSnap.id });
+            });
+            hasUserCloudSnapshot = true;
+            userCloudMessages = list;
+            recomputeMergedMessages();
+            if (list.length > 0) {
+              addLogEntry("SYNC", `গুগল ক্লাউড থেকে ${list.length}টি লাইভ এসএমএস পাওয়া গেছে।`);
+            }
+          }, (err) => {
+            console.warn("Firestore user messages listener:", err);
+          });
+        } catch (e) {
+          console.warn("Firestore listener init error:", e);
+        }
+      });
     }
 
     let hasInitializedMessages = false;
 
     // Preloaded synced messages if cloud is freshly created or in preview
     function loadLocalFallbackMessages() {
-      if (loadedCloudMessages.length > 0) return;
+      if (isUsingRealPairedInbox || hasUserCloudSnapshot || loadedCloudMessages.length > 0) return;
       hasInitializedMessages = true;
       const nowSec = Math.floor(Date.now() / 1000);
       const D = 86400; // 1 day in seconds
@@ -2909,6 +3117,7 @@ git push origin main</pre>
       const c = msg.createdAt;
       if (!c) return 0;
       if (typeof c === "number") return c;
+      if (typeof c.toMillis === "function") return c.toMillis();
       if (c.seconds) return c.seconds * 1000;
       if (c instanceof Date) return c.getTime();
       return 0;
@@ -3030,15 +3239,22 @@ git push origin main</pre>
 
       renderLiveMessenger();
 
-      const targetUid = activeFirestoreUserId || (currentCloudUser && currentCloudUser.uid);
-      if (targetUid && docId && targetMsg._docId) {
-        try {
-          const db = getFirestoreInstance();
-          if (db) {
-            await db.collection("users").doc(targetUid).collection("messages").doc(String(docId)).delete();
+      const fb = window.PulseFirebase;
+      if (fb && fb.db && docId) {
+        if (activePairedSessionId) {
+          try {
+            await fb.deleteDoc(fb.doc(fb.db, "pairing_sessions", activePairedSessionId, "messages", String(docId)));
+          } catch (err) {
+            console.warn("Paired session message delete notice:", err);
           }
-        } catch (err) {
-          console.warn("Firestore message delete notice:", err);
+        }
+        const targetUid = activeFirestoreUserId || (fb.auth?.currentUser?.uid || null);
+        if (targetUid && fb.auth?.currentUser?.uid === targetUid) {
+          try {
+            await fb.deleteDoc(fb.doc(fb.db, "users", targetUid, "messages", String(docId)));
+          } catch (err) {
+            console.warn("Firestore message delete notice:", err);
+          }
         }
       }
 
@@ -3048,7 +3264,7 @@ git push origin main</pre>
 
     // Unified Real-Time Messenger Renderer (Updates both On-Page & Modal views)
     function renderLiveMessenger() {
-      if (loadedCloudMessages.length === 0 && !hasInitializedMessages) {
+      if (loadedCloudMessages.length === 0 && !hasInitializedMessages && !isUsingRealPairedInbox) {
         loadLocalFallbackMessages();
         return;
       }
@@ -3112,10 +3328,13 @@ git push origin main</pre>
       const convListContainer = document.getElementById("mainConversationList");
       if (convListContainer) {
         if (threads.length === 0) {
+          const emptyHeadline = isUsingRealPairedInbox
+            ? `ফোন কানেক্টেড (${escapeHtmlText(activePairedDeviceName || "Android")}) — এসএমএস লোড হচ্ছে বা কোনো মেসেজ নেই`
+            : "কোনো বার্তা পাওয়া যায়নি";
           convListContainer.innerHTML = `
-            <div class="p-6 text-center text-slate-500">
-              <i class="ph ph-chat-teardrop-slash text-2xl mb-1 text-slate-600"></i>
-              <p class="text-xs">কোনো বার্তা পাওয়া যায়নি</p>
+            <div class="p-6 text-center text-slate-400">
+              <i class="ph ${isUsingRealPairedInbox ? 'ph-arrows-clockwise animate-spin text-cyan-400' : 'ph-chat-teardrop-slash text-slate-600'} text-2xl mb-1.5 block"></i>
+              <p class="text-xs leading-relaxed">${emptyHeadline}</p>
             </div>
           `;
         } else {
@@ -3123,21 +3342,22 @@ git push origin main</pre>
             const isSelected = t.address === activeSelectedSender;
             const style = getSenderColorAndInitial(t.address);
             const timeStr = formatRelativeTime(t.lastMessage.createdAt);
-            const snippet = (t.lastMessage.body || "").trim();
+            const snippet = escapeHtmlText((t.lastMessage.body || "").trim());
+            const safeAddress = escapeHtmlText(t.address);
 
-            let catBadge = `<span class="text-[9px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 font-mono">${t.category}</span>`;
+            let catBadge = `<span class="text-[9px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 font-mono">${escapeHtmlText(t.category)}</span>`;
             if (t.category === "OTP") catBadge = `<span class="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">🔑 OTP</span>`;
             else if (t.category === "TRANSACTION") catBadge = `<span class="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">💳 লেনদেন</span>`;
             else if (t.category === "TRAVEL") catBadge = `<span class="text-[9px] px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">🏨 বুকিং</span>`;
 
             return `
-              <div onclick="selectMainConversation('${t.address.replace(/'/g, "\\'")}')" class="p-2.5 rounded-2xl cursor-pointer transition-all flex items-start gap-2.5 ${isSelected ? 'bg-blue-600/20 border border-blue-500/50 shadow-md ring-1 ring-blue-500/30' : 'hover:bg-slate-900 border border-transparent hover:border-slate-800/80'}">
+              <div onclick="selectMainConversation('${escapeHtmlAttr(t.address)}')" class="p-2.5 rounded-2xl cursor-pointer transition-all flex items-start gap-2.5 ${isSelected ? 'bg-blue-600/20 border border-blue-500/50 shadow-md ring-1 ring-blue-500/30' : 'hover:bg-slate-900 border border-transparent hover:border-slate-800/80'}">
                 <div class="w-9 h-9 rounded-xl ${style.bg} ${style.text} font-bold flex items-center justify-center text-xs shrink-0 shadow-sm mt-0.5">
-                  ${style.initial}
+                  ${escapeHtmlText(style.initial)}
                 </div>
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center justify-between mb-0.5">
-                    <span class="text-xs font-bold ${isSelected ? 'text-white' : 'text-slate-200'} truncate">${t.address}</span>
+                    <span class="text-xs font-bold ${isSelected ? 'text-white' : 'text-slate-200'} truncate">${safeAddress}</span>
                     <span class="text-[10px] text-slate-400 shrink-0 ml-1 font-medium">${timeStr}</span>
                   </div>
                   <p class="text-[11px] ${isSelected ? 'text-slate-200' : 'text-slate-400'} truncate leading-tight">${snippet}</p>
@@ -3159,14 +3379,15 @@ git push origin main</pre>
 
       if (activeThread && headerSlot && messagesSlot) {
         const style = getSenderColorAndInitial(activeThread.address);
+        const safeThreadAddr = escapeHtmlText(activeThread.address);
         headerSlot.innerHTML = `
           <div class="flex items-center gap-2.5">
             <div class="w-8 h-8 rounded-xl ${style.bg} ${style.text} font-bold flex items-center justify-center text-xs shadow-sm">
-              ${style.initial}
+              ${escapeHtmlText(style.initial)}
             </div>
             <div>
               <h4 class="text-xs font-bold text-white flex items-center gap-1.5">
-                <span>${activeThread.address}</span>
+                <span>${safeThreadAddr}</span>
                 <span class="text-[9px] px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono">মোবাইল সিঙ্ক</span>
               </h4>
               <p class="text-[10px] text-slate-400 flex items-center gap-1">
@@ -3176,7 +3397,7 @@ git push origin main</pre>
             </div>
           </div>
           <div class="flex items-center gap-1.5">
-            <button onclick="copyOtpCode('${activeThread.address}')" class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] flex items-center gap-1 transition-colors" title="প্রেরকের ঠিকানা কপি">
+            <button onclick="copyOtpCode('${escapeHtmlAttr(activeThread.address)}')" class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] flex items-center gap-1 transition-colors" title="প্রেরকের ঠিকানা কপি">
               <i class="ph ph-copy text-xs"></i>
               <span class="hidden sm:inline">কপি</span>
             </button>
@@ -3186,6 +3407,7 @@ git push origin main</pre>
         messagesSlot.innerHTML = activeThread.messages.map((msg, idx) => {
           const isIncoming = msg.isIncoming !== false;
           const body = msg.body || "";
+          const safeBodyHtml = escapeHtmlText(body);
           const timeStr = formatRelativeTime(msg.createdAt);
           const category = (msg.category || activeThread.category || "PERSONAL").toUpperCase();
           const msgKey = escapeHtmlAttr(msg._docId || msg.id || `msg_${idx}`);
@@ -3201,11 +3423,11 @@ git push origin main</pre>
             return `
               <div class="group flex items-start gap-2 max-w-[90%] sm:max-w-[82%]">
                 <div class="w-6 h-6 rounded-lg ${style.bg} ${style.text} font-bold flex items-center justify-center text-[9px] shrink-0 mt-1">
-                  ${style.initial}
+                  ${escapeHtmlText(style.initial)}
                 </div>
                 <div class="space-y-1.5">
                   <div class="p-3.5 rounded-2xl rounded-tl-sm bg-slate-900 border border-slate-800 text-slate-100 text-xs shadow-sm space-y-2">
-                    <p class="leading-relaxed select-text font-normal">${body}</p>
+                    <p class="leading-relaxed select-text font-normal whitespace-pre-wrap break-words">${safeBodyHtml}</p>
 
                     ${otpCode ? `
                       <div class="p-2.5 rounded-xl bg-amber-950/60 border border-amber-500/40 flex items-center justify-between gap-2 mt-2">
@@ -3213,10 +3435,10 @@ git push origin main</pre>
                           <i class="ph ph-shield-check text-amber-400 text-base"></i>
                           <div>
                             <span class="text-[9px] text-amber-300/80 block uppercase font-bold tracking-wider">ওটিপি কোড</span>
-                            <span class="font-mono text-sm font-extrabold text-amber-300 tracking-wider">${otpCode}</span>
+                            <span class="font-mono text-sm font-extrabold text-amber-300 tracking-wider">${escapeHtmlText(otpCode)}</span>
                           </div>
                         </div>
-                        <button onclick="copyOtpCode('${otpCode}')" class="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1 shadow active:scale-95 transition-all">
+                        <button onclick="copyOtpCode('${escapeHtmlAttr(otpCode)}')" class="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1 shadow active:scale-95 transition-all">
                           <i class="ph ph-copy"></i>
                           <span>কপি করুন</span>
                         </button>
@@ -3255,7 +3477,7 @@ git push origin main</pre>
             return `
               <div class="group flex flex-col items-end max-w-[90%] sm:max-w-[80%] ml-auto space-y-1">
                 <div class="p-3.5 rounded-2xl rounded-tr-sm bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs shadow-md shadow-blue-600/20">
-                  <p class="leading-relaxed select-text">${body}</p>
+                  <p class="leading-relaxed select-text whitespace-pre-wrap break-words">${safeBodyHtml}</p>
                 </div>
                 <div class="flex items-center gap-1.5 px-1 text-[10px] text-slate-400">
                   <button type="button" onclick="deleteWebSmsMessage('${msgKey}', event)" title="মেসেজ ডিলিট করুন" aria-label="Delete SMS message" class="p-1 rounded-md text-slate-500 hover:text-rose-400 hover:bg-rose-500/15 transition-colors active:scale-95">
@@ -3449,7 +3671,13 @@ git push origin main</pre>
           if (m) otpCode = m[1];
         }
 
-        let catBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700">${category}</span>`;
+        const safeSender = escapeHtmlText(sender);
+        const safeBody = escapeHtmlText(body);
+        const safeCat = escapeHtmlText(category);
+        const safeOtp = otpCode ? escapeHtmlText(otpCode) : null;
+        const safeOtpAttr = otpCode ? escapeHtmlAttr(otpCode) : null;
+
+        let catBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700">${safeCat}</span>`;
         if (category === "OTP") catBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">🔑 OTP</span>`;
         else if (category === "TRANSACTION") catBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">💳 লেনদেন</span>`;
         else if (category === "TRAVEL") catBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">🏨 ট্রাভেল</span>`;
@@ -3463,7 +3691,7 @@ git push origin main</pre>
           <div class="p-3.5 rounded-2xl bg-slate-900 border border-slate-800/90 hover:border-slate-700 transition-all text-xs space-y-2">
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-2 min-w-0">
-                <span class="font-bold text-white text-xs truncate">${sender}</span>
+                <span class="font-bold text-white text-xs truncate">${safeSender}</span>
                 ${dirBadge}
               </div>
               <div class="flex items-center gap-1.5 shrink-0">
@@ -3474,17 +3702,17 @@ git push origin main</pre>
               </div>
             </div>
             
-            <p class="text-slate-200 text-xs leading-relaxed select-text">${body}</p>
+            <p class="text-slate-200 text-xs leading-relaxed select-text whitespace-pre-wrap break-words">${safeBody}</p>
 
-            ${otpCode ? `
+            ${safeOtp ? `
               <div class="pt-2 border-t border-slate-800/80 flex items-center justify-between">
                 <span class="text-[10px] text-amber-400 font-medium flex items-center gap-1">
                   <i class="ph ph-shield-check"></i>
                   <span>শনাক্তকৃত ওটিপি কোড:</span>
                 </span>
-                <button onclick="copyOtpCode('${otpCode}')" class="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-mono font-bold text-xs border border-amber-500/40 inline-flex items-center gap-1.5 active:scale-95 transition-all">
+                <button onclick="copyOtpCode('${safeOtpAttr}')" class="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-mono font-bold text-xs border border-amber-500/40 inline-flex items-center gap-1.5 active:scale-95 transition-all">
                   <i class="ph ph-copy"></i>
-                  <span>${otpCode} (কপি করুন)</span>
+                  <span>${safeOtp} (কপি করুন)</span>
                 </button>
               </div>
             ` : ''}
@@ -4019,8 +4247,10 @@ git push origin main</pre>
 
       container.innerHTML = msgs.map((m, idx) => {
         const sender = m.senderAddress || m.threadAddress || "Unknown";
+        const safeSender = escapeHtmlText(sender);
+        const safeBody = escapeHtmlText(m.body || "");
         const cat = (m.category || "PERSONAL").toUpperCase();
-        const badge = categoryBadges[cat] || `<span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 text-[10px] font-mono">${cat}</span>`;
+        const badge = categoryBadges[cat] || `<span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 text-[10px] font-mono">${escapeHtmlText(cat)}</span>`;
         const timeStr = formatRelativeTime(m.createdAt);
         const avatar = getSenderColorAndInitial(sender);
         const msgKey = escapeHtmlAttr(m._docId || m.id || `d3_msg_${idx}`);
@@ -4029,14 +4259,14 @@ git push origin main</pre>
           <div onclick="selectMainConversation('${escapeHtmlAttr(sender)}'); switchModalView('INBOX');" class="p-2.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-800/80 hover:border-slate-700 flex items-center justify-between gap-3 cursor-pointer transition-all">
             <div class="flex items-center gap-2.5 min-w-0">
               <div class="w-8 h-8 rounded-lg ${avatar.bg} ${avatar.text} flex items-center justify-center text-xs font-bold shrink-0">
-                ${avatar.initial}
+                ${escapeHtmlText(avatar.initial)}
               </div>
               <div class="min-w-0">
                 <div class="flex items-center gap-2">
-                  <span class="font-bold text-xs text-white truncate">${sender}</span>
+                  <span class="font-bold text-xs text-white truncate">${safeSender}</span>
                   ${badge}
                 </div>
-                <p class="text-[11px] text-slate-400 truncate mt-0.5 max-w-md">${m.body || ""}</p>
+                <p class="text-[11px] text-slate-400 truncate mt-0.5 max-w-md">${safeBody}</p>
               </div>
             </div>
             <div class="flex items-center gap-2 shrink-0">
@@ -4133,22 +4363,40 @@ git push origin main</pre>
       showModalToast("মেসেজ পাঠানো হয়েছে!", `${recipient}-এ বার্তা প্রেরণ করা হয়েছে`);
       addLogEntry("SENT", `To ${recipient}: "${body}"`);
 
-      // Write to Firestore if logged in
-      const db = getFirestoreInstance();
-      if (db && currentCloudUser && currentCloudUser.uid) {
-        try {
-          await db.collection("users").doc(currentCloudUser.uid).collection("messages").doc(msgId).set({
-            id: msgId,
-            threadAddress: recipient,
-            senderAddress: "Web Companion",
-            recipientAddress: recipient,
-            body: body,
-            isIncoming: false,
-            category: "PERSONAL",
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-          });
-        } catch (err) {
-          console.warn("Firestore send error:", err);
+      // Persist to active paired session + enqueue SMS dispatch on mobile + user cloud
+      const fb = await waitForPulseFirebase(2000);
+      if (fb && fb.db) {
+        const docPayload = {
+          id: msgId,
+          threadAddress: recipient.slice(0, 100),
+          senderAddress: "Web Companion",
+          recipientAddress: recipient.slice(0, 100),
+          body: body.slice(0, 5000),
+          isIncoming: false,
+          category: "PERSONAL",
+          createdAt: fb.serverTimestamp()
+        };
+        if (activePairedSessionId) {
+          try {
+            await fb.setDoc(fb.doc(fb.db, "pairing_sessions", activePairedSessionId, "messages", msgId), docPayload);
+            const reqId = "req_" + Date.now() + "_" + randomSuffix;
+            await fb.setDoc(fb.doc(fb.db, "pairing_sessions", activePairedSessionId, "outgoing_requests", reqId), {
+              id: reqId,
+              recipient: recipient.slice(0, 100),
+              body: body.slice(0, 2000),
+              status: "PENDING",
+              createdAt: fb.serverTimestamp()
+            });
+          } catch (err) {
+            console.warn("Paired session send error:", err);
+          }
+        }
+        if (fb.auth?.currentUser?.uid) {
+          try {
+            await fb.setDoc(fb.doc(fb.db, "users", fb.auth.currentUser.uid, "messages", msgId), docPayload);
+          } catch (err) {
+            console.warn("Firestore user send error:", err);
+          }
         }
       }
     }
@@ -4185,21 +4433,39 @@ git push origin main</pre>
       showModalToast("মেসেজ পাঠানো হয়েছে!", `${recipient}-এ বার্তা প্রেরণ করা হয়েছে`);
       addLogEntry("SENT", `To ${recipient}: "${body}"`);
 
-      const db = getFirestoreInstance();
-      if (db && currentCloudUser && currentCloudUser.uid) {
-        try {
-          await db.collection("users").doc(currentCloudUser.uid).collection("messages").doc(msgId).set({
-            id: msgId,
-            threadAddress: recipient,
-            senderAddress: "Web Companion",
-            recipientAddress: recipient,
-            body: body,
-            isIncoming: false,
-            category: "PERSONAL",
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-          });
-        } catch (err) {
-          console.warn("Firestore send error:", err);
+      const fb = await waitForPulseFirebase(2000);
+      if (fb && fb.db) {
+        const docPayload = {
+          id: msgId,
+          threadAddress: recipient.slice(0, 100),
+          senderAddress: "Web Companion",
+          recipientAddress: recipient.slice(0, 100),
+          body: body.slice(0, 5000),
+          isIncoming: false,
+          category: "PERSONAL",
+          createdAt: fb.serverTimestamp()
+        };
+        if (activePairedSessionId) {
+          try {
+            await fb.setDoc(fb.doc(fb.db, "pairing_sessions", activePairedSessionId, "messages", msgId), docPayload);
+            const reqId = "req_" + Date.now() + "_" + randomSuffix;
+            await fb.setDoc(fb.doc(fb.db, "pairing_sessions", activePairedSessionId, "outgoing_requests", reqId), {
+              id: reqId,
+              recipient: recipient.slice(0, 100),
+              body: body.slice(0, 2000),
+              status: "PENDING",
+              createdAt: fb.serverTimestamp()
+            });
+          } catch (err) {
+            console.warn("Paired session send error:", err);
+          }
+        }
+        if (fb.auth?.currentUser?.uid) {
+          try {
+            await fb.setDoc(fb.doc(fb.db, "users", fb.auth.currentUser.uid, "messages", msgId), docPayload);
+          } catch (err) {
+            console.warn("Firestore user send error:", err);
+          }
         }
       }
     }
@@ -4522,17 +4788,23 @@ git push origin main</pre>
       addLogEntry("BOOKING", `Booking.com SMS সনাক্ত হয়েছে: ${hotelName} (Ref: ${confNo})`);
     }
 
-    // Auto-render default hotels, live messenger, and inline QR connect on load
+    // Auto-render default hotels, live messenger, and resume paired session or inline QR connect on load
     let initialPageBootstrapped = false;
     function bootstrapPulseWebUi() {
       if (initialPageBootstrapped) return;
       initialPageBootstrapped = true;
       renderBookingHotels("Cox's Bazar");
-      if (typeof liveMessagesList !== "undefined" && liveMessagesList.length === 0) {
+
+      if (activePairedSessionId) {
+        handleSuccessfulScreenPairing({
+          sessionId: activePairedSessionId,
+          deviceName: activePairedDeviceName || "Android Phone"
+        }, activePairedSessionId, { silent: true });
+      } else {
         loadLocalFallbackMessages();
+        renderLiveMessenger();
+        initQrCode();
       }
-      renderLiveMessenger();
-      initQrCode();
     }
     window.addEventListener("DOMContentLoaded", bootstrapPulseWebUi);
     // In case DOM is already ready:

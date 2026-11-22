@@ -386,8 +386,7 @@ fun SmsAppRoot(
             activity = hostComponentActivity,
             language = currentLanguage,
             onPairingSuccess = { sessionId, deviceName ->
-                viewModel.setWebConnected(true)
-                viewModel.triggerCloudSyncNow()
+                viewModel.onQrPairingCompleted(sessionId, deviceName)
                 Toast.makeText(
                     context,
                     if (currentLanguage == "BN") "🎉 এক চান্সে ওয়েব স্ক্রিন কানেক্টেড হয়েছে! ($deviceName)"

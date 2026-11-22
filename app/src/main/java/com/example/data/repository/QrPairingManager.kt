@@ -7,10 +7,15 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
 import com.example.R
+import com.example.data.local.AppDatabase
+import com.example.data.model.MessageEntity
+import com.example.data.remote.FirebaseSyncRepository
 import com.google.firebase.FirebaseApp
+import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
@@ -30,20 +35,86 @@ data class PairingResult(
     val success: Boolean,
     val sessionId: String,
     val deviceName: String,
-    val message: String
+    val message: String,
+    val syncedMessagesCount: Int = 0
 )
 
 object QrPairingManager {
     private const val TAG = "QrPairingManager"
+    private const val PREFS_NAME = "pulse_pairing_prefs"
+    private const val KEY_ACTIVE_SESSION_ID = "active_pairing_session_id"
+    private const val KEY_ACTIVE_DEVICE_NAME = "active_device_name"
     private const val DEFAULT_PROJECT_ID = "gen-lang-client-0040983236"
     private const val DEFAULT_DATABASE_ID = "ai-studio-android-pulsesms-d91f8c0e-d0eb-454c-a3c4-23804c092a8d"
 
+    private val ALLOWED_CATEGORIES = setOf("PERSONAL", "OTP", "TRANSACTION", "PROMOTION", "SPAM", "TRAVEL")
+
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(10, TimeUnit.SECONDS)
-            .writeTimeout(10, TimeUnit.SECONDS)
+            .connectTimeout(12, TimeUnit.SECONDS)
+            .readTimeout(12, TimeUnit.SECONDS)
+            .writeTimeout(12, TimeUnit.SECONDS)
             .build()
+    }
+
+    fun getActiveSessionId(context: Context): String? {
+        return try {
+            val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.getString(KEY_ACTIVE_SESSION_ID, null)?.takeIf { it.isNotBlank() }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    fun saveActiveSession(context: Context, sessionId: String, deviceName: String) {
+        try {
+            val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit()
+                .putString(KEY_ACTIVE_SESSION_ID, sessionId)
+                .putString(KEY_ACTIVE_DEVICE_NAME, deviceName)
+                .apply()
+        } catch (t: Throwable) {
+            Log.w(TAG, "Unable to persist active pairing session", t)
+        }
+    }
+
+    fun clearActiveSession(context: Context) {
+        try {
+            val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit().remove(KEY_ACTIVE_SESSION_ID).apply()
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * Generates a deterministic, Firestore-rule-compliant document ID for an SMS message
+     * so repeated inbox imports never create duplicate messages on the web companion.
+     */
+    fun buildStableCloudMessageId(message: MessageEntity): String {
+        val rawSig = "${message.threadAddress}|${message.timestamp}|${message.isIncoming}|${message.body}"
+        val unsignedHex = (rawSig.hashCode().toLong() and 0xFFFFFFFFL).toString(16)
+        val safeTs = message.timestamp.coerceAtLeast(1L)
+        return "sms_${safeTs}_$unsignedHex".take(120)
+    }
+
+    /**
+     * Builds a map strictly matching `isValidCloudMessage` in firestore.rules,
+     * preserving the authentic chronological timestamp of each device SMS.
+     */
+    fun buildCloudMessagePayload(message: MessageEntity, docId: String): Map<String, Any> {
+        val safeCategory = message.category.uppercase(Locale.US).let {
+            if (it in ALLOWED_CATEGORIES) it else "PERSONAL"
+        }
+        val safeTimestampMs = message.timestamp.coerceIn(1L, System.currentTimeMillis())
+        return mapOf(
+            "id" to docId,
+            "threadAddress" to message.threadAddress.ifBlank { "Unknown" }.take(100),
+            "senderAddress" to message.senderAddress.ifBlank { "Unknown" }.take(100),
+            "recipientAddress" to message.recipientAddress.ifBlank { "Self" }.take(100),
+            "body" to message.body.take(5000),
+            "isIncoming" to message.isIncoming,
+            "category" to safeCategory,
+            "createdAt" to Timestamp(Date(safeTimestampMs))
+        )
     }
 
     /**
@@ -71,9 +142,18 @@ object QrPairingManager {
         return trimmed.replace(Regex("[^a-zA-Z0-9_-]"), "").take(64)
     }
 
+    private fun resolveDatabaseId(context: Context): String {
+        return try {
+            context.getString(R.string.firestore_database_id).takeIf { it.isNotBlank() } ?: DEFAULT_DATABASE_ID
+        } catch (_: Exception) {
+            DEFAULT_DATABASE_ID
+        }
+    }
+
     /**
-     * Connects this mobile device to the website's pairing session in Firestore in one shot.
-     * Guards against uninitialized FirebaseApp and includes a Firestore REST fallback.
+     * Connects this mobile device to the website's pairing session in Firestore in one shot
+     * and immediately pushes the phone's real SMS inbox to that session so the website shows
+     * the exact mobile inbox in real time (even without matching Google Sign-In on the web).
      */
     suspend fun pairWithWebsite(
         context: Context,
@@ -84,9 +164,10 @@ object QrPairingManager {
             return PairingResult(false, "", "", "অবৈধ QR কোড ডাটা।")
         }
 
+        val appContext = context.applicationContext ?: context
         val deviceName = "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL}"
 
-        val hasFirebase = ensureFirebaseAvailable(context)
+        val hasFirebase = ensureFirebaseAvailable(appContext)
         val currentUser = if (hasFirebase) {
             try {
                 FirebaseAuth.getInstance().currentUser
@@ -98,37 +179,25 @@ object QrPairingManager {
             null
         }
 
-        val dbId = try {
-            context.getString(R.string.firestore_database_id).takeIf { it.isNotBlank() } ?: DEFAULT_DATABASE_ID
-        } catch (_: Exception) {
-            DEFAULT_DATABASE_ID
-        }
-
+        val dbId = resolveDatabaseId(appContext)
         val userId = currentUser?.uid ?: "mobile_device_${Build.ID.take(6)}"
         val userEmail = currentUser?.email ?: ""
 
         var anyWriteSucceeded = false
 
         if (hasFirebase) {
-            val firestoreTargets = mutableListOf<FirebaseFirestore>()
-            try {
-                firestoreTargets.add(FirebaseFirestore.getInstance(dbId))
-            } catch (_: Exception) {}
-            try {
-                firestoreTargets.add(FirebaseFirestore.getInstance())
-            } catch (_: Exception) {}
+            val fs = getNamedFirestore(appContext, dbId)
+            if (fs != null) {
+                val payload = hashMapOf<String, Any>(
+                    "sessionId" to sessionId,
+                    "status" to "CONNECTED",
+                    "deviceName" to deviceName,
+                    "userId" to userId,
+                    "userEmail" to userEmail,
+                    "connectedAt" to FieldValue.serverTimestamp(),
+                    "createdAt" to FieldValue.serverTimestamp()
+                )
 
-            val payload = hashMapOf<String, Any>(
-                "sessionId" to sessionId,
-                "status" to "CONNECTED",
-                "deviceName" to deviceName,
-                "userId" to userId,
-                "userEmail" to userEmail,
-                "connectedAt" to FieldValue.serverTimestamp(),
-                "createdAt" to FieldValue.serverTimestamp()
-            )
-
-            for (fs in firestoreTargets.distinct()) {
                 try {
                     fs.collection("pairing_sessions")
                         .document(sessionId)
@@ -137,22 +206,20 @@ object QrPairingManager {
                     anyWriteSucceeded = true
 
                     if (sessionId.contains("instant")) {
-                        fs.collection("pairing_sessions")
-                            .document("pulse_pair_instant_one_shot")
-                            .set(payload, SetOptions.merge())
-                        fs.collection("pairing_sessions")
-                            .document("pulse_pair_simulation_instant")
-                            .set(payload, SetOptions.merge())
+                        val instantPayload1 = payload.toMutableMap().apply { put("sessionId", "pulse_pair_instant_one_shot") }
+                        val instantPayload2 = payload.toMutableMap().apply { put("sessionId", "pulse_pair_simulation_instant") }
+                        fs.collection("pairing_sessions").document("pulse_pair_instant_one_shot").set(instantPayload1, SetOptions.merge())
+                        fs.collection("pairing_sessions").document("pulse_pair_simulation_instant").set(instantPayload2, SetOptions.merge())
                     }
                 } catch (e: Exception) {
-                    Log.w(TAG, "Write to a Firestore instance returned error: ${e.message}")
+                    Log.w(TAG, "Write to named Firestore returned error: ${e.message}")
                 }
             }
         }
 
         // Firestore REST API fallback (works even if FirebaseApp failed to initialize in APK)
         if (!anyWriteSucceeded) {
-            val projectId = resolveStringResource(context, "project_id") ?: DEFAULT_PROJECT_ID
+            val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
             anyWriteSucceeded = writePairingSessionViaRest(
                 projectId = projectId,
                 databaseId = dbId,
@@ -167,19 +234,184 @@ object QrPairingManager {
             }
         }
 
-        triggerHapticFeedback(context)
-        Log.i(TAG, "Pairing processed for session: $sessionId on device: $deviceName (cloudSync=$anyWriteSucceeded)")
+        // Save active session so future incoming/outgoing SMS sync immediately in real time
+        saveActiveSession(appContext, sessionId, deviceName)
+
+        // Immediately import device SMS inbox (if permission granted) and push real messages to the paired web session
+        val syncedCount = syncInitialDeviceInboxForPairing(appContext, sessionId, currentUser != null)
+
+        triggerHapticFeedback(appContext)
+        Log.i(TAG, "Pairing processed for session: $sessionId on device: $deviceName (cloudSync=$anyWriteSucceeded, syncedSms=$syncedCount)")
 
         return PairingResult(
             success = true,
             sessionId = sessionId,
             deviceName = deviceName,
+            syncedMessagesCount = syncedCount,
             message = if (anyWriteSucceeded) {
-                "ওয়েবসাইটে এক চান্সে স্ক্রিন কানেক্টেড হয়েছে!"
+                "ওয়েবসাইটে কানেক্টেড হয়েছে এবং $syncedCount টি এসএমএস সিঙ্ক হয়েছে!"
             } else {
                 "ডিভাইস পেয়ারিং হয়েছে ($deviceName) — ইন্টারনেট বা ক্লাউড সিঙ্ক চেক করুন"
             }
         )
+    }
+
+    private suspend fun syncInitialDeviceInboxForPairing(
+        context: Context,
+        sessionId: String,
+        isUserSignedIn: Boolean
+    ): Int = withContext(Dispatchers.IO) {
+        try {
+            val smsRepo = SmsRepository(context)
+            smsRepo.syncDeviceSmsMessages(syncCloudAfter = false)
+            val recentMessages = AppDatabase.getInstance(context).messageDao().getRecentMessages(100)
+            if (recentMessages.isEmpty()) return@withContext 0
+
+            val count = syncMessagesToPairedSession(context, recentMessages, sessionId)
+
+            if (isUserSignedIn) {
+                try {
+                    FirebaseSyncRepository(context).syncMessagesBatch(recentMessages)
+                } catch (e: Exception) {
+                    Log.w(TAG, "User cloud batch sync after pairing: ${e.message}")
+                }
+            }
+            count
+        } catch (t: Throwable) {
+            Log.w(TAG, "Initial inbox push during pairing failed: ${t.message}")
+            0
+        }
+    }
+
+    /**
+     * Pushes a single incoming or outgoing SMS immediately to the currently paired web session.
+     * Safe to call from BroadcastReceivers (SmsReceiver / SmsFallbackReceiver) or Repositories.
+     */
+    suspend fun syncSingleMessageToPairedSession(context: Context, message: MessageEntity): Boolean {
+        val activeSessionId = getActiveSessionId(context) ?: return false
+        return syncMessagesToPairedSession(context, listOf(message), activeSessionId) > 0
+    }
+
+    /**
+     * Batch-pushes SMS messages into `/pairing_sessions/{sessionId}/messages` on the named
+     * Firestore database, falling back to Firestore REST API if Firebase SDK is unavailable.
+     */
+    suspend fun syncMessagesToPairedSession(
+        context: Context,
+        messages: List<MessageEntity>,
+        overrideSessionId: String? = null
+    ): Int = withContext(Dispatchers.IO) {
+        if (messages.isEmpty()) return@withContext 0
+        val appContext = context.applicationContext ?: context
+        val sessionId = overrideSessionId?.takeIf { it.isNotBlank() } ?: getActiveSessionId(appContext) ?: return@withContext 0
+        val dbId = resolveDatabaseId(appContext)
+
+        val targetSessions = if (sessionId.contains("instant")) {
+            listOf(sessionId).distinct()
+        } else {
+            listOf(sessionId)
+        }
+
+        val hasFirebase = ensureFirebaseAvailable(appContext)
+        val fs = if (hasFirebase) getNamedFirestore(appContext, dbId) else null
+
+        var syncedCount = 0
+        if (fs != null) {
+            for (targetSession in targetSessions) {
+                try {
+                    messages.chunked(400).forEach { chunk ->
+                        val batch = fs.batch()
+                        chunk.forEach { msg ->
+                            val docId = buildStableCloudMessageId(msg)
+                            val docRef = fs.collection("pairing_sessions")
+                                .document(targetSession)
+                                .collection("messages")
+                                .document(docId)
+                            batch.set(docRef, buildCloudMessagePayload(msg, docId), SetOptions.merge())
+                        }
+                        batch.commit().await()
+                    }
+                    syncedCount = messages.size
+                } catch (e: Exception) {
+                    Log.w(TAG, "Batch sync to pairing_sessions/$targetSession failed: ${e.message}")
+                }
+            }
+        }
+
+        if (syncedCount == 0) {
+            val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
+            for (msg in messages.take(60)) {
+                val docId = buildStableCloudMessageId(msg)
+                if (writeMessageViaRest(projectId, dbId, sessionId, docId, msg)) {
+                    syncedCount++
+                }
+            }
+        }
+
+        syncedCount
+    }
+
+    /**
+     * Listens for outgoing SMS send requests created by the paired web companion.
+     */
+    fun listenToOutgoingWebRequests(
+        context: Context,
+        sessionId: String,
+        onNewRequest: (requestId: String, recipient: String, body: String) -> Unit
+    ): ListenerRegistration? {
+        val appContext = context.applicationContext ?: context
+        if (!ensureFirebaseAvailable(appContext)) return null
+        val fs = getNamedFirestore(appContext, resolveDatabaseId(appContext)) ?: return null
+
+        return try {
+            fs.collection("pairing_sessions")
+                .document(sessionId)
+                .collection("outgoing_requests")
+                .whereEqualTo("status", "PENDING")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null || snapshot == null) return@addSnapshotListener
+                    for (doc in snapshot.documents) {
+                        val recipient = doc.getString("recipient")?.trim().orEmpty()
+                        val body = doc.getString("body")?.trim().orEmpty()
+                        if (recipient.isNotEmpty() && body.isNotEmpty()) {
+                            onNewRequest(doc.id, recipient, body)
+                        }
+                    }
+                }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Could not attach outgoing web request listener: ${t.message}")
+            null
+        }
+    }
+
+    suspend fun markOutgoingWebRequestStatus(
+        context: Context,
+        sessionId: String,
+        requestId: String,
+        status: String
+    ) = withContext(Dispatchers.IO) {
+        try {
+            val appContext = context.applicationContext ?: context
+            if (!ensureFirebaseAvailable(appContext)) return@withContext
+            val fs = getNamedFirestore(appContext, resolveDatabaseId(appContext)) ?: return@withContext
+            fs.collection("pairing_sessions")
+                .document(sessionId)
+                .collection("outgoing_requests")
+                .document(requestId)
+                .update("status", status)
+                .await()
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed updating outgoing request $requestId status: ${t.message}")
+        }
+    }
+
+    private fun getNamedFirestore(context: Context, databaseId: String): FirebaseFirestore? {
+        return try {
+            FirebaseFirestore.getInstance(databaseId)
+        } catch (t: Throwable) {
+            Log.w(TAG, "Named Firestore unavailable ($databaseId): ${t.message}")
+            null
+        }
     }
 
     private fun ensureFirebaseAvailable(context: Context): Boolean {
@@ -249,6 +481,52 @@ object QrPairingManager {
             }
         } catch (t: Throwable) {
             Log.w(TAG, "Firestore REST pairing exception: ${t.message}")
+            false
+        }
+    }
+
+    private suspend fun writeMessageViaRest(
+        projectId: String,
+        databaseId: String,
+        sessionId: String,
+        docId: String,
+        message: MessageEntity
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val safeTs = message.timestamp.coerceIn(1L, System.currentTimeMillis())
+            val msgIso = isoFormat.format(Date(safeTs))
+            val safeCategory = message.category.uppercase(Locale.US).let {
+                if (it in ALLOWED_CATEGORIES) it else "PERSONAL"
+            }
+
+            val fields = JSONObject().apply {
+                put("id", JSONObject().put("stringValue", docId))
+                put("threadAddress", JSONObject().put("stringValue", message.threadAddress.ifBlank { "Unknown" }.take(100)))
+                put("senderAddress", JSONObject().put("stringValue", message.senderAddress.ifBlank { "Unknown" }.take(100)))
+                put("recipientAddress", JSONObject().put("stringValue", message.recipientAddress.ifBlank { "Self" }.take(100)))
+                put("body", JSONObject().put("stringValue", message.body.take(5000)))
+                put("isIncoming", JSONObject().put("booleanValue", message.isIncoming))
+                put("category", JSONObject().put("stringValue", safeCategory))
+                put("createdAt", JSONObject().put("timestampValue", msgIso))
+            }
+            val bodyJson = JSONObject().put("fields", fields).toString()
+
+            val url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/$databaseId/documents/pairing_sessions/$sessionId/messages/$docId" +
+                "?updateMask.fieldPaths=id&updateMask.fieldPaths=threadAddress&updateMask.fieldPaths=senderAddress&updateMask.fieldPaths=recipientAddress&updateMask.fieldPaths=body&updateMask.fieldPaths=isIncoming&updateMask.fieldPaths=category&updateMask.fieldPaths=createdAt"
+
+            val request = Request.Builder()
+                .url(url)
+                .patch(bodyJson.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                response.isSuccessful
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Firestore REST message sync exception: ${t.message}")
             false
         }
     }

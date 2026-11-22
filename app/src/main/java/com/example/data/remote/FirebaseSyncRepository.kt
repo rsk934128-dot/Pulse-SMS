@@ -86,24 +86,43 @@ class FirebaseSyncRepository(
         var path = "users/me/messages"
         try {
             val uid = requireUserId()
-            val msgId = "sms_${message.id}_${message.timestamp}"
+            val msgId = com.example.data.repository.QrPairingManager.buildStableCloudMessageId(message)
             path = "users/$uid/messages/$msgId"
             val msgRef = db.collection("users").document(uid).collection("messages").document(msgId)
-
-            val payload = mapOf(
-                "id" to msgId,
-                "threadAddress" to message.threadAddress,
-                "senderAddress" to message.senderAddress,
-                "recipientAddress" to message.recipientAddress,
-                "body" to message.body,
-                "isIncoming" to message.isIncoming,
-                "category" to message.category,
-                "createdAt" to FieldValue.serverTimestamp()
-            )
+            val payload = com.example.data.repository.QrPairingManager.buildCloudMessagePayload(message, msgId)
 
             msgRef.set(payload, SetOptions.merge()).await()
             Result.success(Unit)
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            handleFirestoreError(e, OperationType.WRITE, path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun syncMessagesBatch(messages: List<MessageEntity>): Result<Int> = withContext(Dispatchers.IO) {
+        if (messages.isEmpty()) return@withContext Result.success(0)
+        var path = "users/me/messages"
+        try {
+            val uid = requireUserId()
+            path = "users/$uid/messages"
+            val colRef = db.collection("users").document(uid).collection("messages")
+            messages.chunked(400).forEach { chunk ->
+                val batch = db.batch()
+                chunk.forEach { message ->
+                    val msgId = com.example.data.repository.QrPairingManager.buildStableCloudMessageId(message)
+                    val docRef = colRef.document(msgId)
+                    batch.set(
+                        docRef,
+                        com.example.data.repository.QrPairingManager.buildCloudMessagePayload(message, msgId),
+                        SetOptions.merge()
+                    )
+                }
+                batch.commit().await()
+            }
+            Result.success(messages.size)
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             handleFirestoreError(e, OperationType.WRITE, path)
             Result.failure(e)
         }

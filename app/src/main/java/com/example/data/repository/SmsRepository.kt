@@ -70,7 +70,7 @@ class SmsRepository(private val context: Context) {
         }
     }
 
-    suspend fun syncDeviceSmsMessages(): Int = withContext(Dispatchers.IO) {
+    suspend fun syncDeviceSmsMessages(syncCloudAfter: Boolean = true): Int = withContext(Dispatchers.IO) {
         if (androidx.core.content.ContextCompat.checkSelfPermission(
                 context,
                 android.Manifest.permission.READ_SMS
@@ -116,20 +116,22 @@ class SmsRepository(private val context: Context) {
                         val category = SmsCategorizer.categorize(address, body)
                         val otp = if (isIncoming) SmsCategorizer.extractOtp(body) else null
 
-                        val message = MessageEntity(
-                            threadAddress = address,
-                            senderAddress = if (isIncoming) address else "Me",
-                            recipientAddress = if (isIncoming) "Me" else address,
-                            body = body,
-                            timestamp = date,
-                            isIncoming = isIncoming,
-                            status = if (isIncoming) "RECEIVED" else "DELIVERED",
-                            category = category,
-                            isRead = isRead,
-                            otpCode = otp
-                        )
-                        dao.insertMessage(message)
-                        importedCount++
+                        if (!dao.messageExists(address, date, body)) {
+                            val message = MessageEntity(
+                                threadAddress = address,
+                                senderAddress = if (isIncoming) address else "Me",
+                                recipientAddress = if (isIncoming) "Me" else address,
+                                body = body,
+                                timestamp = date,
+                                isIncoming = isIncoming,
+                                status = if (isIncoming) "RECEIVED" else "DELIVERED",
+                                category = category,
+                                isRead = isRead,
+                                otpCode = otp
+                            )
+                            dao.insertMessage(message)
+                            importedCount++
+                        }
 
                         val existingConv = dao.getConversation(address)
                         if (existingConv == null || date > existingConv.timestamp) {
@@ -151,6 +153,25 @@ class SmsRepository(private val context: Context) {
             }
             if (importedCount > 0) {
                 emitSyncLog("SYSTEM_SMS", "Successfully read $importedCount SMS messages from device inbox")
+            }
+
+            if (syncCloudAfter) {
+                val recentMessages = dao.getRecentMessages(100)
+                if (recentMessages.isNotEmpty()) {
+                    try {
+                        QrPairingManager.syncMessagesToPairedSession(context, recentMessages)
+                    } catch (e: Exception) {
+                        Log.w("SmsRepository", "Paired session sync after import: ${e.message}")
+                    }
+                    try {
+                        val syncRepo = FirebaseSyncRepository(context)
+                        if (syncRepo.isUserSignedIn()) {
+                            syncRepo.syncMessagesBatch(recentMessages)
+                        }
+                    } catch (e: Exception) {
+                        Log.w("SmsRepository", "User cloud sync after import: ${e.message}")
+                    }
+                }
             }
         } catch (e: Exception) {
             Log.e("SmsRepository", "Error reading system SMS inbox", e)
@@ -255,7 +276,12 @@ class SmsRepository(private val context: Context) {
 
         val savedMessage = message.copy(id = messageId)
 
-        // Real-time Cloud Sync to Firebase Firestore if user is authenticated
+        // Real-time Cloud & Paired Web Session Sync for outgoing SMS
+        try {
+            QrPairingManager.syncSingleMessageToPairedSession(context, savedMessage)
+        } catch (e: Exception) {
+            Log.w("SmsRepository", "Paired session sync outgoing SMS: ${e.message}")
+        }
         try {
             val syncRepo = FirebaseSyncRepository(context)
             if (syncRepo.isUserSignedIn()) {
@@ -323,7 +349,12 @@ class SmsRepository(private val context: Context) {
 
         val savedMessage = message.copy(id = messageId)
 
-        // Real-time Cloud Sync to Firebase Firestore if user is authenticated
+        // Real-time Cloud & Paired Web Session Sync for incoming SMS
+        try {
+            QrPairingManager.syncSingleMessageToPairedSession(context, savedMessage)
+        } catch (e: Exception) {
+            Log.w("SmsRepository", "Paired session sync incoming SMS: ${e.message}")
+        }
         try {
             val syncRepo = FirebaseSyncRepository(context)
             if (syncRepo.isUserSignedIn()) {

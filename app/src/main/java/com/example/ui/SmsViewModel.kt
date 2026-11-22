@@ -75,6 +75,14 @@ class SmsViewModel(
     private val _profileAvatar = MutableStateFlow(ProfileAvatarManager.loadSelection(application))
     val profileAvatar: StateFlow<ProfileAvatarSelection> = _profileAvatar.asStateFlow()
 
+    private val _activePairingSessionId = MutableStateFlow(
+        com.example.data.repository.QrPairingManager.getActiveSessionId(application)
+    )
+    val activePairingSessionId: StateFlow<String?> = _activePairingSessionId.asStateFlow()
+
+    private var outgoingRequestListener: com.google.firebase.firestore.ListenerRegistration? = null
+    private val processedWebRequestIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
     // Gemini AI Service and State
     private val aiService = com.example.ai.GeminiAiService.getInstance()
 
@@ -95,6 +103,12 @@ class SmsViewModel(
 
     init {
         authenticator.ensureInitialized(getApplication())
+
+        // Resume active web pairing session listener & sync if already paired
+        _activePairingSessionId.value?.let { savedSessionId ->
+            attachOutgoingWebRequestListener(savedSessionId)
+            triggerCloudSyncNow()
+        }
 
         // Track Firebase auth state and sync profile
         viewModelScope.launch {
@@ -122,6 +136,32 @@ class SmsViewModel(
         viewModelScope.launch {
             repository.emitSyncLog("WEB_SOCKET", "Real-time sync engine initialized on port 5000 (ws://localhost:5000)")
         }
+    }
+
+    private fun attachOutgoingWebRequestListener(sessionId: String) {
+        outgoingRequestListener?.remove()
+        outgoingRequestListener = com.example.data.repository.QrPairingManager.listenToOutgoingWebRequests(
+            context = getApplication(),
+            sessionId = sessionId
+        ) { requestId, recipient, body ->
+            if (!processedWebRequestIds.add(requestId)) return@listenToOutgoingWebRequests
+            viewModelScope.launch {
+                val res = repository.sendMessage(recipient, body, selectedSimSlot.value)
+                com.example.data.repository.QrPairingManager.markOutgoingWebRequestStatus(
+                    context = getApplication(),
+                    sessionId = sessionId,
+                    requestId = requestId,
+                    status = if (res.isSuccess) "SENT" else "FAILED"
+                )
+                repository.emitSyncLog("WEB_OUTGOING", "ওয়েব থেকে '$recipient'-এ এসএমএস পাঠানো হয়েছে")
+            }
+        }
+    }
+
+    override fun onCleared() {
+        outgoingRequestListener?.remove()
+        outgoingRequestListener = null
+        super.onCleared()
     }
 
     val totalUnreadCount: StateFlow<Int> = repository.getTotalUnreadCountFlow()
@@ -241,6 +281,19 @@ class SmsViewModel(
         }
     }
 
+    fun onQrPairingCompleted(sessionId: String, deviceName: String) {
+        if (sessionId.isNotBlank()) {
+            com.example.data.repository.QrPairingManager.saveActiveSession(getApplication(), sessionId, deviceName)
+            _activePairingSessionId.value = sessionId
+            attachOutgoingWebRequestListener(sessionId)
+        }
+        setWebConnected(true)
+        triggerCloudSyncNow()
+        viewModelScope.launch {
+            repository.emitSyncLog("WEB_PAIRING", "🎉 ওয়েবসাইটের সাথে ডিভাইস কানেক্টেড ও লাইভ এসএমএস সিঙ্ক সক্রিয় ($deviceName)")
+        }
+    }
+
     fun connectToWeb(
         sessionId: String = "pulse_pair_instant_one_shot",
         onComplete: (Boolean, String) -> Unit = { _, _ -> }
@@ -250,9 +303,7 @@ class SmsViewModel(
                 repository.emitSyncLog("WEB_PAIRING", "Connecting to website pairing session: $sessionId...")
                 val result = com.example.data.repository.QrPairingManager.pairWithWebsite(getApplication(), sessionId)
                 if (result.success) {
-                    setWebConnected(true)
-                    triggerCloudSyncNow()
-                    repository.emitSyncLog("WEB_PAIRING", "🎉 ওয়েবসাইটের সাথে ডিভাইস সফলভাবে কানেক্ট হয়েছে (${result.deviceName})")
+                    onQrPairingCompleted(result.sessionId, result.deviceName)
                     onComplete(true, result.message)
                 } else {
                     repository.emitSyncLog("WEB_PAIRING", "পেয়ারিং ব্যর্থ: ${result.message}")
@@ -373,54 +424,63 @@ class SmsViewModel(
     fun sendMessage(recipient: String, text: String, simSlot: Int = selectedSimSlot.value) {
         viewModelScope.launch {
             val result = repository.sendMessage(recipient, text, simSlot)
-            if (_isWebConnected.value) {
-                repository.emitSyncLog("WEB_SOCKET", "Broadcasted OUTGOING SMS to connected Web Clients via Socket.io")
-            }
-
-            // Sync to Firebase if user is authenticated
-            if (result.isSuccess && currentUser.value != null) {
-                val sentMessage = result.getOrNull()
-                if (sentMessage != null) {
-                    firebaseSyncRepo.syncMessage(sentMessage)
-                    repository.emitSyncLog("FIRESTORE", "Synced message to Firebase Firestore cloud")
-                }
+            if (result.isSuccess && _isWebConnected.value) {
+                repository.emitSyncLog("WEB_SOCKET", "Broadcasted OUTGOING SMS to paired Web Client in real time")
             }
         }
     }
 
     fun simulateIncomingSms(sender: String, body: String) {
         viewModelScope.launch {
-            val incoming = repository.handleIncomingSms(sender, body)
+            repository.handleIncomingSms(sender, body)
             if (_isWebConnected.value) {
-                repository.emitSyncLog("WEB_SOCKET", "Broadcasted INCOMING SMS to connected Web Clients via Socket.io")
-            }
-
-            // Sync to Firebase if user is authenticated
-            if (currentUser.value != null) {
-                firebaseSyncRepo.syncMessage(incoming)
-                repository.emitSyncLog("FIRESTORE", "Synced incoming SMS to Firebase Firestore cloud")
+                repository.emitSyncLog("WEB_SOCKET", "Broadcasted INCOMING SMS to paired Web Client in real time")
             }
         }
     }
 
     fun triggerCloudSyncNow() {
         viewModelScope.launch {
-            if (currentUser.value == null) return@launch
+            val activeSession = _activePairingSessionId.value
+                ?: com.example.data.repository.QrPairingManager.getActiveSessionId(getApplication())
+            val signedInUser = currentUser.value
+            if (signedInUser == null && activeSession == null) return@launch
+
             _isCloudSyncing.value = true
             try {
-                repository.emitSyncLog("FIRESTORE", "Beginning manual cloud sync to Firestore...")
-                // Save user profile
-                firebaseSyncRepo.saveUserProfile(
-                    displayName = currentUser.value?.displayName ?: "User",
-                    email = currentUser.value?.email ?: ""
-                )
+                repository.emitSyncLog("FIRESTORE", "রিয়েল-টাইম ক্লাউড ও ওয়েব ইনবক্স সিঙ্ক হচ্ছে...")
+                // Refresh device inbox first if permission is available
+                repository.syncDeviceSmsMessages(syncCloudAfter = false)
                 val messages = repository.getRecentMessages(100)
-                var count = 0
-                for (msg in messages) {
-                    val res = firebaseSyncRepo.syncMessage(msg)
-                    if (res.isSuccess) count++
+
+                var pairedSynced = 0
+                if (activeSession != null && messages.isNotEmpty()) {
+                    pairedSynced = com.example.data.repository.QrPairingManager.syncMessagesToPairedSession(
+                        context = getApplication(),
+                        messages = messages,
+                        overrideSessionId = activeSession
+                    )
                 }
-                repository.emitSyncLog("FIRESTORE", "সফলভাবে $count টি এসএমএস ফায়ারবেস ক্লাউডে সিঙ্ক হয়েছে।")
+
+                var userSynced = 0
+                if (signedInUser != null) {
+                    try {
+                        firebaseSyncRepo.saveUserProfile(
+                            displayName = signedInUser.displayName ?: "User",
+                            email = signedInUser.email ?: ""
+                        )
+                        val batchRes = firebaseSyncRepo.syncMessagesBatch(messages)
+                        userSynced = batchRes.getOrDefault(0)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+
+                val totalReported = maxOf(pairedSynced, userSynced)
+                repository.emitSyncLog(
+                    "FIRESTORE",
+                    "সফলভাবে $totalReported টি এসএমএস ওয়েব ইনবক্স ও ফায়ারবেস ক্লাউডে সিঙ্ক হয়েছে।"
+                )
             } catch (e: Exception) {
                 repository.emitSyncLog("FIRESTORE", "Cloud sync failed: ${e.message}")
             } finally {

@@ -159,3 +159,65 @@ test("Owner: Schema rejection on invalid category", async () => {
     })
   );
 });
+
+test("Pairing session: paired device and web can write and list real-time session messages", async () => {
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+  const sessionRef = unauthDb.collection("pairing_sessions").doc("pulse_pair_test123");
+
+  await assertSucceeds(
+    sessionRef.set({
+      sessionId: "pulse_pair_test123",
+      status: "CONNECTED",
+      deviceName: "Pixel 9",
+      userId: "mobile_device_1234",
+      createdAt: new Date(),
+    })
+  );
+
+  const msgRef = sessionRef.collection("messages").doc("sms_1001_ab12");
+  await assertSucceeds(
+    msgRef.set({
+      id: "sms_1001_ab12",
+      threadAddress: "bKash",
+      senderAddress: "bKash",
+      recipientAddress: "Me",
+      body: "Your OTP is 492817",
+      isIncoming: true,
+      category: "OTP",
+      createdAt: new Date(),
+    })
+  );
+
+  await assertSucceeds(sessionRef.collection("messages").get());
+
+  // Invalid category or mismatched id should fail
+  await assertFails(
+    sessionRef.collection("messages").doc("bad_msg").set({
+      id: "wrong_id",
+      threadAddress: "bKash",
+      senderAddress: "bKash",
+      recipientAddress: "Me",
+      body: "Test",
+      isIncoming: true,
+      category: "OTP",
+      createdAt: new Date(),
+    })
+  );
+});
+
+test("Pairing session: web can enqueue outgoing SMS request and phone can mark SENT", async () => {
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+  const reqRef = unauthDb.collection("pairing_sessions").doc("pulse_pair_test123").collection("outgoing_requests").doc("req_101");
+
+  await assertSucceeds(
+    reqRef.set({
+      id: "req_101",
+      recipient: "+8801711223344",
+      body: "Hello from Web!",
+      status: "PENDING",
+      createdAt: new Date(),
+    })
+  );
+
+  await assertSucceeds(reqRef.update({ status: "SENT" }));
+});

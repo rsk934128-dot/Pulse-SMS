@@ -112,6 +112,47 @@ service cloud.firestore {
                        request.resource.data.status in ['PENDING', 'CONNECTED', 'DISCONNECTED'];
 
       allow delete: if isValidId(sessionId);
+
+      match /messages/{messageId} {
+        allow get: if isValidId(sessionId) && isValidId(messageId);
+        allow list: if isValidId(sessionId);
+
+        allow create, update: if isValidId(sessionId) &&
+                         isValidId(messageId) &&
+                         request.resource.data.id == messageId &&
+                         request.resource.data.keys().hasAll(['id', 'threadAddress', 'senderAddress', 'recipientAddress', 'body', 'isIncoming', 'category', 'createdAt']) &&
+                         request.resource.data.keys().hasOnly(['id', 'threadAddress', 'senderAddress', 'recipientAddress', 'body', 'isIncoming', 'category', 'createdAt']) &&
+                         isValidCloudMessage(request.resource.data);
+
+        allow delete: if isValidId(sessionId) && isValidId(messageId);
+      }
+
+      match /outgoing_requests/{requestId} {
+        allow get: if isValidId(sessionId) && isValidId(requestId);
+        allow list: if isValidId(sessionId);
+
+        allow create: if isValidId(sessionId) &&
+                         isValidId(requestId) &&
+                         request.resource.data.id == requestId &&
+                         request.resource.data.keys().hasAll(['id', 'recipient', 'body', 'status', 'createdAt']) &&
+                         request.resource.data.keys().hasOnly(['id', 'recipient', 'body', 'status', 'createdAt']) &&
+                         request.resource.data.recipient is string &&
+                         request.resource.data.recipient.size() > 0 &&
+                         request.resource.data.recipient.size() <= 100 &&
+                         request.resource.data.body is string &&
+                         request.resource.data.body.size() > 0 &&
+                         request.resource.data.body.size() <= 2000 &&
+                         request.resource.data.status == 'PENDING' &&
+                         request.resource.data.createdAt is timestamp;
+
+        allow update: if isValidId(sessionId) &&
+                         isValidId(requestId) &&
+                         request.resource.data.id == resource.data.id &&
+                         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
+                         request.resource.data.status in ['PENDING', 'SENT', 'FAILED'];
+
+        allow delete: if isValidId(sessionId) && isValidId(requestId);
+      }
     }
   }
 }
