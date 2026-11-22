@@ -437,6 +437,14 @@ fun SmsAppRoot(
             onAuthError = { errorMsg: String ->
                 Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
             },
+            onOpenQrScanner = {
+                showSettings = false
+                showQrScanner = true
+            },
+            onOpenWebSync = {
+                showSettings = false
+                showWebSync = true
+            },
             onDismiss = { showSettings = false }
         )
     }

@@ -44,10 +44,24 @@ jobs:
           yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
       - name: Ensure Environment Configuration
+        env:
+          SECRET_GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
         run: |
           # Ensure .env exists from .env.example for Secrets Gradle Plugin
           if [ ! -f .env ]; then
             cp .env.example .env
+          fi
+
+          # Restore app/google-services.json from secret if omitted from repository
+          if [ ! -f app/google-services.json ] && [ -n "${SECRET_GOOGLE_SERVICES_JSON_BASE64:-}" ]; then
+            echo "Restoring app/google-services.json from GOOGLE_SERVICES_JSON_BASE64 secret..."
+            python3 -c "import base64, os; open('app/google-services.json','wb').write(base64.b64decode(''.join(os.environ['SECRET_GOOGLE_SERVICES_JSON_BASE64'].split())))"
+          fi
+
+          if [ -f app/google-services.json ]; then
+            echo "app/google-services.json found — Firebase Auth & Google Sign-In resources will be compiled."
+          else
+            echo "::warning::app/google-services.json is missing! Firebase Authentication and Google Sign-In will fail to initialize in the built APK. Push app/google-services.json or configure the GOOGLE_SERVICES_JSON_BASE64 repository secret."
           fi
 
           # Make gradlew executable

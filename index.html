@@ -88,13 +88,15 @@
       animation: qrScanLaserMove 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
       opacity: 1 !important;
     }
-    #qrBoxContainer {
+    #qrBoxContainer,
+    #inlineQrBoxContainer {
       width: min(232px, calc(100vw - 4.5rem));
       height: min(232px, calc(100vw - 4.5rem));
       aspect-ratio: 1 / 1;
       box-sizing: border-box;
     }
-    #qrcode {
+    #qrcode,
+    #inlineQrcode {
       position: relative;
       width: 100%;
       height: 100%;
@@ -105,7 +107,10 @@
     }
     #qrcode > canvas,
     #qrcode > img,
-    #qrcode > table {
+    #qrcode > table,
+    #inlineQrcode > canvas,
+    #inlineQrcode > img,
+    #inlineQrcode > table {
       position: absolute !important;
       inset: 0 !important;
       width: 100% !important;
@@ -123,7 +128,7 @@
 <body class="bg-slate-950 text-slate-100 min-h-screen font-sans selection:bg-blue-600 selection:text-white">
 
   <!-- Top Sticky Navigation Bar -->
-  <nav class="sticky top-0 z-50 glassmorphism border-b border-slate-800/80 px-4 lg:px-12 py-3.5 transition-all">
+  <nav class="sticky top-0 z-40 glassmorphism border-b border-slate-800/80 px-4 lg:px-12 py-3.5 transition-all">
     <div class="max-w-7xl mx-auto flex items-center justify-between">
       <!-- App Brand Logo -->
       <a href="#" class="flex items-center gap-3 group">
@@ -141,6 +146,10 @@
 
       <!-- Center Links (Desktop) -->
       <div class="hidden md:flex items-center gap-8 text-sm font-medium text-slate-300">
+        <a href="#qr-connect" class="hover:text-cyan-400 transition-colors flex items-center gap-1.5 text-cyan-300 font-semibold">
+          <i class="ph ph-qr-code text-cyan-400"></i>
+          <span>QR কানেক্ট</span>
+        </a>
         <a href="#features" class="hover:text-blue-400 transition-colors">ফিচারসমূহ</a>
         <a href="#booking-hub" class="hover:text-blue-400 transition-colors flex items-center gap-1.5 text-blue-300 font-semibold">
           <i class="ph ph-airplane-tilt text-blue-400"></i>
@@ -333,8 +342,131 @@
     </div>
   </header>
 
+  <!-- Dedicated Always-Visible QR Code Connect Section (Cleanly above Features, never overlapped on any screen) -->
+  <section id="qr-connect" class="relative z-10 py-10 sm:py-14 px-4 max-w-6xl mx-auto scroll-mt-24">
+    <div class="rounded-3xl bg-slate-900/90 border border-cyan-500/30 shadow-2xl p-5 sm:p-8 lg:p-10">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-10 items-center">
+
+        <!-- Inline QR Display Box -->
+        <div class="lg:col-span-5 flex flex-col items-center text-center min-w-0">
+          <div id="inlineQrBoxContainer" class="p-4 bg-white rounded-2xl shadow-xl relative my-1 mx-auto flex items-center justify-center shrink-0 overflow-hidden transition-all duration-300">
+            <div id="inlineQrcode" class="w-full h-full"></div>
+            <div id="inlineQrLogoBadge" class="absolute inset-0 flex items-center justify-center pointer-events-none z-[5]">
+              <div class="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md ring-4 ring-white">
+                <i class="ph ph-chat-centered-text text-xl"></i>
+              </div>
+            </div>
+
+            <div id="inlineQrScanLaser" class="absolute left-0 right-0 h-1 bg-gradient-to-r from-transparent via-cyan-400 via-blue-500 to-transparent shadow-[0_0_12px_#38bdf8] opacity-0 pointer-events-none z-10 transition-opacity duration-200"></div>
+
+            <div id="inlineQrSuccessOverlay" class="absolute inset-0 bg-emerald-950/95 backdrop-blur-sm flex flex-col items-center justify-center text-center p-3 opacity-0 pointer-events-none transition-all duration-500 scale-90 z-20">
+              <div class="w-14 h-14 rounded-full bg-emerald-500/20 border-2 border-emerald-400 flex items-center justify-center text-emerald-400 mb-2 relative">
+                <i class="ph ph-check-bold text-2xl animate-pulse"></i>
+                <span class="absolute inset-0 rounded-full border-2 border-emerald-400 animate-ping opacity-30"></span>
+              </div>
+              <h5 class="text-xs font-bold text-white mb-0.5">ডিভাইস পেয়ার্ড!</h5>
+              <p class="text-[10px] text-emerald-300 font-medium">Samsung Galaxy S24</p>
+              <div class="mt-2 flex items-center gap-1 text-[9px] text-emerald-400/90 bg-emerald-900/50 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                <span>Syncing Live</span>
+              </div>
+            </div>
+
+            <div id="inlineQrExpiredOverlay" class="absolute inset-0 bg-slate-950/95 backdrop-blur-sm flex flex-col items-center justify-center text-center p-3 opacity-0 pointer-events-none transition-all duration-300 scale-95 z-20">
+              <div class="w-12 h-12 rounded-full bg-amber-500/20 border-2 border-amber-400 flex items-center justify-center text-amber-400 mb-2">
+                <i class="ph ph-hourglass-simple-slash text-2xl"></i>
+              </div>
+              <h5 class="text-xs font-bold text-white mb-0.5">QR কোডের মেয়াদ শেষ</h5>
+              <p class="text-[10px] text-slate-400 mb-3 px-2">নিরাপত্তার স্বার্থে ৬০ সেকেন্ড পর QR কোডটি এক্সপায়ার হয়েছে</p>
+              <button type="button" onclick="initQrCode()" class="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-blue-600/30 active:scale-95 transition-all">
+                <i class="ph ph-arrow-clockwise"></i>
+                <span>Regenerate (পুনরায় তৈরি)</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="mt-3 flex flex-wrap items-center justify-center gap-2 text-xs">
+            <span class="text-[11px] text-slate-400">পেয়ারিং টোকেন:</span>
+            <span id="inlineQrPairingTokenDisplay" class="font-mono text-xs font-bold text-cyan-300 bg-slate-950 px-2.5 py-0.5 rounded-full border border-cyan-500/30">pulse_pair_...</span>
+          </div>
+
+          <div class="mt-2 flex items-center justify-center gap-1.5 text-xs text-slate-400">
+            <i class="ph ph-clock-countdown text-cyan-400"></i>
+            <span>মেয়াদ: <span id="inlineQrCountdownText" class="font-mono font-bold text-cyan-300">60s</span></span>
+          </div>
+        </div>
+
+        <!-- Connect Instructions & Controls -->
+        <div class="lg:col-span-7 flex flex-col justify-between text-left space-y-5 min-w-0">
+          <div>
+            <span class="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-cyan-300 bg-cyan-950/70 px-3 py-1 rounded-full border border-cyan-500/30 mb-3">
+              <i class="ph ph-qr-code text-sm"></i>
+              <span>Instant Web Pairing</span>
+            </span>
+            <h2 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">QR কোড স্ক্যান করে অ্যান্ড্রয়েড ফোন কানেক্ট করুন</h2>
+            <p class="text-xs sm:text-sm text-slate-300 mt-2 leading-relaxed">
+              যেকোনো মোবাইল বা কম্পিউটার স্ক্রিন থেকেই নিচের ধাপগুলো অনুসরণ করে এক নিমিষে আপনার Pulse SMS অ্যাপের সাথে কানেক্ট করুন:
+            </p>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+            <div class="p-3 rounded-xl bg-slate-950/80 border border-slate-800">
+              <div class="text-cyan-400 font-bold mb-1">১. অ্যাপ খুলুন</div>
+              <p class="text-slate-400 leading-relaxed">ফোনে Pulse SMS ওপেন করে উপরের QR আইকন বা Settings-এ যান।</p>
+            </div>
+            <div class="p-3 rounded-xl bg-slate-950/80 border border-slate-800">
+              <div class="text-blue-400 font-bold mb-1">২. QR স্ক্যান করুন</div>
+              <p class="text-slate-400 leading-relaxed">বাম পাশের QR কোডের দিকে ফোনের ক্যামেরা ধরুন।</p>
+            </div>
+            <div class="p-3 rounded-xl bg-slate-950/80 border border-slate-800">
+              <div class="text-emerald-400 font-bold mb-1">৩. লাইভ সিঙ্ক চালু</div>
+              <p class="text-slate-400 leading-relaxed">স্ক্যান শেষ হলেই সকল এসএমএস ওটিপি ও চ্যাট রিয়েল-টাইমে সিঙ্ক হবে।</p>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-3 pt-1">
+            <div class="inline-flex items-center gap-2.5 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs">
+              <span class="flex items-center gap-1.5 text-slate-300 font-medium">
+                <i id="inlineQrAutoRefreshIcon" class="ph ph-arrows-clockwise text-slate-400 text-sm transition-colors"></i>
+                <span>Auto-Refresh (৬০ সে.)</span>
+              </span>
+              <button
+                type="button"
+                id="inlineQrAutoRefreshToggle"
+                role="switch"
+                aria-checked="false"
+                aria-label="Toggle 60-second QR auto-refresh"
+                onclick="toggleQrAutoRefresh()"
+                class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent bg-slate-700 transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+              >
+                <span id="inlineQrAutoRefreshKnob" class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out translate-x-0"></span>
+              </button>
+              <span id="inlineQrAutoRefreshStatusLabel" class="text-[10px] font-mono text-slate-500">OFF</span>
+            </div>
+
+            <button type="button" onclick="initQrCode()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95">
+              <i class="ph ph-arrow-clockwise text-cyan-400"></i>
+              <span>নতুন QR তৈরি</span>
+            </button>
+
+            <button type="button" id="btnInlineSimulatePair" onclick="simulateConnectPhone()" class="px-4 py-2 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95">
+              <i class="ph ph-cell-signal-full"></i>
+              <span id="inlinePairBtnLabel">পেয়ারিং টেস্ট করুন</span>
+            </button>
+
+            <button type="button" onclick="toggleWebMessengerModal()" class="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-blue-600/25 transition-all active:scale-95">
+              <i class="ph ph-arrows-out-simple"></i>
+              <span>ফুল মেসেঞ্জার খুলুন</span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
   <!-- Interactive Full Web Companion Modal (Hidden by default, opened on click) -->
-  <div id="webMessengerModal" class="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md hidden flex items-start sm:items-center justify-center p-2 sm:p-6 overflow-y-auto">
+  <div id="webMessengerModal" class="fixed inset-0 z-[70] bg-slate-950/90 backdrop-blur-md hidden flex items-start sm:items-center justify-center p-2 sm:p-6 overflow-y-auto">
     <div class="bg-slate-900 border border-slate-800 w-full max-w-5xl rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[94dvh] sm:max-h-[92vh] my-auto relative">
       
       <!-- Floating Toast Notification inside Web Messenger Modal -->
@@ -777,8 +909,11 @@
 
       </div>
 
-      <!-- Floating Tooltip for D3 Charts -->
-      <div id="d3AnalyticsTooltip" class="fixed pointer-events-none opacity-0 z-[100] transition-opacity duration-150 glassmorphism bg-slate-900/95 border border-slate-700 rounded-xl p-2.5 text-xs text-white shadow-2xl backdrop-blur-xl max-w-xs"></div>
+    </div>
+  </div>
+
+  <!-- Floating Tooltip for D3 Charts -->
+  <div id="d3AnalyticsTooltip" class="fixed pointer-events-none opacity-0 z-[100] transition-opacity duration-150 glassmorphism bg-slate-900/95 border border-slate-700 rounded-xl p-2.5 text-xs text-white shadow-2xl backdrop-blur-xl max-w-xs"></div>
 
   <!-- Universal Any-Account Sign-In Modal -->
   <div id="webAccountLoginModal" class="fixed inset-0 z-[80] bg-slate-950/85 backdrop-blur-md hidden flex items-center justify-center p-4 overflow-y-auto">
@@ -1197,34 +1332,71 @@ git push origin main</pre>
     let qrAutoRefreshEnabled = false;
     let pairingSessionStatus = "PENDING"; // "PENDING" | "CONNECTED" | "EXPIRED"
 
-    function updateAutoRefreshToggleUI() {
-      const toggleBtn = document.getElementById("qrAutoRefreshToggle");
-      const knob = document.getElementById("qrAutoRefreshKnob");
-      const icon = document.getElementById("qrAutoRefreshIcon");
-      const statusLabel = document.getElementById("qrAutoRefreshStatusLabel");
+    function getQrUiTargets() {
+      return [
+        {
+          container: document.getElementById("qrcode"),
+          badge: document.getElementById("qrLogoBadge"),
+          expiredOverlay: document.getElementById("qrExpiredOverlay"),
+          successOverlay: document.getElementById("qrSuccessOverlay"),
+          countdownText: document.getElementById("qrCountdownText"),
+          laser: document.getElementById("qrScanLaser"),
+          box: document.getElementById("qrBoxContainer"),
+          tokenDisplay: document.getElementById("qrPairingTokenDisplay")
+        },
+        {
+          container: document.getElementById("inlineQrcode"),
+          badge: document.getElementById("inlineQrLogoBadge"),
+          expiredOverlay: document.getElementById("inlineQrExpiredOverlay"),
+          successOverlay: document.getElementById("inlineQrSuccessOverlay"),
+          countdownText: document.getElementById("inlineQrCountdownText"),
+          laser: document.getElementById("inlineQrScanLaser"),
+          box: document.getElementById("inlineQrBoxContainer"),
+          tokenDisplay: document.getElementById("inlineQrPairingTokenDisplay")
+        }
+      ];
+    }
 
-      if (toggleBtn) {
-        toggleBtn.setAttribute("aria-checked", qrAutoRefreshEnabled ? "true" : "false");
-        toggleBtn.className = qrAutoRefreshEnabled
-          ? "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent bg-cyan-500 transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-          : "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent bg-slate-700 transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-cyan-500/50";
-      }
-      if (knob) {
-        knob.className = qrAutoRefreshEnabled
-          ? "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out translate-x-4"
-          : "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out translate-x-0";
-      }
-      if (icon) {
-        icon.className = qrAutoRefreshEnabled
-          ? "ph ph-arrows-clockwise text-cyan-400 text-sm transition-colors"
-          : "ph ph-arrows-clockwise text-slate-400 text-sm transition-colors";
-      }
-      if (statusLabel) {
-        statusLabel.innerText = qrAutoRefreshEnabled ? "ON" : "OFF";
-        statusLabel.className = qrAutoRefreshEnabled
-          ? "text-[10px] font-mono font-bold text-cyan-400"
-          : "text-[10px] font-mono text-slate-500";
-      }
+    function updateAutoRefreshToggleUI() {
+      const toggleSets = [
+        {
+          toggleBtn: document.getElementById("qrAutoRefreshToggle"),
+          knob: document.getElementById("qrAutoRefreshKnob"),
+          icon: document.getElementById("qrAutoRefreshIcon"),
+          statusLabel: document.getElementById("qrAutoRefreshStatusLabel")
+        },
+        {
+          toggleBtn: document.getElementById("inlineQrAutoRefreshToggle"),
+          knob: document.getElementById("inlineQrAutoRefreshKnob"),
+          icon: document.getElementById("inlineQrAutoRefreshIcon"),
+          statusLabel: document.getElementById("inlineQrAutoRefreshStatusLabel")
+        }
+      ];
+
+      toggleSets.forEach(({ toggleBtn, knob, icon, statusLabel }) => {
+        if (toggleBtn) {
+          toggleBtn.setAttribute("aria-checked", qrAutoRefreshEnabled ? "true" : "false");
+          toggleBtn.className = qrAutoRefreshEnabled
+            ? "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent bg-cyan-500 transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+            : "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent bg-slate-700 transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-cyan-500/50";
+        }
+        if (knob) {
+          knob.className = qrAutoRefreshEnabled
+            ? "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out translate-x-4"
+            : "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out translate-x-0";
+        }
+        if (icon) {
+          icon.className = qrAutoRefreshEnabled
+            ? "ph ph-arrows-clockwise text-cyan-400 text-sm transition-colors"
+            : "ph ph-arrows-clockwise text-slate-400 text-sm transition-colors";
+        }
+        if (statusLabel) {
+          statusLabel.innerText = qrAutoRefreshEnabled ? "ON" : "OFF";
+          statusLabel.className = qrAutoRefreshEnabled
+            ? "text-[10px] font-mono font-bold text-cyan-400"
+            : "text-[10px] font-mono text-slate-500";
+        }
+      });
     }
 
     function toggleQrAutoRefresh(forceState) {
@@ -1256,22 +1428,19 @@ git push origin main</pre>
       clearQrTimer();
       cleanupPairingListeners();
       pairingSessionStatus = "EXPIRED";
-      const expiredOverlay = document.getElementById("qrExpiredOverlay");
-      const qrBadge = document.getElementById("qrLogoBadge");
-      const laser = document.getElementById("qrScanLaser");
-      const countdownText = document.getElementById("qrCountdownText");
 
-      if (laser) laser.classList.remove("qr-scanning-laser-active", "qr-laser-active");
-      if (qrBadge) qrBadge.style.display = "none";
-      if (countdownText) {
-        countdownText.innerText = "মেয়াদ শেষ (Expired)";
-        countdownText.className = "font-mono font-bold text-amber-400";
-      }
-
-      if (expiredOverlay) {
-        expiredOverlay.classList.remove("opacity-0", "pointer-events-none", "scale-95");
-        expiredOverlay.classList.add("opacity-100", "pointer-events-auto", "scale-100");
-      }
+      getQrUiTargets().forEach((t) => {
+        if (t.laser) t.laser.classList.remove("qr-scanning-laser-active", "qr-laser-active");
+        if (t.badge) t.badge.style.display = "none";
+        if (t.countdownText) {
+          t.countdownText.innerText = "মেয়াদ শেষ (Expired)";
+          t.countdownText.className = "font-mono font-bold text-amber-400";
+        }
+        if (t.expiredOverlay) {
+          t.expiredOverlay.classList.remove("opacity-0", "pointer-events-none", "scale-95");
+          t.expiredOverlay.classList.add("opacity-100", "pointer-events-auto", "scale-100");
+        }
+      });
 
       if (typeof addLogEntry === "function") {
         addLogEntry("SECURITY", "QR কোডের ৬০ সেকেন্ডের নিরাপত্তা মেয়াদ শেষ হয়েছে। পুনরায় জেনারেট করুন।");
@@ -1286,29 +1455,28 @@ git push origin main</pre>
       clearQrTimer();
       pairingSessionStatus = "PENDING";
 
-      const qrContainer = document.getElementById("qrcode");
-      const qrBadge = document.getElementById("qrLogoBadge");
-      const expiredOverlay = document.getElementById("qrExpiredOverlay");
-      const successOverlay = document.getElementById("qrSuccessOverlay");
-      const countdownText = document.getElementById("qrCountdownText");
-      const laser = document.getElementById("qrScanLaser");
+      const targets = getQrUiTargets().filter((t) => t.container);
+      if (targets.length === 0) return;
 
-      if (expiredOverlay) {
-        expiredOverlay.classList.add("opacity-0", "pointer-events-none", "scale-95");
-        expiredOverlay.classList.remove("opacity-100", "pointer-events-auto", "scale-100");
-      }
-      if (successOverlay) {
-        successOverlay.classList.add("opacity-0", "pointer-events-none", "scale-90");
-        successOverlay.classList.remove("opacity-100", "pointer-events-auto", "scale-100");
-      }
-      if (laser) {
-        laser.classList.remove("qr-scanning-laser-active", "qr-laser-active");
-      }
-
-      if (!qrContainer) return;
+      targets.forEach((t) => {
+        if (t.expiredOverlay) {
+          t.expiredOverlay.classList.add("opacity-0", "pointer-events-none", "scale-95");
+          t.expiredOverlay.classList.remove("opacity-100", "pointer-events-auto", "scale-100");
+        }
+        if (t.successOverlay) {
+          t.successOverlay.classList.add("opacity-0", "pointer-events-none", "scale-90");
+          t.successOverlay.classList.remove("opacity-100", "pointer-events-auto", "scale-100");
+        }
+        if (t.laser) {
+          t.laser.classList.remove("qr-scanning-laser-active", "qr-laser-active");
+        }
+        if (t.box) {
+          t.box.classList.remove("ring-4", "ring-cyan-500/40");
+        }
+        t.container.innerHTML = "";
+      });
 
       qrInstance = null;
-      qrContainer.innerHTML = "";
 
       try {
         // Generate and validate pairing token
@@ -1324,43 +1492,46 @@ git push origin main</pre>
           time: Date.now()
         });
 
-        const renderFallbackQrImage = () => {
-          qrContainer.innerHTML = "";
+        const renderFallbackQrImageInto = (target) => {
+          target.container.innerHTML = "";
           const fallbackImg = document.createElement("img");
           fallbackImg.alt = "Pulse SMS Pairing QR Code";
           fallbackImg.decoding = "async";
           fallbackImg.src = "https://api.qrserver.com/v1/create-qr-code/?size=240x240&ecc=H&margin=0&color=0f172a&bgcolor=ffffff&data=" + encodeURIComponent(payload);
           fallbackImg.onload = () => {
-            if (qrBadge) qrBadge.style.display = "flex";
+            if (target.badge) target.badge.style.display = "flex";
           };
           fallbackImg.onerror = () => {
-            showQrError(qrContainer, qrBadge, new Error("QR code rendering engine not loaded. Please verify internet connectivity."));
+            showQrError(target.container, target.badge, new Error("QR code rendering engine not loaded. Please verify internet connectivity."));
           };
-          qrContainer.appendChild(fallbackImg);
+          target.container.appendChild(fallbackImg);
         };
 
         if (typeof QRCode !== "undefined") {
-          qrInstance = new QRCode(qrContainer, {
-            text: payload,
-            width: 240,
-            height: 240,
-            colorDark: "#0f172a",
-            colorLight: "#ffffff",
-            correctLevel: QRCode.CorrectLevel.H
-          });
-
-          // Ensure canvas & img never fight visually inside #qrcode
-          const renderedImg = qrContainer.querySelector("img");
-          const renderedCanvas = qrContainer.querySelector("canvas");
-          if (renderedImg) {
-            renderedImg.alt = "Pulse SMS Pairing QR Code";
-            renderedImg.addEventListener("load", () => {
-              if (renderedCanvas) renderedCanvas.style.display = "none";
+          targets.forEach((t, idx) => {
+            const inst = new QRCode(t.container, {
+              text: payload,
+              width: 240,
+              height: 240,
+              colorDark: "#0f172a",
+              colorLight: "#ffffff",
+              correctLevel: QRCode.CorrectLevel.H
             });
-            if (renderedImg.complete && renderedImg.naturalWidth > 0 && renderedCanvas) {
-              renderedCanvas.style.display = "none";
+            if (idx === 0) qrInstance = inst;
+
+            // Ensure canvas & img never fight visually inside container
+            const renderedImg = t.container.querySelector("img");
+            const renderedCanvas = t.container.querySelector("canvas");
+            if (renderedImg) {
+              renderedImg.alt = "Pulse SMS Pairing QR Code";
+              renderedImg.addEventListener("load", () => {
+                if (renderedCanvas) renderedCanvas.style.display = "none";
+              });
+              if (renderedImg.complete && renderedImg.naturalWidth > 0 && renderedCanvas) {
+                renderedCanvas.style.display = "none";
+              }
             }
-          }
+          });
         } else {
           // Dynamically load fallback QRCode script or fall back cleanly to remote QR image
           const existingFallback = document.getElementById("qrcodeFallbackScript");
@@ -1372,40 +1543,44 @@ git push origin main</pre>
               if (typeof QRCode !== "undefined") {
                 initQrCode();
               } else {
-                renderFallbackQrImage();
+                targets.forEach(renderFallbackQrImageInto);
               }
             };
-            script.onerror = renderFallbackQrImage;
+            script.onerror = () => targets.forEach(renderFallbackQrImageInto);
             document.head.appendChild(script);
           } else {
-            renderFallbackQrImage();
+            targets.forEach(renderFallbackQrImageInto);
           }
         }
 
-        const tokenDisplay = document.getElementById("qrPairingTokenDisplay");
-        if (tokenDisplay) tokenDisplay.innerText = pairingToken;
+        targets.forEach((t) => {
+          if (t.tokenDisplay) t.tokenDisplay.innerText = pairingToken;
+          if (t.badge) t.badge.style.display = "flex";
+        });
 
         listenForMobileCameraPairing(pairingToken);
 
         // Verify that canvas or image was successfully appended
         setTimeout(() => {
-          if (typeof QRCode === "undefined" && !qrContainer.querySelector("img")) return;
-          const hasContent = qrContainer.querySelector("canvas") || qrContainer.querySelector("img");
-          if (!hasContent) {
-            renderFallbackQrImage();
-          } else if (qrBadge) {
-            qrBadge.style.display = "flex";
-          }
+          targets.forEach((t) => {
+            if (typeof QRCode === "undefined" && !t.container.querySelector("img")) return;
+            const hasContent = t.container.querySelector("canvas") || t.container.querySelector("img");
+            if (!hasContent) {
+              renderFallbackQrImageInto(t);
+            } else if (t.badge) {
+              t.badge.style.display = "flex";
+            }
+          });
         }, 150);
-
-        if (qrBadge) qrBadge.style.display = "flex";
 
         // Start 60-Second Security Timeout / Auto-Refresh Mechanism
         qrSecondsRemaining = 60;
-        if (countdownText) {
-          countdownText.innerText = "60s";
-          countdownText.className = "font-mono font-bold text-cyan-300";
-        }
+        targets.forEach((t) => {
+          if (t.countdownText) {
+            t.countdownText.innerText = "60s";
+            t.countdownText.className = "font-mono font-bold text-cyan-300";
+          }
+        });
 
         qrTimerInterval = setInterval(() => {
           if (pairingSessionStatus !== "PENDING") {
@@ -1414,16 +1589,18 @@ git push origin main</pre>
           }
 
           qrSecondsRemaining--;
-          if (countdownText) {
-            countdownText.innerText = qrSecondsRemaining + "s";
-            if (qrSecondsRemaining <= 10) {
-              countdownText.className = "font-mono font-bold text-rose-400 animate-pulse";
-            } else if (qrSecondsRemaining <= 25) {
-              countdownText.className = "font-mono font-bold text-amber-300";
-            } else {
-              countdownText.className = "font-mono font-bold text-cyan-300";
+          targets.forEach((t) => {
+            if (t.countdownText) {
+              t.countdownText.innerText = qrSecondsRemaining + "s";
+              if (qrSecondsRemaining <= 10) {
+                t.countdownText.className = "font-mono font-bold text-rose-400 animate-pulse";
+              } else if (qrSecondsRemaining <= 25) {
+                t.countdownText.className = "font-mono font-bold text-amber-300";
+              } else {
+                t.countdownText.className = "font-mono font-bold text-cyan-300";
+              }
             }
-          }
+          });
 
           if (qrSecondsRemaining <= 0) {
             if (qrAutoRefreshEnabled && pairingSessionStatus === "PENDING") {
@@ -1438,7 +1615,7 @@ git push origin main</pre>
         }, 1000);
 
       } catch (err) {
-        showQrError(qrContainer, qrBadge, err);
+        targets.forEach((t) => showQrError(t.container, t.badge, err));
       }
     }
 
@@ -1508,32 +1685,31 @@ git push origin main</pre>
 
     function handleSuccessfulScreenPairing(data) {
       const deviceName = data.deviceName || "Samsung Galaxy S24";
-      const overlay = document.getElementById("qrSuccessOverlay");
-      const laser = document.getElementById("qrScanLaser");
-      const qrBox = document.getElementById("qrBoxContainer");
       const authStatus = document.getElementById("authStatusIndicator");
       const btn = document.getElementById("btnSimulatePair");
       const label = document.getElementById("pairBtnLabel");
+      const inlineBtn = document.getElementById("btnInlineSimulatePair");
+      const inlineLabel = document.getElementById("inlinePairBtnLabel");
 
-      if (laser) laser.classList.remove("qr-scanning-laser-active");
-      if (qrBox) qrBox.classList.remove("ring-4", "ring-cyan-500/40");
-
-      if (overlay) {
-        const devText = overlay.querySelector("p");
-        if (devText) devText.innerText = deviceName;
-        overlay.classList.remove("opacity-0", "pointer-events-none", "scale-90");
-        overlay.classList.add("opacity-100", "pointer-events-auto", "scale-100");
-      }
+      getQrUiTargets().forEach((t) => {
+        if (t.laser) t.laser.classList.remove("qr-scanning-laser-active");
+        if (t.box) t.box.classList.remove("ring-4", "ring-cyan-500/40");
+        if (t.successOverlay) {
+          const devText = t.successOverlay.querySelector("p");
+          if (devText) devText.innerText = deviceName;
+          t.successOverlay.classList.remove("opacity-0", "pointer-events-none", "scale-90");
+          t.successOverlay.classList.add("opacity-100", "pointer-events-auto", "scale-100");
+        }
+        if (t.countdownText) {
+          t.countdownText.innerText = "কানেক্টেড (Active)";
+          t.countdownText.className = "font-mono font-bold text-emerald-400";
+        }
+      });
 
       // Stop expiration countdown & listeners
       pairingSessionStatus = "CONNECTED";
       clearQrTimer();
       cleanupPairingListeners();
-      const countdownText = document.getElementById("qrCountdownText");
-      if (countdownText) {
-        countdownText.innerText = "কানেক্টেড (Active)";
-        countdownText.className = "font-mono font-bold text-emerald-400";
-      }
 
       // 1. Play Web Audio confirmation sound
       playQrScanConfirmationSound();
@@ -1547,11 +1723,16 @@ git push origin main</pre>
         authStatus.classList.add("bg-emerald-950/60", "border-emerald-500/30");
       }
 
-      if (btn && label) {
-        label.innerText = `কানেক্টেড (${deviceName})`;
-        btn.classList.remove("bg-blue-600/20", "text-blue-300", "border-blue-500/30");
-        btn.classList.add("bg-emerald-600/20", "text-emerald-300", "border-emerald-500/30");
-      }
+      [
+        { b: btn, l: label },
+        { b: inlineBtn, l: inlineLabel }
+      ].forEach(({ b, l }) => {
+        if (b && l) {
+          l.innerText = `কানেক্টেড (${deviceName})`;
+          b.classList.remove("bg-blue-600/20", "text-blue-300", "border-blue-500/30");
+          b.classList.add("bg-emerald-600/20", "text-emerald-300", "border-emerald-500/30");
+        }
+      });
 
       const syncLabel = document.getElementById("mainMessengerSyncStatus");
       if (syncLabel) {
@@ -1597,14 +1778,16 @@ git push origin main</pre>
       const modal = document.getElementById("webMessengerModal");
       if (modal.classList.contains("hidden")) {
         modal.classList.remove("hidden");
-        setTimeout(initQrCode, 100);
+        const modalQr = document.getElementById("qrcode");
+        const needsQrInit = !modalQr || (!modalQr.querySelector("canvas") && !modalQr.querySelector("img")) || pairingSessionStatus === "EXPIRED";
+        if (needsQrInit) {
+          setTimeout(initQrCode, 100);
+        }
         if (currentModalView === "ANALYTICS") {
           setTimeout(renderD3SmsAnalytics, 150);
         }
       } else {
         modal.classList.add("hidden");
-        clearQrTimer();
-        cleanupPairingListeners();
       }
     }
 
@@ -1779,10 +1962,9 @@ git push origin main</pre>
     function simulateConnectPhone() {
       const btn = document.getElementById("btnSimulatePair");
       const label = document.getElementById("pairBtnLabel");
+      const inlineBtn = document.getElementById("btnInlineSimulatePair");
+      const inlineLabel = document.getElementById("inlinePairBtnLabel");
       const authStatus = document.getElementById("authStatusIndicator");
-      const overlay = document.getElementById("qrSuccessOverlay");
-      const laser = document.getElementById("qrScanLaser");
-      const qrBox = document.getElementById("qrBoxContainer");
 
       if (simulateScanTimer) {
         clearTimeout(simulateScanTimer);
@@ -1793,10 +1975,18 @@ git push origin main</pre>
       warmUpWebAudioContext();
 
       // Start visual scanning state
-      label.innerText = "স্ক্যান হচ্ছে...";
-      btn.disabled = true;
-      if (laser) laser.classList.add("qr-scanning-laser-active");
-      if (qrBox) qrBox.classList.add("ring-4", "ring-cyan-500/40");
+      [
+        { b: btn, l: label },
+        { b: inlineBtn, l: inlineLabel }
+      ].forEach(({ b, l }) => {
+        if (l) l.innerText = "স্ক্যান হচ্ছে...";
+        if (b) b.disabled = true;
+      });
+
+      getQrUiTargets().forEach((t) => {
+        if (t.laser) t.laser.classList.add("qr-scanning-laser-active");
+        if (t.box) t.box.classList.add("ring-4", "ring-cyan-500/40");
+      });
 
       // Scanning animation duration: 1.1s (1 full laser sweep)
       simulateScanTimer = setTimeout(() => {
@@ -1805,62 +1995,77 @@ git push origin main</pre>
         // 1. Trigger Web Audio API haptic-like confirmation audio clip immediately as scan completes
         playQrScanConfirmationSound();
 
-        // 2. Stop laser and glow as scanning animation finishes
-        if (laser) laser.classList.remove("qr-scanning-laser-active");
-        if (qrBox) qrBox.classList.remove("ring-4", "ring-cyan-500/40");
+        // 2. Stop laser and glow, and reveal Visual Success Animation Overlay across both QR Boxes
+        getQrUiTargets().forEach((t) => {
+          if (t.laser) t.laser.classList.remove("qr-scanning-laser-active");
+          if (t.box) t.box.classList.remove("ring-4", "ring-cyan-500/40");
+          if (t.successOverlay) {
+            t.successOverlay.classList.remove("opacity-0", "pointer-events-none", "scale-90");
+            t.successOverlay.classList.add("opacity-100", "pointer-events-auto", "scale-100");
+          }
+          if (t.countdownText) {
+            t.countdownText.innerText = "কানেক্টেড (Active)";
+            t.countdownText.className = "font-mono font-bold text-emerald-400";
+          }
+        });
 
-        btn.disabled = false;
-        label.innerText = "কানেক্টেড • পুনরায় স্ক্যান করতে ক্লিক করুন";
-        btn.classList.remove("bg-blue-600/20", "text-blue-300", "border-blue-500/30");
-        btn.classList.add("bg-emerald-600/20", "text-emerald-300", "border-emerald-500/30");
-
-        // 3. Reveal Visual Success Animation Overlay inside QR Box
-        if (overlay) {
-          overlay.classList.remove("opacity-0", "pointer-events-none", "scale-90");
-          overlay.classList.add("opacity-100", "pointer-events-auto", "scale-100");
-        }
+        [
+          { b: btn, l: label },
+          { b: inlineBtn, l: inlineLabel }
+        ].forEach(({ b, l }) => {
+          if (b) {
+            b.disabled = false;
+            b.classList.remove("bg-blue-600/20", "text-blue-300", "border-blue-500/30");
+            b.classList.add("bg-emerald-600/20", "text-emerald-300", "border-emerald-500/30");
+            b.onclick = resetQrScanState;
+          }
+          if (l) l.innerText = "কানেক্টেড • পুনরায় স্ক্যান করুন";
+        });
 
         // Stop expiration countdown
         pairingSessionStatus = "CONNECTED";
         clearQrTimer();
-        const countdownText = document.getElementById("qrCountdownText");
-        if (countdownText) {
-          countdownText.innerText = "কানেক্টেড (Active)";
-          countdownText.className = "font-mono font-bold text-emerald-400";
-        }
 
         // 4. Trigger Floating Toast Notification inside the modal
         showModalToast("QR কোড সফলভাবে স্ক্যান হয়েছে!", "Samsung Galaxy S24 যুক্ত হয়েছে • রিয়েল-টাইম এসএমএস সিঙ্ক সক্রিয়");
 
-        authStatus.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span id="authStatusText">সিঙ্ক অ্যাক্টিভ (Samsung S24)</span>';
-        authStatus.classList.remove("bg-slate-800");
-        authStatus.classList.add("bg-emerald-950/60", "border-emerald-500/30");
+        if (authStatus) {
+          authStatus.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span id="authStatusText">সিঙ্ক অ্যাক্টিভ (Samsung S24)</span>';
+          authStatus.classList.remove("bg-slate-800");
+          authStatus.classList.add("bg-emerald-950/60", "border-emerald-500/30");
+        }
 
         addLogEntry("SYSTEM", "সফলভাবে ডিভাইসের সাথে পেয়ার করা হয়েছে। রিয়েল-টাইম ক্লাউড সিঙ্ক চালু।");
         addLogEntry("INCOMING", "bKash (16247): You have received Tk 1,200 from 019XXXXXXXX.");
-
-        // Allow toggling/resetting to re-test
-        btn.onclick = resetQrScanState;
       }, 1100);
     }
 
     function resetQrScanState() {
       const btn = document.getElementById("btnSimulatePair");
       const label = document.getElementById("pairBtnLabel");
-      const overlay = document.getElementById("qrSuccessOverlay");
-      const laser = document.getElementById("qrScanLaser");
-      const qrBox = document.getElementById("qrBoxContainer");
+      const inlineBtn = document.getElementById("btnInlineSimulatePair");
+      const inlineLabel = document.getElementById("inlinePairBtnLabel");
 
-      if (laser) laser.classList.remove("qr-laser-active", "qr-scanning-laser-active");
-      if (qrBox) qrBox.classList.remove("ring-4", "ring-cyan-500/40");
-      if (overlay) {
-        overlay.classList.add("opacity-0", "pointer-events-none", "scale-90");
-        overlay.classList.remove("opacity-100", "pointer-events-auto", "scale-100");
-      }
-      label.innerText = "সিমুলেটেড পেয়ারিং টেস্ট করুন";
-      btn.classList.add("bg-blue-600/20", "text-blue-300", "border-blue-500/30");
-      btn.classList.remove("bg-emerald-600/20", "text-emerald-300", "border-emerald-500/30");
-      btn.onclick = simulateConnectPhone;
+      getQrUiTargets().forEach((t) => {
+        if (t.laser) t.laser.classList.remove("qr-laser-active", "qr-scanning-laser-active");
+        if (t.box) t.box.classList.remove("ring-4", "ring-cyan-500/40");
+        if (t.successOverlay) {
+          t.successOverlay.classList.add("opacity-0", "pointer-events-none", "scale-90");
+          t.successOverlay.classList.remove("opacity-100", "pointer-events-auto", "scale-100");
+        }
+      });
+
+      if (label) label.innerText = "সিমুলেটেড পেয়ারিং টেস্ট করুন";
+      if (inlineLabel) inlineLabel.innerText = "পেয়ারিং টেস্ট করুন";
+
+      [btn, inlineBtn].forEach((b) => {
+        if (b) {
+          b.classList.add("bg-blue-600/20", "text-blue-300", "border-blue-500/30");
+          b.classList.remove("bg-emerald-600/20", "text-emerald-300", "border-emerald-500/30");
+          b.onclick = simulateConnectPhone;
+        }
+      });
+
       initQrCode();
     }
 
@@ -4321,22 +4526,21 @@ git push origin main</pre>
       addLogEntry("BOOKING", `Booking.com SMS সনাক্ত হয়েছে: ${hotelName} (Ref: ${confNo})`);
     }
 
-    // Auto-render default hotels and live messenger on load
-    window.addEventListener("DOMContentLoaded", () => {
+    // Auto-render default hotels, live messenger, and inline QR connect on load
+    let initialPageBootstrapped = false;
+    function bootstrapPulseWebUi() {
+      if (initialPageBootstrapped) return;
+      initialPageBootstrapped = true;
       renderBookingHotels("Cox's Bazar");
       if (typeof liveMessagesList !== "undefined" && liveMessagesList.length === 0) {
         loadLocalFallbackMessages();
       }
       renderLiveMessenger();
-    });
+      initQrCode();
+    }
+    window.addEventListener("DOMContentLoaded", bootstrapPulseWebUi);
     // In case DOM is already ready:
-    setTimeout(() => {
-      renderBookingHotels("Cox's Bazar");
-      if (typeof liveMessagesList !== "undefined" && liveMessagesList.length === 0) {
-        loadLocalFallbackMessages();
-      }
-      renderLiveMessenger();
-    }, 200);
+    setTimeout(bootstrapPulseWebUi, 200);
 
     // ==========================================
     // 📱 PWA & PWABuilder Service Worker Integration
