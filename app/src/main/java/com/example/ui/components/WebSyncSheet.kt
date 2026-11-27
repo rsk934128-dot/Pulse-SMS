@@ -21,16 +21,19 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cable
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.ElectricBolt
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Sensors
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -77,17 +80,26 @@ fun WebSyncSheet(
     activePairingSessionId: String? = null,
     hasNotificationAccess: Boolean = false,
     hasPostNotificationPermission: Boolean = true,
+    isRemoteCameraActive: Boolean = false,
+    isRemoteMicActive: Boolean = false,
+    hasCallLogPermission: Boolean = false,
+    syncedCallLogsCount: Int = 0,
     mirroredNotifications: List<MirroredNotificationItem> = emptyList(),
     onToggleConnection: () -> Unit,
     onSimulateIncoming: (sender: String, body: String) -> Unit,
     onOpenQrScanner: () -> Unit = {},
     onConnectToWeb: () -> Unit = {},
     onOpenNotificationAccessSettings: () -> Unit = {},
+    onOpenAppInfoSettings: () -> Unit = {},
+    onToggleRemoteCamera: () -> Unit = {},
+    onToggleRemoteMic: () -> Unit = {},
+    onSyncCallLogsOrRequestPermission: () -> Unit = {},
     onRequestPermissions: () -> Unit = {},
     onSendSimultaneousTestNotification: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showRestrictedGuide by remember { mutableStateOf(false) }
 
     var customSender by remember { mutableStateOf("+8801911998877") }
     var customBody by remember { mutableStateOf("হ্যালো! কেমন আছেন? এটি একটি লাইভ টেস্ট এসএমএস।") }
@@ -327,7 +339,13 @@ fun WebSyncSheet(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         OutlinedButton(
-                            onClick = onOpenNotificationAccessSettings,
+                            onClick = {
+                                if (hasNotificationAccess) {
+                                    onOpenNotificationAccessSettings()
+                                } else {
+                                    showRestrictedGuide = true
+                                }
+                            },
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier
                                 .weight(1f)
@@ -371,6 +389,47 @@ fun WebSyncSheet(
                         }
                     }
 
+                    if (!hasNotificationAccess) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFFFFFBEB),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = if (language == "BN") "Restricted setting দেখালে App Info → ⋮ Allow restricted settings দিন"
+                                    else "Restricted setting? Open App Info → ⋮ Allow restricted",
+                                    fontSize = 10.5.sp,
+                                    color = Color(0xFF92400E),
+                                    modifier = Modifier.weight(1f),
+                                    lineHeight = 14.sp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                OutlinedButton(
+                                    onClick = onOpenAppInfoSettings,
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier
+                                        .heightIn(min = 48.dp)
+                                        .testTag("open_app_info_restricted_button")
+                                ) {
+                                    Text(
+                                        text = if (language == "BN") "App Info" else "App Info",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFB45309)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Button(
@@ -394,6 +453,93 @@ fun WebSyncSheet(
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedButton(
+                        onClick = onToggleRemoteCamera,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .testTag("toggle_remote_camera_share_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Videocam,
+                            contentDescription = null,
+                            tint = if (isRemoteCameraActive) Color(0xFFEF4444) else MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (isRemoteCameraActive) {
+                                if (language == "BN") "🔴 লাইভ ক্যামেরা শেয়ার চলছে (বন্ধ করুন)" else "🔴 Live Camera Sharing (Stop)"
+                            } else {
+                                if (language == "BN") "📷 ওয়েবসাইটে লাইভ মোবাইল ক্যামেরা শেয়ার করুন" else "📷 Share Live Phone Camera to Web"
+                            },
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isRemoteCameraActive) Color(0xFFEF4444) else MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedButton(
+                        onClick = onSyncCallLogsOrRequestPermission,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .testTag("sync_call_logs_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Call,
+                            contentDescription = null,
+                            tint = if (hasCallLogPermission) Color(0xFF10B981) else MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (hasCallLogPermission) {
+                                if (language == "BN") "📞 কল হিস্টরি ওয়েবে সিঙ্ক করুন (${syncedCallLogsCount}টি)" else "📞 Sync Call History to Web (${syncedCallLogsCount})"
+                            } else {
+                                if (language == "BN") "📞 কল হিস্টরি অনুমতি দিন (Web Call Log)" else "📞 Enable Call History for Web"
+                            },
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (hasCallLogPermission) Color(0xFF059669) else MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedButton(
+                        onClick = onToggleRemoteMic,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .testTag("toggle_remote_mic_share_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = null,
+                            tint = if (isRemoteMicActive) Color(0xFFEF4444) else MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (isRemoteMicActive) {
+                                if (language == "BN") "🔴 লাইভ মাইক্রোফোন শেয়ার চলছে (বন্ধ করুন)" else "🔴 Live Microphone Active (Stop)"
+                            } else {
+                                if (language == "BN") "🎙️ ওয়েবসাইটে লাইভ মাইক্রোফোন শেয়ার করুন" else "🎙️ Share Live Phone Microphone to Web"
+                            },
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isRemoteMicActive) Color(0xFFEF4444) else MaterialTheme.colorScheme.primary
                         )
                     }
 
@@ -649,5 +795,15 @@ fun WebSyncSheet(
                 }
             }
         }
+    }
+
+    if (showRestrictedGuide) {
+        NotificationAccessGuideDialog(
+            language = language,
+            hasNotificationAccess = hasNotificationAccess,
+            onOpenNotificationAccessSettings = onOpenNotificationAccessSettings,
+            onOpenAppInfoSettings = onOpenAppInfoSettings,
+            onDismiss = { showRestrictedGuide = false }
+        )
     }
 }

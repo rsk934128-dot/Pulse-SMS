@@ -4,6 +4,7 @@ import android.app.Notification
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
@@ -31,6 +32,16 @@ class PulseNotificationListenerService : NotificationListenerService() {
     @Volatile
     private var lastPostedMs: Long = 0L
 
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        Log.i(TAG, "NotificationListenerService connected and ready to mirror notifications.")
+    }
+
+    override fun onListenerDisconnected() {
+        super.onListenerDisconnected()
+        Log.w(TAG, "NotificationListenerService disconnected.")
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         if (sbn == null) return
         val pkg = sbn.packageName ?: return
@@ -44,9 +55,27 @@ class PulseNotificationListenerService : NotificationListenerService() {
         if ((notification.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return
 
         val extras = notification.extras ?: return
-        val rawTitle = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim().orEmpty()
-        val rawText = (extras.getCharSequence(Notification.EXTRA_BIG_TEXT)
+        val rawTitle = (extras.getCharSequence(Notification.EXTRA_TITLE_BIG)
+            ?: extras.getCharSequence(Notification.EXTRA_TITLE))?.toString()?.trim().orEmpty()
+
+        val textLines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
+            ?.mapNotNull { it?.toString()?.trim()?.takeIf { line -> line.isNotBlank() } }
+            .orEmpty()
+        val combinedLines = if (textLines.isNotEmpty()) {
+            textLines.takeLast(3).joinToString(" • ")
+        } else {
+            ""
+        }
+
+        val primaryText = (extras.getCharSequence(Notification.EXTRA_BIG_TEXT)
             ?: extras.getCharSequence(Notification.EXTRA_TEXT))?.toString()?.trim().orEmpty()
+        val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString()?.trim().orEmpty()
+
+        val rawText = when {
+            combinedLines.isNotBlank() && (primaryText.isBlank() || combinedLines.length > primaryText.length) -> combinedLines
+            primaryText.isNotBlank() -> primaryText
+            else -> subText
+        }
 
         if (rawTitle.isBlank() && rawText.isBlank()) return
 
@@ -125,6 +154,19 @@ class PulseNotificationListenerService : NotificationListenerService() {
         }
 
         fun openNotificationAccessSettings(context: Context) {
+            val componentName = ComponentName(context, PulseNotificationListenerService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                try {
+                    val detailIntent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS).apply {
+                        putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME, componentName.flattenToString())
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(detailIntent)
+                    return
+                } catch (_: Throwable) {
+                    // Fall back to general Notification Listener settings list below
+                }
+            }
             try {
                 val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -132,6 +174,33 @@ class PulseNotificationListenerService : NotificationListenerService() {
                 context.startActivity(intent)
             } catch (t: Throwable) {
                 Log.w(TAG, "Cannot open notification listener settings: ${t.message}")
+            }
+        }
+
+        /**
+         * Opens Pulse SMS's App Info screen so users on Android 13/14/15 can tap the
+         * top-right 3-dot menu (⋮) -> "Allow restricted settings" if Notification Access
+         * shows "Restricted setting".
+         */
+        fun openAppInfoSettings(context: Context) {
+            try {
+                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.fromParts("package", context.packageName, null)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+            } catch (t: Throwable) {
+                Log.w(TAG, "Cannot open app info settings: ${t.message}")
+            }
+        }
+
+        fun requestRebindIfPossible(context: Context) {
+            try {
+                if (isNotificationAccessEnabled(context)) {
+                    requestRebind(ComponentName(context, PulseNotificationListenerService::class.java))
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "requestRebind skipped: ${t.message}")
             }
         }
     }

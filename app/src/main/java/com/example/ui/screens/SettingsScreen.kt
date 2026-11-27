@@ -69,6 +69,7 @@ import com.example.data.repository.ProfileAvatarManager
 import com.example.data.repository.ProfileAvatarSelection
 import com.example.ui.auth.GoogleSignInButton
 import com.example.ui.auth.GoogleUserProfileCard
+import com.example.ui.components.NotificationAccessGuideDialog
 import com.example.ui.components.ProfileAvatarImage
 import com.example.ui.components.ProfileAvatarPickerDialog
 import com.google.firebase.auth.FirebaseUser
@@ -82,6 +83,7 @@ fun SettingsScreen(
     isDefaultSms: Boolean,
     hasTelephonyPermissions: Boolean,
     hasNotificationAccess: Boolean = false,
+    hasCallLogPermission: Boolean = false,
     language: String,
     currentUser: FirebaseUser?,
     isCloudSyncing: Boolean,
@@ -92,6 +94,7 @@ fun SettingsScreen(
     onToggleLanguage: () -> Unit,
     onRequestDefaultSms: () -> Unit,
     onRequestPermissions: () -> Unit,
+    onRequestCallLogSync: () -> Unit = {},
     onTriggerCloudSync: () -> Unit,
     onSignOut: () -> Unit,
     onAuthSuccess: () -> Unit,
@@ -99,12 +102,14 @@ fun SettingsScreen(
     onOpenQrScanner: () -> Unit = {},
     onOpenWebSync: () -> Unit = {},
     onOpenNotificationAccessSettings: () -> Unit = {},
+    onOpenAppInfoSettings: () -> Unit = {},
     onSendSimultaneousTestNotification: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var inlineAuthError by remember { mutableStateOf<String?>(null) }
     var showAvatarPicker by remember { mutableStateOf(false) }
+    var showRestrictedGuide by remember { mutableStateOf(false) }
 
     LaunchedEffect(currentUser) {
         if (currentUser != null) {
@@ -436,7 +441,13 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         OutlinedButton(
-                            onClick = onOpenNotificationAccessSettings,
+                            onClick = {
+                                if (hasNotificationAccess) {
+                                    onOpenNotificationAccessSettings()
+                                } else {
+                                    showRestrictedGuide = true
+                                }
+                            },
                             modifier = Modifier
                                 .weight(1f)
                                 .heightIn(min = 48.dp)
@@ -483,6 +494,47 @@ fun SettingsScreen(
                                 fontSize = 11.sp,
                                 maxLines = 1
                             )
+                        }
+                    }
+
+                    if (!hasNotificationAccess) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFFFFFBEB),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = if (language == "BN") "'Restricted setting' দেখালে App Info থেকে ⋮ Allow restricted settings চালু করুন"
+                                    else "Restricted setting? Open App Info → ⋮ Allow restricted settings",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF92400E),
+                                    modifier = Modifier.weight(1f),
+                                    lineHeight = 15.sp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                OutlinedButton(
+                                    onClick = onOpenAppInfoSettings,
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier
+                                        .heightIn(min = 48.dp)
+                                        .testTag("settings_open_app_info_restricted_btn")
+                                ) {
+                                    Text(
+                                        text = if (language == "BN") "App Info" else "App Info",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFB45309)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -552,10 +604,11 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             val permissionsList = listOf(
-                Pair("SEND_SMS", if (language == "BN") "সিম কার্ড দিয়ে এসএমএস পাঠানো" else "Send SMS via Carrier SIM"),
-                Pair("RECEIVE_SMS", if (language == "BN") "রিয়েল-টাইমে ইনকামিং এসএমএস রিসিভ করা" else "Intercept Live Incoming SMS"),
-                Pair("READ_SMS", if (language == "BN") "ইনবক্স মেসেজ পড়ার অনুমতি" else "Read SMS Inbox"),
-                Pair("POST_NOTIFICATIONS", if (language == "BN") "নতুন মেসেজের পুশ নোটিফিকেশন" else "Post SMS Notifications")
+                Triple("SEND_SMS", if (language == "BN") "সিম কার্ড দিয়ে এসএমএস পাঠানো" else "Send SMS via Carrier SIM", hasTelephonyPermissions),
+                Triple("RECEIVE_SMS", if (language == "BN") "রিয়েল-টাইমে ইনকামিং এসএমএস রিসিভ করা" else "Intercept Live Incoming SMS", hasTelephonyPermissions),
+                Triple("READ_SMS", if (language == "BN") "ইনবক্স মেসেজ পড়ার অনুমতি" else "Read SMS Inbox", hasTelephonyPermissions),
+                Triple("POST_NOTIFICATIONS", if (language == "BN") "নতুন মেসেজের পুশ নোটিফিকেশন" else "Post SMS Notifications", hasTelephonyPermissions),
+                Triple("READ_CALL_LOG", if (language == "BN") "ওয়েবসাইটে কল হিস্টরি দেখানোর অনুমতি" else "Sync Call History to Website", hasCallLogPermission)
             )
 
             Card(
@@ -564,7 +617,7 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
-                    permissionsList.forEachIndexed { index, (perm, desc) ->
+                    permissionsList.forEachIndexed { index, (perm, desc, isPermGranted) ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -577,9 +630,9 @@ fun SettingsScreen(
                                 Text(text = desc, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Icon(
-                                imageVector = if (hasTelephonyPermissions) Icons.Default.CheckCircle else Icons.Default.Security,
+                                imageVector = if (isPermGranted) Icons.Default.CheckCircle else Icons.Default.Security,
                                 contentDescription = null,
-                                tint = if (hasTelephonyPermissions) Color(0xFF059669) else Color(0xFFF59E0B),
+                                tint = if (isPermGranted) Color(0xFF059669) else Color(0xFFF59E0B),
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -594,11 +647,30 @@ fun SettingsScreen(
                             onClick = onRequestPermissions,
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .heightIn(min = 48.dp)
                                 .testTag("settings_grant_permissions_btn"),
                             shape = RoundedCornerShape(8.dp)
                         ) {
                             Text(if (language == "BN") "অনুমতিগুলোর জন্য অনুরোধ করুন" else "Request Missing Permissions")
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = onRequestCallLogSync,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .testTag("settings_grant_call_log_btn"),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(
+                            text = if (hasCallLogPermission) {
+                                if (language == "BN") "📞 কল হিস্টরি ওয়েবে সিঙ্ক করুন" else "📞 Sync Call History to Web"
+                            } else {
+                                if (language == "BN") "📞 কল হিস্টরি পারমিশন দিন" else "📞 Grant Call History Permission"
+                            }
+                        )
                     }
                 }
             }
@@ -678,6 +750,16 @@ fun SettingsScreen(
             onSaveCustomPhotoUri = onSaveCustomAvatarUri,
             onResetToDefault = onResetAvatar,
             onDismiss = { showAvatarPicker = false }
+        )
+    }
+
+    if (showRestrictedGuide) {
+        NotificationAccessGuideDialog(
+            language = language,
+            hasNotificationAccess = hasNotificationAccess,
+            onOpenNotificationAccessSettings = onOpenNotificationAccessSettings,
+            onOpenAppInfoSettings = onOpenAppInfoSettings,
+            onDismiss = { showRestrictedGuide = false }
         )
     }
 }

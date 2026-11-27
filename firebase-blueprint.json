@@ -130,6 +130,63 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "title", "body", "appName", "packageName", "sourceDevice", "category", "isTest", "createdAt"]
+    },
+    "RemoteCameraState": {
+      "title": "RemoteCameraState",
+      "description": "Real-time remote camera command & live JPEG frame bridge between Website and Mobile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "command": { "type": "string", "enum": ["NONE", "START_BACK", "START_FRONT", "STOP", "CAPTURE_HD", "TOGGLE_TORCH"] },
+        "commandSeq": { "type": "integer" },
+        "status": { "type": "string", "enum": ["IDLE", "STARTING", "ACTIVE", "STOPPED", "PERMISSION_NEEDED", "ERROR"] },
+        "lens": { "type": "string", "enum": ["BACK", "FRONT"] },
+        "torchOn": { "type": "boolean" },
+        "frameBase64": { "type": "string" },
+        "hdFrameBase64": { "type": "string" },
+        "frameSeq": { "type": "integer" },
+        "hdSeq": { "type": "integer" },
+        "width": { "type": "integer" },
+        "height": { "type": "integer" },
+        "deviceName": { "type": "string" },
+        "errorMessage": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["updatedAt"]
+    },
+    "CloudCallLog": {
+      "title": "CloudCallLog",
+      "description": "Synchronized phone call history entry visible on paired Website",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "number": { "type": "string" },
+        "contactName": { "type": "string" },
+        "callType": { "type": "string", "enum": ["INCOMING", "OUTGOING", "MISSED", "REJECTED", "BLOCKED", "VOICEMAIL", "UNKNOWN"] },
+        "durationSec": { "type": "integer" },
+        "simLabel": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "number", "callType", "durationSec", "createdAt"]
+    },
+    "RemoteMicrophoneState": {
+      "title": "RemoteMicrophoneState",
+      "description": "Real-time remote microphone command & live PCM-16 Base64 audio bridge between Website and Mobile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "command": { "type": "string", "enum": ["NONE", "START", "STOP"] },
+        "commandSeq": { "type": "integer" },
+        "status": { "type": "string", "enum": ["IDLE", "STARTING", "ACTIVE", "STOPPED", "PERMISSION_NEEDED", "ERROR"] },
+        "audioBase64": { "type": "string" },
+        "chunkSeq": { "type": "integer" },
+        "sampleRate": { "type": "integer" },
+        "audioLevel": { "type": "integer" },
+        "deviceName": { "type": "string" },
+        "errorMessage": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["updatedAt"]
     }
   },
   "firestore": {
@@ -156,6 +213,24 @@
         "$ref": "#/entities/CloudNotification"
       },
       "description": "Real-time two-way mirrored notifications between paired Mobile and Web"
+    },
+    "/pairing_sessions/{sessionId}/camera/{cameraDocId}": {
+      "schema": {
+        "$ref": "#/entities/RemoteCameraState"
+      },
+      "description": "Real-time remote mobile camera control and live frame stream for paired Website"
+    },
+    "/pairing_sessions/{sessionId}/call_logs/{callId}": {
+      "schema": {
+        "$ref": "#/entities/CloudCallLog"
+      },
+      "description": "Synchronized mobile call log history for paired Website"
+    },
+    "/pairing_sessions/{sessionId}/microphone/{micDocId}": {
+      "schema": {
+        "$ref": "#/entities/RemoteMicrophoneState"
+      },
+      "description": "Real-time remote mobile microphone control and live audio stream for paired Website"
     }
   }
 }

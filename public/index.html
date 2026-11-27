@@ -227,6 +227,18 @@
           <i class="ph ph-bell-ringing text-emerald-400"></i>
           <span>নোটিফিকেশন সিঙ্ক</span>
         </a>
+        <a href="#remote-camera" class="hover:text-rose-400 transition-colors flex items-center gap-1.5 text-rose-300 font-semibold">
+          <i class="ph ph-video-camera text-rose-400"></i>
+          <span>লাইভ ক্যামেরা</span>
+        </a>
+        <a href="#remote-mic" class="hover:text-teal-400 transition-colors flex items-center gap-1.5 text-teal-300 font-semibold">
+          <i class="ph ph-microphone text-teal-400"></i>
+          <span>লাইভ মাইক</span>
+        </a>
+        <a href="#call-history" class="hover:text-violet-400 transition-colors flex items-center gap-1.5 text-violet-300 font-semibold">
+          <i class="ph ph-phone-call text-violet-400"></i>
+          <span>কল হিস্টরি</span>
+        </a>
         <a href="#features" class="hover:text-blue-400 transition-colors">ফিচারসমূহ</a>
         <a href="#booking-hub" class="hover:text-blue-400 transition-colors flex items-center gap-1.5 text-blue-300 font-semibold">
           <i class="ph ph-airplane-tilt text-blue-400"></i>
@@ -341,6 +353,25 @@
                 <i class="ph ph-bell-ringing text-cyan-400"></i>
                 <span class="hidden lg:inline">নোটিফিকেশন</span>
                 <span id="liveNotifBadgeCount" class="px-1.5 py-0.2 rounded-full bg-cyan-500/30 text-cyan-200 text-[10px] font-mono font-bold">0</span>
+              </a>
+
+              <!-- Jump to Live Mobile Camera Viewer -->
+              <a href="#remote-camera" onclick="if(!document.getElementById('webMessengerModal').classList.contains('hidden')) toggleWebMessengerModal();" class="px-2.5 py-1 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-xs font-medium flex items-center gap-1.5 transition-all active:scale-95 shadow-sm" title="ওয়েবসাইট থেকে মোবাইলের লাইভ ক্যামেরা দেখুন">
+                <i class="ph ph-video-camera text-rose-400"></i>
+                <span class="hidden lg:inline">ক্যামেরা</span>
+              </a>
+
+              <!-- Jump to Live Mobile Microphone -->
+              <a href="#remote-mic" onclick="if(!document.getElementById('webMessengerModal').classList.contains('hidden')) toggleWebMessengerModal();" class="px-2.5 py-1 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 text-teal-300 border border-teal-500/30 text-xs font-medium flex items-center gap-1.5 transition-all active:scale-95 shadow-sm" title="ওয়েবসাইট থেকে মোবাইলের মাইক্রোফোন শুনুন">
+                <i class="ph ph-microphone text-teal-400"></i>
+                <span class="hidden lg:inline">মাইক</span>
+              </a>
+
+              <!-- Jump to Live Mobile Call History -->
+              <a href="#call-history" onclick="if(!document.getElementById('webMessengerModal').classList.contains('hidden')) toggleWebMessengerModal();" class="px-2.5 py-1 rounded-xl bg-violet-500/15 hover:bg-violet-500/25 text-violet-300 border border-violet-500/30 text-xs font-medium flex items-center gap-1.5 transition-all active:scale-95 shadow-sm" title="ওয়েবসাইট থেকে মোবাইলের কল হিস্টরি দেখুন">
+                <i class="ph ph-phone-call text-violet-400"></i>
+                <span class="hidden lg:inline">কল লগ</span>
+                <span id="liveCallLogBadgeCount" class="px-1.5 py-0.2 rounded-full bg-violet-500/30 text-violet-200 text-[10px] font-mono font-bold">0</span>
               </a>
 
               <!-- Simulate Incoming SMS CTA for Instant Testing -->
@@ -575,10 +606,362 @@
           </div>
 
           <div class="mt-3 pt-2.5 border-t border-slate-800/80 flex flex-wrap items-center justify-between text-[10px] text-slate-500 gap-2">
-            <span>টিপস: মোবাইলে WhatsApp/bKash-সহ সব অ্যাপের নোটিফিকেশন পেতে অ্যাপের Web Sync থেকে "সব অ্যাপ নোটিফিকেশন চালু করুন"।</span>
+            <span>টিপস: সব অ্যাপের নোটিফিকেশন পেতে অ্যাপের Web Sync থেকে "সব অ্যাপ নোটিফিকেশন চালু করুন" ("Restricted setting" দেখালে App Info → ⋮ Allow restricted settings)।</span>
             <span class="text-emerald-400 font-mono">Two-Way Realtime Sync</span>
           </div>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Remote Mobile Camera Live Viewer Section -->
+  <section id="remote-camera" class="relative z-10 py-6 sm:py-10 px-4 max-w-6xl mx-auto scroll-mt-24">
+    <div class="rounded-3xl bg-slate-900/95 border border-rose-500/30 shadow-2xl p-5 sm:p-7 lg:p-8">
+      <!-- Header -->
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 mb-6 border-b border-slate-800">
+        <div>
+          <div class="flex flex-wrap items-center gap-2 mb-1.5">
+            <span class="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-rose-300 bg-rose-950/70 px-3 py-1 rounded-full border border-rose-500/30">
+              <i class="ph ph-video-camera text-sm"></i>
+              <span>Remote Mobile Camera Viewer</span>
+            </span>
+            <span id="remoteCameraStatusBadge" class="text-[11px] px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-semibold">
+              স্ট্যান্ডবাই (বন্ধ)
+            </span>
+          </div>
+          <h2 class="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
+            ওয়েবসাইট থেকে মোবাইলের লাইভ ক্যামেরা দেখুন
+          </h2>
+          <p class="text-xs sm:text-sm text-slate-400 mt-1">
+            ফোন পেয়ার করা থাকলে ওয়েবসাইট থেকেই ফোনের ব্যাক বা ফ্রন্ট ক্যামেরা ওপেন করুন, ফ্ল্যাশলাইট নিয়ন্ত্রণ করুন এবং HD ছবি তুলুন।
+          </p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2 shrink-0">
+          <button type="button" onclick="sendRemoteCameraCommand('START_BACK')" class="px-4 py-2 rounded-xl bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-rose-600/25 transition-all active:scale-95">
+            <i class="ph ph-camera text-base"></i>
+            <span>ক্যামেরা ওপেন করুন</span>
+          </button>
+          <button type="button" onclick="sendRemoteCameraCommand('STOP')" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95">
+            <i class="ph ph-stop-circle text-rose-400 text-base"></i>
+            <span>বন্ধ করুন</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 2-Column Live Stage & Controls -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        <!-- Left: Live Camera Stream Stage -->
+        <div class="lg:col-span-7 bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden relative min-h-[300px] sm:min-h-[360px] flex items-center justify-center">
+          <img id="remoteCameraLiveImg" class="hidden w-full h-full max-h-[430px] object-contain mx-auto bg-black" alt="Mobile Remote Camera Feed" />
+
+          <!-- Live HUD -->
+          <div id="remoteCameraHud" class="hidden absolute top-3 left-3 right-3 flex items-center justify-between gap-2 pointer-events-none">
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-600/90 text-white text-[11px] font-bold shadow">
+              <span class="w-2 h-2 rounded-full bg-white animate-ping"></span>
+              <span id="remoteCameraHudLens">LIVE • ব্যাক ক্যামেরা</span>
+            </span>
+            <span id="remoteCameraHudStats" class="px-2.5 py-1 rounded-full bg-slate-900/80 border border-slate-700 text-slate-200 text-[10px] font-mono">
+              0 frames
+            </span>
+          </div>
+
+          <!-- Standby / Empty State -->
+          <div id="remoteCameraStandby" class="p-6 text-center max-w-md mx-auto">
+            <div class="w-16 h-16 rounded-2xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center mx-auto mb-4 text-rose-400">
+              <i class="ph ph-video-camera text-3xl"></i>
+            </div>
+            <h3 class="text-base font-bold text-white mb-1">মোবাইল ক্যামেরা ভিউয়ার প্রস্তুত</h3>
+            <p id="remoteCameraStatusText" class="text-xs text-slate-400 leading-relaxed mb-5">
+              ফোনটি ওয়েবসাইটের সাথে পেয়ার করা থাকলে নিচের বাটনে ক্লিক করার সাথে সাথে ফোনের ক্যামেরা ওপেন হয়ে এখানে লাইভ দেখাবে।
+            </p>
+            <div class="flex flex-wrap items-center justify-center gap-2.5">
+              <button type="button" onclick="sendRemoteCameraCommand('START_BACK')" class="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold flex items-center gap-2 shadow-md transition-all active:scale-95">
+                <i class="ph ph-camera text-base"></i>
+                <span>📷 ব্যাক ক্যামেরা ওপেন</span>
+              </button>
+              <button type="button" onclick="sendRemoteCameraCommand('START_FRONT')" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold flex items-center gap-2 transition-all active:scale-95">
+                <i class="ph ph-user-focus text-cyan-400 text-base"></i>
+                <span>🤳 ফ্রন্ট ক্যামেরা ওপেন</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Remote Camera Controls & HD Snapshot -->
+        <div class="lg:col-span-5 space-y-4">
+          <div class="p-4 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-3">
+            <div class="text-xs font-bold text-white flex items-center gap-1.5">
+              <i class="ph ph-sliders-horizontal text-rose-400 text-base"></i>
+              <span>ক্যামেরা রিমোট কন্ট্রোল</span>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2.5">
+              <button type="button" onclick="sendRemoteCameraCommand('START_BACK')" class="py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95">
+                <i class="ph ph-camera text-rose-400 text-base"></i>
+                <span>ব্যাক ক্যামেরা</span>
+              </button>
+              <button type="button" onclick="sendRemoteCameraCommand('START_FRONT')" class="py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95">
+                <i class="ph ph-camera-rotate text-cyan-400 text-base"></i>
+                <span>ফ্রন্ট / সেলফি</span>
+              </button>
+              <button type="button" id="btnRemoteTorch" onclick="sendRemoteCameraCommand('TOGGLE_TORCH')" class="py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95">
+                <i class="ph ph-flashlight text-amber-400 text-base"></i>
+                <span id="remoteTorchBtnLabel">ফ্ল্যাশলাইট</span>
+              </button>
+              <button type="button" onclick="sendRemoteCameraCommand('CAPTURE_HD')" class="py-2.5 px-3 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-200 border border-blue-500/35 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95">
+                <i class="ph ph-aperture text-blue-400 text-base"></i>
+                <span>📸 HD ছবি তুলুন</span>
+              </button>
+            </div>
+
+            <button type="button" onclick="sendRemoteCameraCommand('STOP')" class="w-full py-2.5 px-4 rounded-xl bg-rose-600/15 hover:bg-rose-600/25 text-rose-300 border border-rose-500/30 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95">
+              <i class="ph ph-stop-circle text-base"></i>
+              <span>⏹️ লাইভ ক্যামেরা বন্ধ করুন</span>
+            </button>
+          </div>
+
+          <!-- Latest HD Snapshot Card -->
+          <div id="remoteCameraHdBox" class="p-4 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-2.5">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                <i class="ph ph-image text-emerald-400 text-base"></i>
+                <span>সর্বশেষ HD স্ন্যাপশট</span>
+              </span>
+              <button type="button" id="btnDownloadHdSnapshot" onclick="downloadRemoteCameraHdSnapshot()" class="hidden text-[11px] px-2.5 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 font-semibold flex items-center gap-1 transition-all">
+                <i class="ph ph-download-simple"></i>
+                <span>ডাউনলোড</span>
+              </button>
+            </div>
+            <div id="remoteCameraHdPlaceholder" class="text-[11px] text-slate-500 bg-slate-900/70 border border-slate-800/80 rounded-xl p-4 text-center">
+              "📸 HD ছবি তুলুন" চাপলে ফোনের ক্যামেরা থেকে হাই-রেজুলেশন ছবি এখানে সেভ হবে।
+            </div>
+            <img id="remoteCameraHdImg" class="hidden w-full max-h-48 object-contain rounded-xl bg-black border border-slate-800" alt="HD Snapshot" />
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Remote Mobile Microphone Live Audio Listener Section -->
+  <section id="remote-mic" class="relative z-10 py-6 sm:py-10 px-4 max-w-6xl mx-auto scroll-mt-24">
+    <div class="rounded-3xl bg-slate-900/95 border border-teal-500/30 shadow-2xl p-5 sm:p-7 lg:p-8">
+      <!-- Header -->
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 mb-6 border-b border-slate-800">
+        <div>
+          <div class="flex flex-wrap items-center gap-2 mb-1.5">
+            <span class="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-teal-300 bg-teal-950/70 px-3 py-1 rounded-full border border-teal-500/30">
+              <i class="ph ph-microphone text-sm"></i>
+              <span>Remote Mobile Microphone Audio</span>
+            </span>
+            <span id="remoteMicStatusBadge" class="text-[11px] px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-semibold">
+              স্ট্যান্ডবাই (বন্ধ)
+            </span>
+          </div>
+          <h2 class="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
+            ওয়েবসাইট থেকে মোবাইলের মাইক্রোফোন কানেক্ট করে লাইভ শুনুন
+          </h2>
+          <p class="text-xs sm:text-sm text-slate-400 mt-1">
+            মোবাইল পেয়ার করা থাকলে ওয়েবসাইট থেকেই ফোনের মাইক্রোফোন চালু করে রিয়েল-টাইম অডিও শুনুন, ভলিউম বুস্ট করুন এবং প্রয়োজনে WAV রেকর্ড করুন।
+          </p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2 shrink-0">
+          <button type="button" onclick="sendRemoteMicCommand('START')" class="px-4 py-2 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-teal-600/25 transition-all active:scale-95">
+            <i class="ph ph-microphone text-base"></i>
+            <span>🎙️ মাইক্রোফোন শুনুন</span>
+          </button>
+          <button type="button" onclick="sendRemoteMicCommand('STOP')" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95">
+            <i class="ph ph-stop-circle text-rose-400 text-base"></i>
+            <span>বন্ধ করুন</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 2-Column Live Visualizer & Controls -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+        <!-- Left: Live Audio Spectrum & Status Stage -->
+        <div class="lg:col-span-7 p-5 sm:p-6 rounded-2xl bg-slate-950 border border-slate-800 space-y-5">
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2.5">
+              <div id="remoteMicPulseCircle" class="w-11 h-11 rounded-2xl bg-teal-500/15 border border-teal-500/30 flex items-center justify-center text-teal-400">
+                <i class="ph ph-waveform text-2xl"></i>
+              </div>
+              <div>
+                <div class="text-sm font-bold text-white">মোবাইল মাইক্রোফোন অডিও স্ট্রিম</div>
+                <div id="remoteMicStatsLabel" class="text-[11px] text-slate-400 font-mono">16 kHz Mono PCM • 0 chunks</div>
+              </div>
+            </div>
+
+            <div class="text-right">
+              <div class="text-[10px] text-slate-400">অডিও লেভেল</div>
+              <div id="remoteMicLevelLabel" class="text-sm font-extrabold font-mono text-teal-400">0%</div>
+            </div>
+          </div>
+
+          <!-- 20-Bar Live Equalizer Visualizer -->
+          <div id="remoteMicVisualizerBars" class="h-28 px-3 py-3 rounded-2xl bg-slate-900/90 border border-slate-800/90 flex items-end justify-between gap-1.5 overflow-hidden">
+            <!-- Bars rendered by JS -->
+          </div>
+
+          <p id="remoteMicStatusText" class="text-xs text-slate-400 leading-relaxed">
+            ফোনটি ওয়েবসাইটের সাথে পেয়ার করা থাকলে "🎙️ মাইক্রোফোন শুনুন" বাটনে ক্লিক করার সাথে সাথে ফোনের মাইক্রোফোন অডিও এখানে সরাসরি স্পিকারে শোনা যাবে।
+          </p>
+
+          <!-- Autoplay Unlock Button (shown only if browser suspends AudioContext before user gesture) -->
+          <button type="button" id="btnUnlockRemoteMicAudio" onclick="unlockRemoteMicAudioPlayback()" class="hidden w-full py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95">
+            <i class="ph ph-speaker-high text-base"></i>
+            <span>🔊 ব্রাউজার স্পিকার আনমিউট করে অডিও শুনুন</span>
+          </button>
+        </div>
+
+        <!-- Right: Audio Controls, Volume Boost & WAV Recording -->
+        <div class="lg:col-span-5 space-y-4">
+          <div class="p-4 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-3.5">
+            <div class="text-xs font-bold text-white flex items-center gap-1.5">
+              <i class="ph ph-sliders-horizontal text-teal-400 text-base"></i>
+              <span>স্পিকার ও রেকর্ডিং কন্ট্রোল</span>
+            </div>
+
+            <!-- Volume / Gain Boost Slider -->
+            <div class="p-3 rounded-xl bg-slate-900/80 border border-slate-800 space-y-2">
+              <div class="flex items-center justify-between text-[11px]">
+                <span class="text-slate-300 font-semibold">স্পিকার ভলিউম / বুস্ট</span>
+                <span id="remoteMicVolumeValue" class="font-mono font-bold text-teal-300">120%</span>
+              </div>
+              <input type="range" id="remoteMicVolumeSlider" min="0" max="250" value="120" oninput="setRemoteMicGain(this.value)" class="w-full accent-teal-500 cursor-pointer" />
+            </div>
+
+            <div class="grid grid-cols-2 gap-2.5">
+              <button type="button" id="btnToggleRemoteMicMute" onclick="toggleRemoteMicMute()" class="py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95">
+                <i id="remoteMicMuteIcon" class="ph ph-speaker-high text-teal-400 text-base"></i>
+                <span id="remoteMicMuteLabel">স্পিকার চালু</span>
+              </button>
+
+              <button type="button" id="btnToggleRemoteMicRecord" onclick="toggleRemoteMicRecording()" class="py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95">
+                <i id="remoteMicRecordIcon" class="ph ph-record text-rose-400 text-base"></i>
+                <span id="remoteMicRecordLabel">অডিও রেকর্ড</span>
+              </button>
+            </div>
+
+            <button type="button" id="btnDownloadMicWav" onclick="downloadRecordedMicWav()" class="hidden w-full py-2.5 px-4 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/35 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95">
+              <i class="ph ph-download-simple text-base"></i>
+              <span id="remoteMicDownloadLabel">রেকর্ডকৃত অডিও সেভ (.WAV)</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Mobile Call History Live Sync Section -->
+  <section id="call-history" class="relative z-10 py-6 sm:py-10 px-4 max-w-6xl mx-auto scroll-mt-24">
+    <div class="rounded-3xl bg-slate-900/95 border border-violet-500/30 shadow-2xl p-5 sm:p-7 lg:p-8">
+      <!-- Header -->
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 mb-5 border-b border-slate-800">
+        <div>
+          <div class="flex flex-wrap items-center gap-2 mb-1.5">
+            <span class="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-violet-300 bg-violet-950/70 px-3 py-1 rounded-full border border-violet-500/30">
+              <i class="ph ph-phone-call text-sm"></i>
+              <span>Live Mobile Call History</span>
+            </span>
+            <span id="callHistoryStatusBadge" class="text-[11px] px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-semibold">
+              পেয়ারিং অপেক্ষমাণ
+            </span>
+          </div>
+          <h2 class="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
+            ওয়েবসাইট থেকে মোবাইলের কল হিস্টরি দেখুন
+          </h2>
+          <p class="text-xs sm:text-sm text-slate-400 mt-1">
+            ফোনের সব ইনকামিং, আউটগোয়িং, মিসড এবং রিজেক্টেড কলের তালিকা, কথা বলার সময়কাল ও কন্ট্যাক্ট নাম রিয়েল-টাইমে ব্রাউজারে দেখুন।
+          </p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2 shrink-0">
+          <button type="button" id="btnSyncCallHistory" onclick="requestCallLogsSyncFromWeb()" class="px-4 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-violet-600/25 transition-all active:scale-95">
+            <i class="ph ph-arrows-clockwise text-base"></i>
+            <span>রিফ্রেশ / কল সিঙ্ক</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Summary Stat Cards -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+        <div class="p-3.5 rounded-2xl bg-slate-950/85 border border-slate-800 flex items-center justify-between">
+          <div>
+            <div class="text-[11px] text-slate-400 font-medium">মোট কল</div>
+            <div id="callStatTotal" class="text-xl font-extrabold text-white font-mono mt-0.5">0</div>
+          </div>
+          <div class="w-9 h-9 rounded-xl bg-violet-500/15 border border-violet-500/30 flex items-center justify-center text-violet-400">
+            <i class="ph ph-phone text-lg"></i>
+          </div>
+        </div>
+        <div class="p-3.5 rounded-2xl bg-slate-950/85 border border-slate-800 flex items-center justify-between">
+          <div>
+            <div class="text-[11px] text-slate-400 font-medium">ইনকামিং</div>
+            <div id="callStatIncoming" class="text-xl font-extrabold text-emerald-400 font-mono mt-0.5">0</div>
+          </div>
+          <div class="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+            <i class="ph ph-phone-incoming text-lg"></i>
+          </div>
+        </div>
+        <div class="p-3.5 rounded-2xl bg-slate-950/85 border border-slate-800 flex items-center justify-between">
+          <div>
+            <div class="text-[11px] text-slate-400 font-medium">আউটগোয়িং</div>
+            <div id="callStatOutgoing" class="text-xl font-extrabold text-cyan-400 font-mono mt-0.5">0</div>
+          </div>
+          <div class="w-9 h-9 rounded-xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+            <i class="ph ph-phone-outgoing text-lg"></i>
+          </div>
+        </div>
+        <div class="p-3.5 rounded-2xl bg-slate-950/85 border border-slate-800 flex items-center justify-between">
+          <div>
+            <div class="text-[11px] text-slate-400 font-medium">মিসড / রিজেক্ট</div>
+            <div id="callStatMissed" class="text-xl font-extrabold text-rose-400 font-mono mt-0.5">0</div>
+          </div>
+          <div class="w-9 h-9 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400">
+            <i class="ph ph-phone-x text-lg"></i>
+          </div>
+        </div>
+      </div>
+
+      <!-- Permission / Setup Notice Banner (shown when mobile READ_CALL_LOG permission is needed) -->
+      <div id="callHistoryPermissionBanner" class="hidden mb-4 p-4 rounded-2xl bg-amber-950/40 border border-amber-500/35 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div class="flex items-start gap-3">
+          <div class="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-300 shrink-0 mt-0.5">
+            <i class="ph ph-shield-warning text-lg"></i>
+          </div>
+          <div>
+            <div class="text-xs font-bold text-amber-200">মোবাইলে কল লগ পারমিশন প্রয়োজন</div>
+            <p class="text-[11px] text-amber-200/80 mt-0.5 leading-relaxed">
+              ফোনের Pulse SMS অ্যাপে "কল হিস্টরি অনুমতি দিন" বাটনে ট্যাপ করে Allow করুন — সাথে সাথেই ফোনের সব কল লিস্ট এখানে চলে আসবে।
+            </p>
+          </div>
+        </div>
+        <button type="button" onclick="requestCallLogsSyncFromWeb()" class="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shrink-0 transition-all active:scale-95">
+          ফোনে প্রম্পট পাঠান
+        </button>
+      </div>
+
+      <!-- Search & Filter Toolbar -->
+      <div class="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 mb-4">
+        <div class="relative flex-1 max-w-md">
+          <i class="ph ph-magnifying-glass absolute left-3.5 top-2.5 text-slate-400 text-sm"></i>
+          <input type="text" id="callHistorySearchInput" oninput="renderCallHistoryList()" placeholder="নাম বা ফোন নম্বর দিয়ে কল খুঁজুন..." class="w-full bg-slate-950 border border-slate-800 focus:border-violet-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none transition-colors" />
+        </div>
+
+        <div class="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-1 text-xs">
+          <button type="button" id="callFilterBtnALL" onclick="setCallLogFilter('ALL')" class="px-3 py-1.5 rounded-xl bg-violet-600 text-white font-semibold whitespace-nowrap shadow-sm transition-all">সব কল</button>
+          <button type="button" id="callFilterBtnINCOMING" onclick="setCallLogFilter('INCOMING')" class="px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-800 whitespace-nowrap transition-all">📥 ইনকামিং</button>
+          <button type="button" id="callFilterBtnOUTGOING" onclick="setCallLogFilter('OUTGOING')" class="px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-800 whitespace-nowrap transition-all">📤 আউটগোয়িং</button>
+          <button type="button" id="callFilterBtnMISSED" onclick="setCallLogFilter('MISSED')" class="px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-800 whitespace-nowrap transition-all">📵 মিসড</button>
+          <button type="button" id="callFilterBtnREJECTED" onclick="setCallLogFilter('REJECTED')" class="px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-800 whitespace-nowrap transition-all">🚫 রিজেক্ট</button>
+        </div>
+      </div>
+
+      <!-- Call Log Feed List -->
+      <div id="callHistoryListContainer" class="max-h-[480px] overflow-y-auto custom-scrollbar pr-1 space-y-2.5">
+        <!-- Populated dynamically by renderCallHistoryList() -->
       </div>
     </div>
   </section>
@@ -2024,13 +2407,19 @@ git push origin main</pre>
       // Clear preview demo items immediately so real mobile SMS take over cleanly
       loadedCloudMessages = [];
       pairedSessionMessages = [];
+      pairedSessionCallLogs = [];
+      activeCallLogPermissionState = "UNKNOWN";
       hasInitializedMessages = true;
       activeSelectedSender = null;
       renderLiveMessenger();
+      renderCallHistoryList();
 
       if (pairedSessionId) {
         attachPairingSessionMessageListener(pairedSessionId);
         attachPairingSessionNotificationListener(pairedSessionId);
+        attachPairingSessionCameraListener(pairedSessionId);
+        attachPairingSessionMicListener(pairedSessionId);
+        attachPairingSessionCallLogListener(pairedSessionId);
       }
 
       // Only attach per-user Firestore listener if browser Auth matches the phone's Firebase Auth UID
@@ -2345,12 +2734,33 @@ git push origin main</pre>
         try { pairedNotificationsUnsubscribe(); } catch (_) {}
         pairedNotificationsUnsubscribe = null;
       }
+      if (pairedCameraUnsubscribe) {
+        try { pairedCameraUnsubscribe(); } catch (_) {}
+        pairedCameraUnsubscribe = null;
+      }
+      if (pairedMicUnsubscribe) {
+        try { pairedMicUnsubscribe(); } catch (_) {}
+        pairedMicUnsubscribe = null;
+      }
+      if (pairedCallLogsUnsubscribe) {
+        try { pairedCallLogsUnsubscribe(); } catch (_) {}
+        pairedCallLogsUnsubscribe = null;
+      }
+      if (pairedCallSessionMetaUnsubscribe) {
+        try { pairedCallSessionMetaUnsubscribe(); } catch (_) {}
+        pairedCallSessionMetaUnsubscribe = null;
+      }
       activePairedSessionId = null;
       activePairedDeviceName = null;
       isUsingRealPairedInbox = false;
       pairedSessionMessages = [];
       sessionMirroredNotifications = [];
+      pairedSessionCallLogs = [];
+      activeCallLogPermissionState = "UNKNOWN";
       renderLiveNotificationFeed();
+      renderCallHistoryList();
+      resetRemoteCameraUi();
+      resetRemoteMicUi();
       try {
         localStorage.removeItem(PAIRED_SESSION_STORAGE_KEY);
         localStorage.removeItem(PAIRED_DEVICE_STORAGE_KEY);
@@ -5377,6 +5787,1001 @@ git push origin main</pre>
       }
     }
 
+    // ==========================================
+    // 📷 REMOTE MOBILE CAMERA VIEWER BRIDGE (Website ⇄ Mobile CameraX)
+    // ==========================================
+    let pairedCameraUnsubscribe = null;
+    let remoteCameraCommandSeq = 0;
+    let lastSeenHdSeq = 0;
+    let latestHdDataUri = "";
+    let currentRemoteTorchOn = false;
+
+    function resetRemoteCameraUi(customMessage) {
+      const img = document.getElementById("remoteCameraLiveImg");
+      const standby = document.getElementById("remoteCameraStandby");
+      const hud = document.getElementById("remoteCameraHud");
+      const badge = document.getElementById("remoteCameraStatusBadge");
+      const statusText = document.getElementById("remoteCameraStatusText");
+      if (img) {
+        img.src = "";
+        img.classList.add("hidden");
+      }
+      if (standby) standby.classList.remove("hidden");
+      if (hud) hud.classList.add("hidden");
+      if (badge) {
+        badge.className = "text-[11px] px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-semibold";
+        badge.innerText = "স্ট্যান্ডবাই (বন্ধ)";
+      }
+      if (statusText && customMessage) {
+        statusText.innerText = customMessage;
+      }
+    }
+
+    async function sendRemoteCameraCommand(command) {
+      if (!activePairedSessionId) {
+        showGlobalNotifToast(
+          "পেয়ারিং প্রয়োজন!",
+          "ক্যামেরা দেখার আগে ফোনের সাথে QR কোড স্ক্যান বা ১-ক্লিক কানেক্ট দিয়ে পেয়ার করুন।",
+          "⚠️ অফলাইন"
+        );
+        const qrSection = document.getElementById("qr-connect");
+        if (qrSection) qrSection.scrollIntoView({ behavior: "smooth" });
+        return;
+      }
+
+      const fb = await waitForPulseFirebase(2500);
+      if (!fb || !fb.db) {
+        showGlobalNotifToast("ক্লাউড সংযোগ ত্রুটি", "Firebase প্রস্তুত নয়, একটু পর চেষ্টা করুন।", "⚠️ ত্রুটি");
+        return;
+      }
+
+      remoteCameraCommandSeq = Math.max(remoteCameraCommandSeq + 1, Date.now());
+      const badge = document.getElementById("remoteCameraStatusBadge");
+      const statusText = document.getElementById("remoteCameraStatusText");
+
+      if (command === "START_BACK" || command === "START_FRONT") {
+        if (badge) {
+          badge.className = "text-[11px] px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/35 font-semibold";
+          badge.innerText = "মোবাইলে ক্যামেরা চালু হচ্ছে...";
+        }
+        if (statusText) {
+          statusText.innerText = "মোবাইল ডিভাইসে ক্যামেরা চালুর রিকোয়েস্ট পাঠানো হয়েছে — অনুগ্রহ করে ২-৩ সেকেন্ড অপেক্ষা করুন (অ্যাপ ফোনে খোলা রাখুন)।";
+        }
+      }
+
+      const payload = {
+        id: "live",
+        command: command,
+        commandSeq: remoteCameraCommandSeq,
+        updatedAt: fb.serverTimestamp()
+      };
+      if (command === "START_BACK" || command === "START_FRONT") {
+        payload.status = "STARTING";
+      } else if (command === "STOP") {
+        payload.status = "STOPPED";
+      }
+
+      try {
+        await fb.setDoc(
+          fb.doc(fb.db, "pairing_sessions", activePairedSessionId, "camera", "live"),
+          payload,
+          { merge: true }
+        );
+        if (command === "STOP") {
+          resetRemoteCameraUi("ক্যামেরা বন্ধ করা হয়েছে। আবার দেখতে নিচের বাটনে ক্লিক করুন।");
+        } else if (command === "CAPTURE_HD") {
+          showGlobalNotifToast("📸 HD ছবি তোলা হচ্ছে...", "ফোনের ক্যামেরা থেকে হাই-রেজুলেশন ছবি আসছে।", "📷 রিমোট ক্যামেরা");
+        }
+      } catch (err) {
+        console.error("Failed sending remote camera command:", err);
+        showGlobalNotifToast("ক্যামেরা কমান্ড ব্যর্থ", err.message || "ইন্টারনেট চেক করুন", "⚠️ ত্রুটি");
+      }
+    }
+
+    function attachPairingSessionCameraListener(sessionId) {
+      if (!sessionId) return;
+      if (pairedCameraUnsubscribe) {
+        try { pairedCameraUnsubscribe(); } catch (_) {}
+        pairedCameraUnsubscribe = null;
+      }
+
+      withPulseFirebase((fb) => {
+        try {
+          const { db, doc, onSnapshot } = fb;
+          pairedCameraUnsubscribe = onSnapshot(
+            doc(db, "pairing_sessions", sessionId, "camera", "live"),
+            (snap) => {
+              if (!snap.exists()) return;
+              const data = snap.data() || {};
+              const status = data.status || "IDLE";
+              const lens = data.lens || "BACK";
+              const torchOn = Boolean(data.torchOn);
+              const frameSeq = Number(data.frameSeq || 0);
+              const hdSeq = Number(data.hdSeq || 0);
+              const w = Number(data.width || 0);
+              const h = Number(data.height || 0);
+
+              currentRemoteTorchOn = torchOn;
+              const torchBtn = document.getElementById("btnRemoteTorch");
+              const torchLabel = document.getElementById("remoteTorchBtnLabel");
+              if (torchBtn && torchLabel) {
+                if (torchOn) {
+                  torchBtn.className = "py-2.5 px-3 rounded-xl bg-amber-500/25 text-amber-200 border border-amber-500/50 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95";
+                  torchLabel.innerText = "ফ্ল্যাশ: ON";
+                } else {
+                  torchBtn.className = "py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95";
+                  torchLabel.innerText = "ফ্ল্যাশলাইট";
+                }
+              }
+
+              const img = document.getElementById("remoteCameraLiveImg");
+              const standby = document.getElementById("remoteCameraStandby");
+              const hud = document.getElementById("remoteCameraHud");
+              const hudLens = document.getElementById("remoteCameraHudLens");
+              const hudStats = document.getElementById("remoteCameraHudStats");
+              const badge = document.getElementById("remoteCameraStatusBadge");
+              const statusText = document.getElementById("remoteCameraStatusText");
+
+              if (status === "ACTIVE" && data.frameBase64 && String(data.frameBase64).startsWith("data:image/")) {
+                if (img) {
+                  img.src = data.frameBase64;
+                  img.classList.remove("hidden");
+                }
+                if (standby) standby.classList.add("hidden");
+                if (hud) hud.classList.remove("hidden");
+                if (hudLens) hudLens.innerText = lens === "FRONT" ? "LIVE • ফ্রন্ট ক্যামেরা" : "LIVE • ব্যাক ক্যামেরা";
+                if (hudStats) hudStats.innerText = (w && h ? `${w}x${h} • ` : "") + `${frameSeq} frames`;
+                if (badge) {
+                  badge.className = "text-[11px] px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 font-bold";
+                  badge.innerText = `🔴 LIVE (${lens === "FRONT" ? "Front" : "Back"})`;
+                }
+              } else if (status === "PERMISSION_NEEDED") {
+                resetRemoteCameraUi(data.errorMessage || "মোবাইল ফোনে ক্যামেরা পারমিশন ডায়ালগে 'Allow Camera' দিন।");
+                if (badge) {
+                  badge.className = "text-[11px] px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/35 font-semibold";
+                  badge.innerText = "পারমিশন প্রয়োজন";
+                }
+              } else if (status === "ERROR") {
+                resetRemoteCameraUi(data.errorMessage || "মোবাইল ক্যামেরা চালু করা যায়নি।");
+                if (badge) {
+                  badge.className = "text-[11px] px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/35 font-semibold";
+                  badge.innerText = "ক্যামেরা ত্রুটি";
+                }
+              } else if (status === "STOPPED") {
+                resetRemoteCameraUi("ক্যামেরা বন্ধ রয়েছে। লাইভ দেখতে নিচের বাটনে ক্লিক করুন।");
+              } else if (status === "STARTING" && statusText) {
+                statusText.innerText = "মোবাইলের সাথে ক্যামেরা সংযোগ স্থাপন হচ্ছে...";
+              }
+
+              // Handle HD snapshot capture arrival
+              if (data.hdFrameBase64 && String(data.hdFrameBase64).startsWith("data:image/") && hdSeq > lastSeenHdSeq) {
+                lastSeenHdSeq = hdSeq;
+                latestHdDataUri = data.hdFrameBase64;
+                const hdImg = document.getElementById("remoteCameraHdImg");
+                const hdPlaceholder = document.getElementById("remoteCameraHdPlaceholder");
+                const dlBtn = document.getElementById("btnDownloadHdSnapshot");
+                if (hdImg) {
+                  hdImg.src = latestHdDataUri;
+                  hdImg.classList.remove("hidden");
+                }
+                if (hdPlaceholder) hdPlaceholder.classList.add("hidden");
+                if (dlBtn) dlBtn.classList.remove("hidden");
+                playSuccessSound();
+                showGlobalNotifToast("📸 HD ছবি প্রস্তুত!", "ডাউনলোড বাটনে ক্লিক করে ছবিটি সেভ করতে পারবেন।", "📷 HD স্ন্যাপশট");
+              }
+            },
+            (err) => {
+              console.warn("Remote camera listener error:", err);
+            }
+          );
+        } catch (err) {
+          console.warn("Failed attaching remote camera listener:", err);
+        }
+      });
+    }
+
+    function downloadRemoteCameraHdSnapshot() {
+      const liveImg = document.getElementById("remoteCameraLiveImg");
+      const src = latestHdDataUri || (liveImg && !liveImg.classList.contains("hidden") ? liveImg.src : "");
+      if (!src || !src.startsWith("data:image/")) {
+        showGlobalNotifToast("ছবি পাওয়া যায়নি", "আগে '📸 HD ছবি তুলুন' বাটনে ক্লিক করুন।", "📷 স্ন্যাপশট");
+        return;
+      }
+      const a = document.createElement("a");
+      a.href = src;
+      a.download = `pulse-mobile-camera-${Date.now()}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+
+    // ==========================================
+    // 📞 REAL-TIME MOBILE CALL HISTORY VIEWER
+    // ==========================================
+    let pairedCallLogsUnsubscribe = null;
+    let pairedCallSessionMetaUnsubscribe = null;
+    let pairedSessionCallLogs = [];
+    let activeCallLogFilter = "ALL";
+    let activeCallLogPermissionState = "UNKNOWN";
+
+    function formatCallDurationBn(secondsVal) {
+      const sec = Math.max(0, Number(secondsVal) || 0);
+      if (sec === 0) return "০ সে (সংযোগ হয়নি)";
+      const hrs = Math.floor(sec / 3600);
+      const mins = Math.floor((sec % 3600) / 60);
+      const rem = sec % 60;
+      const parts = [];
+      if (hrs > 0) parts.push(`${hrs} ঘ`);
+      if (mins > 0) parts.push(`${mins} মি`);
+      if (rem > 0 || parts.length === 0) parts.push(`${rem} সে`);
+      return parts.join(" ");
+    }
+
+    function formatCallTimestampBn(createdAt) {
+      let ms = Date.now();
+      if (createdAt && typeof createdAt.toDate === "function") {
+        ms = createdAt.toDate().getTime();
+      } else if (createdAt && typeof createdAt.seconds === "number") {
+        ms = createdAt.seconds * 1000;
+      }
+      try {
+        const d = new Date(ms);
+        return d.toLocaleString("bn-BD", {
+          day: "2-digit",
+          month: "short",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: true
+        });
+      } catch (_) {
+        return formatRelativeTime(createdAt);
+      }
+    }
+
+    function setCallLogFilter(filter) {
+      activeCallLogFilter = filter || "ALL";
+      ["ALL", "INCOMING", "OUTGOING", "MISSED", "REJECTED"].forEach((key) => {
+        const btn = document.getElementById(`callFilterBtn${key}`);
+        if (!btn) return;
+        if (key === activeCallLogFilter) {
+          btn.className = "px-3 py-1.5 rounded-xl bg-violet-600 text-white font-semibold whitespace-nowrap shadow-sm transition-all";
+        } else {
+          btn.className = "px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-800 whitespace-nowrap transition-all";
+        }
+      });
+      renderCallHistoryList();
+    }
+
+    function getCallTypeMeta(callType) {
+      const t = String(callType || "UNKNOWN").toUpperCase();
+      switch (t) {
+        case "INCOMING":
+          return {
+            label: "ইনকামিং কল",
+            icon: "ph-phone-incoming",
+            badgeClass: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+            avatarClass: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+          };
+        case "OUTGOING":
+          return {
+            label: "আউটগোয়িং কল",
+            icon: "ph-phone-outgoing",
+            badgeClass: "bg-cyan-500/15 text-cyan-300 border-cyan-500/30",
+            avatarClass: "bg-cyan-500/15 text-cyan-400 border-cyan-500/30"
+          };
+        case "MISSED":
+          return {
+            label: "মিসড কল",
+            icon: "ph-phone-x",
+            badgeClass: "bg-rose-500/15 text-rose-300 border-rose-500/35",
+            avatarClass: "bg-rose-500/15 text-rose-400 border-rose-500/35"
+          };
+        case "REJECTED":
+          return {
+            label: "রিজেক্টেড",
+            icon: "ph-prohibit",
+            badgeClass: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+            avatarClass: "bg-amber-500/15 text-amber-400 border-amber-500/30"
+          };
+        case "BLOCKED":
+          return {
+            label: "ব্লকড",
+            icon: "ph-hand-palm",
+            badgeClass: "bg-rose-950/70 text-rose-300 border-rose-500/30",
+            avatarClass: "bg-rose-950/70 text-rose-400 border-rose-500/30"
+          };
+        case "VOICEMAIL":
+          return {
+            label: "ভয়েসমেইল",
+            icon: "ph-voicemail",
+            badgeClass: "bg-indigo-500/15 text-indigo-300 border-indigo-500/30",
+            avatarClass: "bg-indigo-500/15 text-indigo-400 border-indigo-500/30"
+          };
+        default:
+          return {
+            label: "কল",
+            icon: "ph-phone",
+            badgeClass: "bg-slate-800 text-slate-300 border-slate-700",
+            avatarClass: "bg-slate-800 text-slate-300 border-slate-700"
+          };
+      }
+    }
+
+    function renderCallHistoryList() {
+      const container = document.getElementById("callHistoryListContainer");
+      const statusBadge = document.getElementById("callHistoryStatusBadge");
+      const permBanner = document.getElementById("callHistoryPermissionBanner");
+      const navBadge = document.getElementById("liveCallLogBadgeCount");
+      const statTotal = document.getElementById("callStatTotal");
+      const statIncoming = document.getElementById("callStatIncoming");
+      const statOutgoing = document.getElementById("callStatOutgoing");
+      const statMissed = document.getElementById("callStatMissed");
+
+      const allCalls = Array.isArray(pairedSessionCallLogs) ? pairedSessionCallLogs : [];
+      const incomingCount = allCalls.filter((c) => c.callType === "INCOMING").length;
+      const outgoingCount = allCalls.filter((c) => c.callType === "OUTGOING").length;
+      const missedCount = allCalls.filter((c) => c.callType === "MISSED" || c.callType === "REJECTED" || c.callType === "BLOCKED").length;
+
+      if (statTotal) statTotal.innerText = String(allCalls.length);
+      if (statIncoming) statIncoming.innerText = String(incomingCount);
+      if (statOutgoing) statOutgoing.innerText = String(outgoingCount);
+      if (statMissed) statMissed.innerText = String(missedCount);
+      if (navBadge) navBadge.innerText = String(allCalls.length);
+
+      if (permBanner) {
+        if (activePairedSessionId && activeCallLogPermissionState === "NEEDED") {
+          permBanner.classList.remove("hidden");
+        } else {
+          permBanner.classList.add("hidden");
+        }
+      }
+
+      if (statusBadge) {
+        if (!activePairedSessionId) {
+          statusBadge.className = "text-[11px] px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-semibold";
+          statusBadge.innerText = "পেয়ারিং অপেক্ষমাণ";
+        } else if (activeCallLogPermissionState === "NEEDED") {
+          statusBadge.className = "text-[11px] px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/35 font-semibold";
+          statusBadge.innerText = "ফোনে পারমিশন দিন";
+        } else {
+          statusBadge.className = "text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/35 font-semibold";
+          statusBadge.innerText = `🟢 লাইভ সিঙ্ক (${allCalls.length}টি কল)`;
+        }
+      }
+
+      if (!container) return;
+
+      if (!activePairedSessionId) {
+        container.innerHTML = `
+          <div class="p-8 rounded-2xl bg-slate-950/75 border border-slate-800 text-center">
+            <div class="w-14 h-14 rounded-2xl bg-violet-500/15 border border-violet-500/30 flex items-center justify-center mx-auto mb-3 text-violet-400">
+              <i class="ph ph-phone-call text-3xl"></i>
+            </div>
+            <h4 class="text-sm font-bold text-white mb-1">ডিভাইস পেয়ার করা নেই</h4>
+            <p class="text-xs text-slate-400 max-w-md mx-auto mb-4">
+              ফোনের কল হিস্টরি ওয়েবসাইটে দেখতে নিচের QR কোড স্ক্যান বা মোবাইল অ্যাপের "⚡ ১-ক্লিক কানেক্ট" ব্যবহার করে ফোনটি পেয়ার করুন।
+            </p>
+            <a href="#qr-connect" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold transition-all">
+              <i class="ph ph-qr-code"></i>
+              <span>QR পেয়ারিং সেকশনে যান</span>
+            </a>
+          </div>
+        `;
+        return;
+      }
+
+      const queryText = (document.getElementById("callHistorySearchInput")?.value || "").trim().toLowerCase();
+      const filtered = allCalls.filter((c) => {
+        if (activeCallLogFilter !== "ALL") {
+          if (activeCallLogFilter === "REJECTED") {
+            if (c.callType !== "REJECTED" && c.callType !== "BLOCKED") return false;
+          } else if (c.callType !== activeCallLogFilter) {
+            return false;
+          }
+        }
+        if (queryText) {
+          const hay = `${c.contactName || ""} ${c.number || ""} ${c.simLabel || ""}`.toLowerCase();
+          if (!hay.includes(queryText)) return false;
+        }
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        container.innerHTML = `
+          <div class="p-8 rounded-2xl bg-slate-950/75 border border-slate-800 text-center">
+            <div class="w-12 h-12 rounded-2xl bg-slate-800/80 flex items-center justify-center mx-auto mb-3 text-slate-400">
+              <i class="ph ph-funnel-simple text-2xl"></i>
+            </div>
+            <p class="text-xs font-semibold text-slate-300 mb-1">
+              ${allCalls.length === 0 ? "এখনো কোনো কল হিস্টরি পাওয়া যায়নি" : "ফিল্টার অনুযায়ী কোনো কল মেলেনি"}
+            </p>
+            <p class="text-[11px] text-slate-500 mb-3">
+              ${allCalls.length === 0 ? "উপরের 'রিফ্রেশ / কল সিঙ্ক' বাটনে ক্লিক করে মোবাইল থেকে কল লগ আনুন।" : "অন্য ফিল্টার নির্বাচন করুন বা সার্চ টেক্সট পরিবর্তন করুন।"}
+            </p>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = filtered.map((call) => {
+        const meta = getCallTypeMeta(call.callType);
+        const safeName = call.contactName ? escapeHtmlText(call.contactName) : "";
+        const safeNumber = escapeHtmlText(call.number || "Unknown");
+        const safeSim = call.simLabel ? escapeHtmlText(call.simLabel) : "";
+        const attrNumber = escapeHtmlAttr(call.number || "");
+        const attrDocId = escapeHtmlAttr(call.id || call._docId || "");
+        const durationLabel = formatCallDurationBn(call.durationSec);
+        const timeLabel = formatCallTimestampBn(call.createdAt);
+        const primaryTitle = safeName || safeNumber;
+
+        return `
+          <div class="p-3.5 rounded-2xl bg-slate-950/85 hover:bg-slate-950 border border-slate-800/90 hover:border-violet-500/35 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all">
+            <div class="flex items-start sm:items-center gap-3 min-w-0 flex-1">
+              <div class="w-11 h-11 rounded-2xl border ${meta.avatarClass} flex items-center justify-center shrink-0">
+                <i class="ph ${meta.icon} text-xl"></i>
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="text-sm font-bold text-white truncate">${primaryTitle}</span>
+                  <span class="text-[10px] px-2 py-0.5 rounded-full border font-semibold ${meta.badgeClass}">${meta.label}</span>
+                  ${safeSim ? `<span class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-mono">${safeSim}</span>` : ""}
+                </div>
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-[11px] text-slate-400">
+                  ${safeName ? `<span class="font-mono text-cyan-300">${safeNumber}</span>` : ""}
+                  <span class="inline-flex items-center gap-1 text-slate-300">
+                    <i class="ph ph-timer text-violet-400"></i>
+                    <span>${escapeHtmlText(durationLabel)}</span>
+                  </span>
+                  <span class="inline-flex items-center gap-1 text-slate-400">
+                    <i class="ph ph-clock"></i>
+                    <span>${escapeHtmlText(timeLabel)}</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+              <button type="button" onclick="openSmsForCallNumber('${attrNumber}')" class="px-2.5 py-1.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 text-[11px] font-semibold flex items-center gap-1 transition-all active:scale-95" title="এই নম্বরে এসএমএস পাঠান">
+                <i class="ph ph-chat-dots text-sm"></i>
+                <span>এসএমএস</span>
+              </button>
+              <button type="button" onclick="copyCallNumber('${attrNumber}')" class="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] font-semibold flex items-center gap-1 transition-all active:scale-95" title="নম্বর কপি করুন">
+                <i class="ph ph-copy text-sm"></i>
+                <span>কপি</span>
+              </button>
+              <button type="button" onclick="deleteCallLogItem('${attrDocId}')" class="p-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/25 text-rose-400 border border-rose-500/25 transition-all active:scale-95" title="তালিকা থেকে মুছুন">
+                <i class="ph ph-trash text-sm"></i>
+              </button>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function attachPairingSessionCallLogListener(sessionId) {
+      if (!sessionId) return;
+      if (pairedCallLogsUnsubscribe) {
+        try { pairedCallLogsUnsubscribe(); } catch (_) {}
+        pairedCallLogsUnsubscribe = null;
+      }
+      if (pairedCallSessionMetaUnsubscribe) {
+        try { pairedCallSessionMetaUnsubscribe(); } catch (_) {}
+        pairedCallSessionMetaUnsubscribe = null;
+      }
+
+      withPulseFirebase((fb) => {
+        try {
+          const { db, doc, collection, query, orderBy, limit, onSnapshot } = fb;
+          pairedCallSessionMetaUnsubscribe = onSnapshot(
+            doc(db, "pairing_sessions", sessionId),
+            (snap) => {
+              if (!snap.exists()) return;
+              const d = snap.data() || {};
+              if (d.callLogPermission) {
+                activeCallLogPermissionState = d.callLogPermission;
+                renderCallHistoryList();
+              }
+            }
+          );
+
+          const callsQuery = query(
+            collection(db, "pairing_sessions", sessionId, "call_logs"),
+            orderBy("createdAt", "desc"),
+            limit(80)
+          );
+          pairedCallLogsUnsubscribe = onSnapshot(
+            callsQuery,
+            (snapshot) => {
+              pairedSessionCallLogs = snapshot.docs.map((docSnap) => ({
+                _docId: docSnap.id,
+                ...docSnap.data()
+              }));
+              if (pairedSessionCallLogs.length > 0 && activeCallLogPermissionState === "UNKNOWN") {
+                activeCallLogPermissionState = "GRANTED";
+              }
+              renderCallHistoryList();
+            },
+            (err) => {
+              console.warn("Call logs listener error:", err);
+            }
+          );
+        } catch (err) {
+          console.warn("Failed attaching call log listener:", err);
+        }
+      });
+    }
+
+    async function requestCallLogsSyncFromWeb() {
+      if (!activePairedSessionId) {
+        showGlobalNotifToast(
+          "পেয়ারিং প্রয়োজন!",
+          "কল হিস্টরি দেখার আগে QR কোড বা ১-ক্লিক কানেক্ট দিয়ে ফোনটি পেয়ার করুন।",
+          "📞 অফলাইন"
+        );
+        const qrSection = document.getElementById("qr-connect");
+        if (qrSection) qrSection.scrollIntoView({ behavior: "smooth" });
+        return;
+      }
+
+      const fb = await waitForPulseFirebase(2500);
+      if (!fb || !fb.db) {
+        showGlobalNotifToast("ক্লাউড সংযোগ ত্রুটি", "Firebase প্রস্তুত নয়, একটু পর চেষ্টা করুন।", "⚠️ ত্রুটি");
+        return;
+      }
+
+      try {
+        await fb.setDoc(
+          fb.doc(fb.db, "pairing_sessions", activePairedSessionId),
+          {
+            sessionId: activePairedSessionId,
+            status: "CONNECTED",
+            callLogSyncSeq: Date.now()
+          },
+          { merge: true }
+        );
+        showGlobalNotifToast(
+          "📞 কল হিস্টরি সিঙ্ক অনুরোধ পাঠানো হয়েছে",
+          "ফোনের সাম্প্রতিক কল লিস্ট লোড হচ্ছে (পারমিশন না থাকলে ফোনে Allow করুন)।",
+          "📞 কল সিঙ্ক"
+        );
+      } catch (err) {
+        console.error("Failed requesting call log sync:", err);
+        showGlobalNotifToast("সিঙ্ক ব্যর্থ", err.message || "ইন্টারনেট চেক করুন", "⚠️ ত্রুটি");
+      }
+    }
+
+    function openSmsForCallNumber(number) {
+      if (!number || number === "Unknown") {
+        showGlobalNotifToast("নম্বর পাওয়া যায়নি", "এই কলের নম্বর প্রাইভেট বা অজানা।", "💬 এসএমএস");
+        return;
+      }
+      const modal = document.getElementById("webMessengerModal");
+      if (modal && modal.classList.contains("hidden")) {
+        toggleWebMessengerModal();
+      }
+      if (typeof switchModalView === "function") {
+        switchModalView("INBOX");
+      }
+      const recipientInput = document.getElementById("webSmsRecipient");
+      const bodyInput = document.getElementById("webSmsBody");
+      if (recipientInput) recipientInput.value = number;
+      if (bodyInput) setTimeout(() => bodyInput.focus(), 180);
+      showModalToast("এসএমএস কম্পোজার প্রস্তুত", `${number} নম্বরে মেসেজ লিখুন`);
+    }
+
+    function copyCallNumber(number) {
+      if (!number) return;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(number).then(() => {
+          showGlobalNotifToast("কপি সম্পন্ন!", `${number} ক্লিপবোর্ডে কপি করা হয়েছে।`, "📋 কপি");
+        }).catch(() => {});
+      }
+    }
+
+    async function deleteCallLogItem(docId) {
+      if (!activePairedSessionId || !docId) return;
+      const fb = await waitForPulseFirebase(2000);
+      if (!fb || !fb.db || !fb.deleteDoc) return;
+      try {
+        await fb.deleteDoc(fb.doc(fb.db, "pairing_sessions", activePairedSessionId, "call_logs", docId));
+        showGlobalNotifToast("মুছে ফেলা হয়েছে", "কল এন্ট্রিটি ওয়েব তালিকা থেকে সরানো হয়েছে।", "🗑️ কল লগ");
+      } catch (err) {
+        console.warn("Delete call log failed:", err);
+      }
+    }
+
+    // ==========================================
+    // 🎙️ REMOTE MOBILE MICROPHONE LIVE AUDIO PLAYER
+    // ==========================================
+    let pairedMicUnsubscribe = null;
+    let remoteMicCommandSeq = 0;
+    let lastPlayedMicChunkSeq = 0;
+    let remoteMicAudioCtx = null;
+    let remoteMicGainNode = null;
+    let remoteMicNextPlayTime = 0;
+    let remoteMicGainPercent = 120;
+    let isRemoteMicMuted = false;
+    let isRecordingRemoteMicWav = false;
+    let recordedPcmChunks = [];
+    let recordedPcmTotalBytes = 0;
+
+    function initRemoteMicVisualizerBars() {
+      const container = document.getElementById("remoteMicVisualizerBars");
+      if (!container || container.children.length > 0) return;
+      const bars = [];
+      for (let i = 0; i < 20; i++) {
+        bars.push('<div class="flex-1 rounded-full bg-teal-500/35 transition-all duration-150" style="height: 10%;"></div>');
+      }
+      container.innerHTML = bars.join("");
+    }
+
+    function updateRemoteMicVisualizer(levelPercent) {
+      initRemoteMicVisualizerBars();
+      const container = document.getElementById("remoteMicVisualizerBars");
+      const levelEl = document.getElementById("remoteMicLevelLabel");
+      const clamped = Math.max(0, Math.min(100, Number(levelPercent) || 0));
+      if (levelEl) levelEl.innerText = `${clamped}%`;
+      if (!container) return;
+      const children = container.children;
+      for (let i = 0; i < children.length; i++) {
+        const centerDist = Math.abs(i - 9.5) / 10;
+        const jitter = 0.68 + Math.random() * 0.55;
+        const h = clamped <= 2 ? 8 : Math.max(10, Math.min(100, Math.round(clamped * (1.15 - centerDist * 0.45) * jitter)));
+        children[i].style.height = `${h}%`;
+        children[i].className = clamped > 60
+          ? "flex-1 rounded-full bg-gradient-to-t from-teal-500 to-emerald-300 transition-all duration-150"
+          : clamped > 12
+            ? "flex-1 rounded-full bg-gradient-to-t from-teal-600 to-cyan-400 transition-all duration-150"
+            : "flex-1 rounded-full bg-teal-500/30 transition-all duration-150";
+      }
+    }
+
+    function ensureRemoteMicAudioContext() {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return null;
+      if (!remoteMicAudioCtx) {
+        remoteMicAudioCtx = new AudioCtx();
+        remoteMicGainNode = remoteMicAudioCtx.createGain();
+        remoteMicGainNode.gain.value = isRemoteMicMuted ? 0 : (remoteMicGainPercent / 100);
+        remoteMicGainNode.connect(remoteMicAudioCtx.destination);
+        remoteMicNextPlayTime = remoteMicAudioCtx.currentTime;
+      }
+      if (remoteMicAudioCtx.state === "suspended") {
+        remoteMicAudioCtx.resume().catch(() => {});
+      }
+      return remoteMicAudioCtx;
+    }
+
+    function unlockRemoteMicAudioPlayback() {
+      const ctx = ensureRemoteMicAudioContext();
+      const unlockBtn = document.getElementById("btnUnlockRemoteMicAudio");
+      if (ctx) {
+        ctx.resume().then(() => {
+          if (unlockBtn) unlockBtn.classList.add("hidden");
+          showGlobalNotifToast("🔊 স্পিকার চালু!", "এখন মোবাইলের মাইক্রোফোন অডিও সরাসরি শুনতে পাবেন।", "🎙️ লাইভ মাইক");
+        }).catch(() => {});
+      }
+    }
+
+    function setRemoteMicGain(val) {
+      remoteMicGainPercent = Math.max(0, Math.min(250, Number(val) || 0));
+      const label = document.getElementById("remoteMicVolumeValue");
+      if (label) label.innerText = `${remoteMicGainPercent}%`;
+      if (remoteMicGainNode && remoteMicAudioCtx) {
+        remoteMicGainNode.gain.setValueAtTime(
+          isRemoteMicMuted ? 0 : (remoteMicGainPercent / 100),
+          remoteMicAudioCtx.currentTime
+        );
+      }
+    }
+
+    function toggleRemoteMicMute() {
+      isRemoteMicMuted = !isRemoteMicMuted;
+      const btn = document.getElementById("btnToggleRemoteMicMute");
+      const icon = document.getElementById("remoteMicMuteIcon");
+      const label = document.getElementById("remoteMicMuteLabel");
+      if (icon) {
+        icon.className = isRemoteMicMuted
+          ? "ph ph-speaker-slash text-rose-400 text-base"
+          : "ph ph-speaker-high text-teal-400 text-base";
+      }
+      if (label) {
+        label.innerText = isRemoteMicMuted ? "মিউট করা" : "স্পিকার চালু";
+      }
+      if (btn) {
+        btn.className = isRemoteMicMuted
+          ? "py-2.5 px-3 rounded-xl bg-rose-500/20 text-rose-200 border border-rose-500/40 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95"
+          : "py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95";
+      }
+      if (remoteMicGainNode && remoteMicAudioCtx) {
+        remoteMicGainNode.gain.setValueAtTime(
+          isRemoteMicMuted ? 0 : (remoteMicGainPercent / 100),
+          remoteMicAudioCtx.currentTime
+        );
+      }
+    }
+
+    function toggleRemoteMicRecording() {
+      isRecordingRemoteMicWav = !isRecordingRemoteMicWav;
+      const btn = document.getElementById("btnToggleRemoteMicRecord");
+      const label = document.getElementById("remoteMicRecordLabel");
+      const dlBtn = document.getElementById("btnDownloadMicWav");
+      if (isRecordingRemoteMicWav) {
+        recordedPcmChunks = [];
+        recordedPcmTotalBytes = 0;
+        if (btn) btn.className = "py-2.5 px-3 rounded-xl bg-rose-600/25 text-rose-200 border border-rose-500/50 text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95";
+        if (label) label.innerText = "রেকর্ড হচ্ছে...";
+        if (dlBtn) dlBtn.classList.add("hidden");
+        showGlobalNotifToast("🎙️ রেকর্ডিং শুরু!", "মোবাইলের মাইক্রোফোন অডিও WAV হিসেবে সেভ হচ্ছে।", "🔴 রেকর্ড");
+      } else {
+        if (btn) btn.className = "py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95";
+        if (label) label.innerText = "অডিও রেকর্ড";
+        if (dlBtn && recordedPcmTotalBytes > 0) {
+          dlBtn.classList.remove("hidden");
+          const sec = (recordedPcmTotalBytes / (16000 * 2)).toFixed(1);
+          const dlLabel = document.getElementById("remoteMicDownloadLabel");
+          if (dlLabel) dlLabel.innerText = `সেভ করুন (${sec} সেকেন্ড .WAV)`;
+        }
+      }
+    }
+
+    function downloadRecordedMicWav() {
+      if (!recordedPcmTotalBytes || recordedPcmChunks.length === 0) {
+        showGlobalNotifToast("কোনো রেকর্ডিং নেই", "আগে 'অডিও রেকর্ড' চালু করে অডিও সংগ্রহ করুন।", "🎙️ রেকর্ড");
+        return;
+      }
+      const sampleRate = 16000;
+      const wavBuffer = new ArrayBuffer(44 + recordedPcmTotalBytes);
+      const view = new DataView(wavBuffer);
+      const writeAscii = (offset, str) => {
+        for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+      };
+      writeAscii(0, "RIFF");
+      view.setUint32(4, 36 + recordedPcmTotalBytes, true);
+      writeAscii(8, "WAVE");
+      writeAscii(12, "fmt ");
+      view.setUint32(16, 16, true); // Subchunk1Size
+      view.setUint16(20, 1, true);  // PCM
+      view.setUint16(22, 1, true);  // Mono
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      writeAscii(36, "data");
+      view.setUint32(40, recordedPcmTotalBytes, true);
+
+      const outBytes = new Uint8Array(wavBuffer, 44);
+      let offset = 0;
+      recordedPcmChunks.forEach((chunk) => {
+        outBytes.set(chunk, offset);
+        offset += chunk.length;
+      });
+
+      const blob = new Blob([wavBuffer], { type: "audio/wav" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `pulse-mobile-mic-${Date.now()}.wav`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    }
+
+    function playPcmBase64ChunkGapless(base64Pcm, sampleRate) {
+      if (!base64Pcm) return;
+      try {
+        const binaryStr = atob(base64Pcm);
+        const len = binaryStr.length;
+        if (len < 2) return;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+
+        if (isRecordingRemoteMicWav) {
+          recordedPcmChunks.push(bytes);
+          recordedPcmTotalBytes += bytes.length;
+          const dlBtn = document.getElementById("btnDownloadMicWav");
+          const dlLabel = document.getElementById("remoteMicDownloadLabel");
+          if (dlBtn) dlBtn.classList.remove("hidden");
+          if (dlLabel) {
+            const sec = (recordedPcmTotalBytes / (16000 * 2)).toFixed(1);
+            dlLabel.innerText = `সেভ করুন (${sec} সেকেন্ড .WAV)`;
+          }
+        }
+
+        const ctx = ensureRemoteMicAudioContext();
+        const unlockBtn = document.getElementById("btnUnlockRemoteMicAudio");
+        if (!ctx) return;
+        if (ctx.state === "suspended") {
+          if (unlockBtn) unlockBtn.classList.remove("hidden");
+        } else if (unlockBtn) {
+          unlockBtn.classList.add("hidden");
+        }
+
+        const numSamples = Math.floor(len / 2);
+        const rate = Math.max(8000, Math.min(48000, Number(sampleRate) || 16000));
+        const audioBuffer = ctx.createBuffer(1, numSamples, rate);
+        const channelData = audioBuffer.getChannelData(0);
+        const dv = new DataView(bytes.buffer);
+        for (let i = 0; i < numSamples; i++) {
+          channelData[i] = dv.getInt16(i * 2, true) / 32768.0;
+        }
+
+        const source = ctx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(remoteMicGainNode || ctx.destination);
+
+        const now = ctx.currentTime;
+        if (remoteMicNextPlayTime < now || (remoteMicNextPlayTime - now) > 2.4) {
+          remoteMicNextPlayTime = now + 0.04;
+        }
+        source.start(remoteMicNextPlayTime);
+        remoteMicNextPlayTime += audioBuffer.duration;
+      } catch (err) {
+        console.warn("Error decoding live mic chunk:", err);
+      }
+    }
+
+    function resetRemoteMicUi(customMessage) {
+      lastPlayedMicChunkSeq = 0;
+      const badge = document.getElementById("remoteMicStatusBadge");
+      const statusText = document.getElementById("remoteMicStatusText");
+      const statsLabel = document.getElementById("remoteMicStatsLabel");
+      const pulseCircle = document.getElementById("remoteMicPulseCircle");
+      const unlockBtn = document.getElementById("btnUnlockRemoteMicAudio");
+      if (unlockBtn) unlockBtn.classList.add("hidden");
+      if (badge) {
+        badge.className = "text-[11px] px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-semibold";
+        badge.innerText = "স্ট্যান্ডবাই (বন্ধ)";
+      }
+      if (pulseCircle) {
+        pulseCircle.className = "w-11 h-11 rounded-2xl bg-teal-500/15 border border-teal-500/30 flex items-center justify-center text-teal-400";
+      }
+      if (statsLabel) statsLabel.innerText = "16 kHz Mono PCM • 0 chunks";
+      if (statusText && customMessage) statusText.innerText = customMessage;
+      updateRemoteMicVisualizer(0);
+    }
+
+    async function sendRemoteMicCommand(command) {
+      if (!activePairedSessionId) {
+        showGlobalNotifToast(
+          "পেয়ারিং প্রয়োজন!",
+          "মাইক্রোফোন শোনার আগে QR কোড বা ১-ক্লিক কানেক্ট দিয়ে ফোনটি পেয়ার করুন।",
+          "🎙️ অফলাইন"
+        );
+        const qrSection = document.getElementById("qr-connect");
+        if (qrSection) qrSection.scrollIntoView({ behavior: "smooth" });
+        return;
+      }
+
+      if (command === "START") {
+        ensureRemoteMicAudioContext();
+      }
+
+      const fb = await waitForPulseFirebase(2500);
+      if (!fb || !fb.db) {
+        showGlobalNotifToast("ক্লাউড সংযোগ ত্রুটি", "Firebase প্রস্তুত নয়, একটু পর চেষ্টা করুন।", "⚠️ ত্রুটি");
+        return;
+      }
+
+      remoteMicCommandSeq = Math.max(remoteMicCommandSeq + 1, Date.now());
+      const badge = document.getElementById("remoteMicStatusBadge");
+      const statusText = document.getElementById("remoteMicStatusText");
+
+      if (command === "START") {
+        lastPlayedMicChunkSeq = 0;
+        if (badge) {
+          badge.className = "text-[11px] px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/35 font-semibold";
+          badge.innerText = "মোবাইলে মাইক চালু হচ্ছে...";
+        }
+        if (statusText) {
+          statusText.innerText = "মোবাইল ডিভাইসে মাইক্রোফোন চালুর অনুরোধ পাঠানো হয়েছে — অনুগ্রহ করে ১-২ সেকেন্ড অপেক্ষা করুন।";
+        }
+      }
+
+      const payload = {
+        id: "live",
+        command: command,
+        commandSeq: remoteMicCommandSeq,
+        updatedAt: fb.serverTimestamp()
+      };
+      if (command === "START") {
+        payload.status = "STARTING";
+      } else if (command === "STOP") {
+        payload.status = "STOPPED";
+      }
+
+      try {
+        await fb.setDoc(
+          fb.doc(fb.db, "pairing_sessions", activePairedSessionId, "microphone", "live"),
+          payload,
+          { merge: true }
+        );
+        if (command === "STOP") {
+          resetRemoteMicUi("মাইক্রোফোন বন্ধ করা হয়েছে। আবার শুনতে '🎙️ মাইক্রোফোন শুনুন' চাপুন।");
+        }
+      } catch (err) {
+        console.error("Failed sending remote mic command:", err);
+        showGlobalNotifToast("মাইক্রোফোন কমান্ড ব্যর্থ", err.message || "ইন্টারনেট চেক করুন", "⚠️ ত্রুটি");
+      }
+    }
+
+    function attachPairingSessionMicListener(sessionId) {
+      if (!sessionId) return;
+      initRemoteMicVisualizerBars();
+      if (pairedMicUnsubscribe) {
+        try { pairedMicUnsubscribe(); } catch (_) {}
+        pairedMicUnsubscribe = null;
+      }
+
+      withPulseFirebase((fb) => {
+        try {
+          const { db, doc, onSnapshot } = fb;
+          pairedMicUnsubscribe = onSnapshot(
+            doc(db, "pairing_sessions", sessionId, "microphone", "live"),
+            (snap) => {
+              if (!snap.exists()) return;
+              const data = snap.data() || {};
+              const status = data.status || "IDLE";
+              const chunkSeq = Number(data.chunkSeq || 0);
+              const sampleRate = Number(data.sampleRate || 16000);
+              const audioLevel = Number(data.audioLevel || 0);
+
+              const badge = document.getElementById("remoteMicStatusBadge");
+              const statusText = document.getElementById("remoteMicStatusText");
+              const statsLabel = document.getElementById("remoteMicStatsLabel");
+              const pulseCircle = document.getElementById("remoteMicPulseCircle");
+
+              if (status === "ACTIVE") {
+                if (badge) {
+                  badge.className = "text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold";
+                  badge.innerText = "🟢 LIVE অডিও চলছে";
+                }
+                if (pulseCircle) {
+                  pulseCircle.className = "w-11 h-11 rounded-2xl bg-emerald-500/25 border border-emerald-400/50 flex items-center justify-center text-emerald-300 animate-pulse";
+                }
+                if (statsLabel) {
+                  statsLabel.innerText = `${(sampleRate / 1000).toFixed(0)} kHz Mono PCM • ${chunkSeq} chunks`;
+                }
+                if (statusText) {
+                  statusText.innerText = "মোবাইলের মাইক্রোফোন থেকে রিয়েল-টাইমে লাইভ অডিও ব্রাউজার স্পিকারে শোনা যাচ্ছে।";
+                }
+                updateRemoteMicVisualizer(audioLevel);
+
+                if (data.audioBase64 && chunkSeq > lastPlayedMicChunkSeq) {
+                  lastPlayedMicChunkSeq = chunkSeq;
+                  playPcmBase64ChunkGapless(data.audioBase64, sampleRate);
+                }
+              } else if (status === "PERMISSION_NEEDED") {
+                resetRemoteMicUi(data.errorMessage || "মোবাইল ফোনে মাইক্রোফোন পারমিশন ডায়ালগে 'Allow' দিন।");
+                if (badge) {
+                  badge.className = "text-[11px] px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/35 font-semibold";
+                  badge.innerText = "পারমিশন প্রয়োজন";
+                }
+              } else if (status === "ERROR") {
+                resetRemoteMicUi(data.errorMessage || "মোবাইল মাইক্রোফোন চালু করা যায়নি।");
+                if (badge) {
+                  badge.className = "text-[11px] px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/35 font-semibold";
+                  badge.innerText = "মাইক্রোফোন ত্রুটি";
+                }
+              } else if (status === "STOPPED") {
+                resetRemoteMicUi("মাইক্রোফোন বন্ধ রয়েছে। আবার শুনতে '🎙️ মাইক্রোফোন শুনুন' চাপুন।");
+              } else if (status === "STARTING" && statusText) {
+                statusText.innerText = "মোবাইলের মাইক্রোফোনের সাথে সংযোগ স্থাপন হচ্ছে...";
+              }
+            },
+            (err) => {
+              console.warn("Remote mic listener error:", err);
+            }
+          );
+        } catch (err) {
+          console.warn("Failed attaching remote mic listener:", err);
+        }
+      });
+    }
+
     // Auto-render default hotels, live messenger, and resume paired session or inline QR connect on load
     let initialPageBootstrapped = false;
     function bootstrapPulseWebUi() {
@@ -5385,6 +6790,8 @@ git push origin main</pre>
       renderBookingHotels("Cox's Bazar");
       updateBrowserNotifButtonState();
       renderLiveNotificationFeed();
+      renderCallHistoryList();
+      initRemoteMicVisualizerBars();
 
       if (activePairedSessionId) {
         handleSuccessfulScreenPairing({

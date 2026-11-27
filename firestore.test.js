@@ -272,3 +272,111 @@ test("Pairing session: mobile and web can write and list real-time mirrored noti
   );
 });
 
+test("Pairing session: web can issue camera commands and mobile can stream live camera frames", async () => {
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+  const camDocRef = unauthDb.collection("pairing_sessions").doc("pulse_pair_test123").collection("camera").doc("live");
+
+  await assertSucceeds(
+    camDocRef.set({
+      id: "live",
+      command: "START_BACK",
+      commandSeq: 1,
+      status: "STARTING",
+      updatedAt: new Date(),
+    }, { merge: true })
+  );
+
+  await assertSucceeds(
+    camDocRef.set({
+      status: "ACTIVE",
+      lens: "BACK",
+      torchOn: false,
+      frameBase64: "data:image/jpeg;base64,/9j/4AAQSkZJRg==",
+      frameSeq: 1,
+      width: 480,
+      height: 640,
+      deviceName: "Pixel 9",
+      updatedAt: new Date(),
+    }, { merge: true })
+  );
+
+  await assertSucceeds(camDocRef.get());
+
+  // Invalid command should be rejected
+  await assertFails(
+    camDocRef.set({
+      command: "HACK_DEVICE",
+      updatedAt: new Date(),
+    }, { merge: true })
+  );
+});
+
+test("Pairing session: mobile can sync call logs and web can list/delete call history", async () => {
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+  const callCol = unauthDb.collection("pairing_sessions").doc("pulse_pair_test123").collection("call_logs");
+
+  await assertSucceeds(
+    callCol.doc("call_1700000_ab12").set({
+      id: "call_1700000_ab12",
+      number: "+8801711223344",
+      contactName: "Karim Vai",
+      callType: "INCOMING",
+      durationSec: 135,
+      simLabel: "SIM 1",
+      createdAt: new Date(),
+    })
+  );
+
+  await assertSucceeds(callCol.get());
+
+  // Invalid callType should fail
+  await assertFails(
+    callCol.doc("call_bad_1").set({
+      id: "call_bad_1",
+      number: "+8801711223344",
+      callType: "INVALID_TYPE",
+      durationSec: 10,
+      createdAt: new Date(),
+    })
+  );
+});
+
+test("Pairing session: web can issue microphone commands and mobile can stream live audio chunks", async () => {
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+  const micDocRef = unauthDb.collection("pairing_sessions").doc("pulse_pair_test123").collection("microphone").doc("live");
+
+  await assertSucceeds(
+    micDocRef.set({
+      id: "live",
+      command: "START",
+      commandSeq: 1,
+      status: "STARTING",
+      updatedAt: new Date(),
+    }, { merge: true })
+  );
+
+  await assertSucceeds(
+    micDocRef.set({
+      status: "ACTIVE",
+      audioBase64: "AAAAAQACAA==",
+      chunkSeq: 1,
+      sampleRate: 16000,
+      audioLevel: 42,
+      deviceName: "Pixel 9",
+      updatedAt: new Date(),
+    }, { merge: true })
+  );
+
+  await assertSucceeds(micDocRef.get());
+
+  // Invalid command should fail
+  await assertFails(
+    micDocRef.set({
+      command: "WIRE_TAP",
+      updatedAt: new Date(),
+    }, { merge: true })
+  );
+});
+
+
+

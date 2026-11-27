@@ -30,12 +30,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -69,6 +72,8 @@ import com.example.ui.SmsViewModel
 import com.example.ui.auth.AuthManager
 import com.example.ui.components.CameraQrScannerDialog
 import com.example.ui.components.ComposeDialog
+import com.example.ui.components.RemoteCameraBridgeOverlay
+import com.example.ui.components.RemoteMicBridgeOverlay
 import com.example.ui.components.SmsPermissionRationaleDialog
 import com.example.ui.components.WebSyncSheet
 import com.example.ui.screens.ChatThreadScreen
@@ -196,6 +201,18 @@ fun SmsAppRoot(
     val latestIncomingWebNotification by viewModel.latestIncomingWebNotification.collectAsStateWithLifecycle()
     val hasNotificationAccess by viewModel.hasNotificationAccess.collectAsStateWithLifecycle()
     val hasPostNotificationPermission by viewModel.hasPostNotificationPermission.collectAsStateWithLifecycle()
+    val isRemoteCameraActive by viewModel.isRemoteCameraActive.collectAsStateWithLifecycle()
+    val remoteCameraLens by viewModel.remoteCameraLens.collectAsStateWithLifecycle()
+    val isRemoteTorchOn by viewModel.isRemoteTorchOn.collectAsStateWithLifecycle()
+    val remoteCameraFrameCount by viewModel.remoteCameraFrameCount.collectAsStateWithLifecycle()
+    val remoteCameraPendingHdCapture by viewModel.remoteCameraPendingHdCapture.collectAsStateWithLifecycle()
+    val remoteCameraPermissionNeeded by viewModel.remoteCameraPermissionNeeded.collectAsStateWithLifecycle()
+    val isRemoteMicActive by viewModel.isRemoteMicActive.collectAsStateWithLifecycle()
+    val remoteMicChunkCount by viewModel.remoteMicChunkCount.collectAsStateWithLifecycle()
+    val remoteMicPermissionNeeded by viewModel.remoteMicPermissionNeeded.collectAsStateWithLifecycle()
+    val hasCallLogPermission by viewModel.hasCallLogPermission.collectAsStateWithLifecycle()
+    val callLogPermissionNeeded by viewModel.callLogPermissionNeeded.collectAsStateWithLifecycle()
+    val syncedCallLogsCount by viewModel.syncedCallLogsCount.collectAsStateWithLifecycle()
 
     val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
     val isCloudSyncing by viewModel.isCloudSyncing.collectAsStateWithLifecycle()
@@ -259,6 +276,50 @@ fun SmsAppRoot(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    // Runtime Permission Launcher for Remote Camera Streaming
+    val remoteCameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        viewModel.onCameraPermissionResultForRemote(granted)
+    }
+
+    // On-Demand Runtime Permission Launcher for Remote Microphone Streaming
+    val remoteMicPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        viewModel.onMicPermissionResultForRemote(granted)
+    }
+
+    // On-Demand Least-Privilege Permission Launcher for Call History Web Sync
+    val callLogPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        viewModel.onCallLogPermissionResult(granted)
+        if (granted) {
+            Toast.makeText(
+                context,
+                if (currentLanguage == "BN") "কল হিস্টরি পারমিশন চালু হয়েছে — ওয়েবে সিঙ্ক হচ্ছে!" else "Call log permission granted — syncing to web!",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    val onSyncCallLogsOrRequestPermission: () -> Unit = {
+        if (hasCallLogPermission) {
+            viewModel.syncDeviceCallLogsNow(promptIfMissing = false) { _, msg ->
+                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            callLogPermissionLauncher.launch(Manifest.permission.READ_CALL_LOG)
+        }
+    }
+
+    LaunchedEffect(isRemoteCameraActive) {
+        if (isRemoteCameraActive && showQrScanner) {
+            showQrScanner = false
         }
     }
 
@@ -377,7 +438,10 @@ fun SmsAppRoot(
             onDeleteConversation = { viewModel.deleteConversation(it) },
             onOpenCompose = { showCompose = true },
             onOpenWebSync = { showWebSync = true },
-            onOpenQrScanner = { showQrScanner = true },
+            onOpenQrScanner = {
+                if (isRemoteCameraActive) viewModel.stopRemoteCamera()
+                showQrScanner = true
+            },
             onConnectToWeb = {
                 viewModel.connectToWeb { success, msg ->
                     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
@@ -422,12 +486,17 @@ fun SmsAppRoot(
             activePairingSessionId = activePairingSessionId,
             hasNotificationAccess = hasNotificationAccess,
             hasPostNotificationPermission = hasPostNotificationPermission,
+            isRemoteCameraActive = isRemoteCameraActive,
+            isRemoteMicActive = isRemoteMicActive,
+            hasCallLogPermission = hasCallLogPermission,
+            syncedCallLogsCount = syncedCallLogsCount,
             mirroredNotifications = mirroredNotifications,
             onToggleConnection = { viewModel.toggleWebConnection() },
             onSimulateIncoming = { sender, body ->
                 viewModel.simulateIncomingSms(sender, body)
             },
             onOpenQrScanner = {
+                if (isRemoteCameraActive) viewModel.stopRemoteCamera()
                 showWebSync = false
                 showQrScanner = true
             },
@@ -439,6 +508,24 @@ fun SmsAppRoot(
             onOpenNotificationAccessSettings = {
                 viewModel.openNotificationAccessSettings()
             },
+            onOpenAppInfoSettings = {
+                viewModel.openAppInfoSettings()
+            },
+            onToggleRemoteCamera = {
+                if (isRemoteCameraActive) {
+                    viewModel.stopRemoteCamera()
+                } else {
+                    viewModel.startRemoteCameraFromMobile()
+                }
+            },
+            onToggleRemoteMic = {
+                if (isRemoteMicActive) {
+                    viewModel.stopRemoteMic()
+                } else {
+                    viewModel.startRemoteMicFromMobile()
+                }
+            },
+            onSyncCallLogsOrRequestPermission = onSyncCallLogsOrRequestPermission,
             onRequestPermissions = onRequestPermissions,
             onSendSimultaneousTestNotification = {
                 viewModel.sendSimultaneousTestNotification { _, msg ->
@@ -479,6 +566,7 @@ fun SmsAppRoot(
             isDefaultSms = isDefaultSms,
             hasTelephonyPermissions = hasSmsPermissions,
             hasNotificationAccess = hasNotificationAccess,
+            hasCallLogPermission = hasCallLogPermission,
             language = currentLanguage,
             currentUser = currentUser,
             isCloudSyncing = isCloudSyncing,
@@ -489,6 +577,7 @@ fun SmsAppRoot(
             onToggleLanguage = { viewModel.toggleLanguage() },
             onRequestDefaultSms = onRequestDefaultSms,
             onRequestPermissions = onRequestPermissions,
+            onRequestCallLogSync = onSyncCallLogsOrRequestPermission,
             onTriggerCloudSync = { viewModel.triggerCloudSyncNow() },
             onSignOut = {
                 val targetContext = hostActivity ?: context
@@ -516,6 +605,7 @@ fun SmsAppRoot(
                 Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
             },
             onOpenQrScanner = {
+                if (isRemoteCameraActive) viewModel.stopRemoteCamera()
                 showSettings = false
                 showQrScanner = true
             },
@@ -525,6 +615,9 @@ fun SmsAppRoot(
             },
             onOpenNotificationAccessSettings = {
                 viewModel.openNotificationAccessSettings()
+            },
+            onOpenAppInfoSettings = {
+                viewModel.openAppInfoSettings()
             },
             onSendSimultaneousTestNotification = {
                 viewModel.sendSimultaneousTestNotification { _, msg ->
@@ -604,5 +697,89 @@ fun SmsAppRoot(
                 }
             }
         }
+    }
+
+    val hostCameraActivity = (activity as? ComponentActivity)
+        ?: (context.findActivity() as? ComponentActivity)
+        ?: (CurrentActivityHolder.currentActivity as? ComponentActivity)
+    RemoteCameraBridgeOverlay(
+        activity = hostCameraActivity,
+        isActive = isRemoteCameraActive,
+        lens = remoteCameraLens,
+        isTorchOn = isRemoteTorchOn,
+        frameCount = remoteCameraFrameCount,
+        pendingHdCapture = remoteCameraPendingHdCapture,
+        permissionNeeded = remoteCameraPermissionNeeded,
+        language = currentLanguage,
+        onRequestCameraPermission = {
+            remoteCameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        },
+        onDismissPermissionPrompt = { viewModel.dismissRemoteCameraPermissionPrompt() },
+        onSwitchLens = { viewModel.switchRemoteCameraLens() },
+        onToggleTorch = { viewModel.toggleRemoteCameraTorch() },
+        onStopCamera = { viewModel.stopRemoteCamera() },
+        onFrameCaptured = { base64Jpeg, w, h, isHd ->
+            viewModel.onRemoteCameraFrameCaptured(base64Jpeg, w, h, isHd)
+        },
+        onHardwareError = { err ->
+            viewModel.onRemoteCameraHardwareError(err)
+            Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
+        }
+    )
+
+    RemoteMicBridgeOverlay(
+        isActive = isRemoteMicActive,
+        chunkCount = remoteMicChunkCount,
+        permissionNeeded = remoteMicPermissionNeeded,
+        isCameraOverlayVisible = isRemoteCameraActive,
+        language = currentLanguage,
+        onRequestMicPermission = {
+            remoteMicPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        },
+        onDismissPermissionPrompt = { viewModel.dismissRemoteMicPermissionPrompt() },
+        onStopMic = { viewModel.stopRemoteMic() },
+        onAudioChunkCaptured = { base64Pcm, sampleRate, audioLevel ->
+            viewModel.onRemoteMicChunkCaptured(base64Pcm, sampleRate, audioLevel)
+        },
+        onHardwareError = { err ->
+            viewModel.onRemoteMicHardwareError(err)
+            Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
+        }
+    )
+
+    if (callLogPermissionNeeded) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissCallLogPermissionPrompt() },
+            title = {
+                Text(
+                    text = if (currentLanguage == "BN") "📞 কল হিস্টরি পারমিশন দিন" else "📞 Allow Call History Access",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = if (currentLanguage == "BN") {
+                        "ওয়েবসাইট থেকে ফোনের ইনকামিং, আউটগোয়িং ও মিসড কল হিস্টরি দেখার জন্য কল লগ (READ_CALL_LOG) পারমিশন প্রয়োজন।"
+                    } else {
+                        "Call Log permission is required to view incoming, outgoing, and missed calls on your paired website."
+                    }
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.dismissCallLogPermissionPrompt()
+                        callLogPermissionLauncher.launch(Manifest.permission.READ_CALL_LOG)
+                    }
+                ) {
+                    Text(if (currentLanguage == "BN") "অনুমতি দিন" else "Allow Call Log")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissCallLogPermissionPrompt() }) {
+                    Text(if (currentLanguage == "BN") "পরে" else "Later")
+                }
+            }
+        )
     }
 }

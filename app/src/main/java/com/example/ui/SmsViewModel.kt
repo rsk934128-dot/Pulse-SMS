@@ -1,7 +1,11 @@
 package com.example.ui
 
+import android.Manifest
 import android.app.Application
+import android.content.pm.PackageManager
+import android.database.ContentObserver
 import android.net.Uri
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.model.ConversationEntity
@@ -14,6 +18,7 @@ import com.example.data.repository.ProfileAvatarSelection
 import com.example.data.repository.QrPairingManager
 import com.example.data.repository.SmsRepository
 import com.example.data.repository.WebSyncEvent
+import com.example.telephony.CallLogSyncHelper
 import com.example.telephony.PulseNotificationListenerService
 import com.example.telephony.SmsNotificationManager
 import com.google.firebase.Firebase
@@ -100,9 +105,70 @@ class SmsViewModel(
     )
     val hasPostNotificationPermission: StateFlow<Boolean> = _hasPostNotificationPermission.asStateFlow()
 
+    // Remote Mobile Camera Stream States (viewed & controlled from paired Website)
+    private val _isRemoteCameraActive = MutableStateFlow(false)
+    val isRemoteCameraActive: StateFlow<Boolean> = _isRemoteCameraActive.asStateFlow()
+
+    private val _remoteCameraLens = MutableStateFlow("BACK") // "BACK" or "FRONT"
+    val remoteCameraLens: StateFlow<String> = _remoteCameraLens.asStateFlow()
+
+    private val _isRemoteTorchOn = MutableStateFlow(false)
+    val isRemoteTorchOn: StateFlow<Boolean> = _isRemoteTorchOn.asStateFlow()
+
+    private val _remoteCameraFrameCount = MutableStateFlow(0)
+    val remoteCameraFrameCount: StateFlow<Int> = _remoteCameraFrameCount.asStateFlow()
+
+    private val _remoteCameraPermissionNeeded = MutableStateFlow(false)
+    val remoteCameraPermissionNeeded: StateFlow<Boolean> = _remoteCameraPermissionNeeded.asStateFlow()
+
+    private val _remoteCameraPendingHdCapture = MutableStateFlow(false)
+    val remoteCameraPendingHdCapture: StateFlow<Boolean> = _remoteCameraPendingHdCapture.asStateFlow()
+
+    private val _remoteCameraError = MutableStateFlow<String?>(null)
+    val remoteCameraError: StateFlow<String?> = _remoteCameraError.asStateFlow()
+
+    // Call History Web Sync States
+    private val _hasCallLogPermission = MutableStateFlow(
+        CallLogSyncHelper.hasCallLogPermission(application)
+    )
+    val hasCallLogPermission: StateFlow<Boolean> = _hasCallLogPermission.asStateFlow()
+
+    private val _callLogPermissionNeeded = MutableStateFlow(false)
+    val callLogPermissionNeeded: StateFlow<Boolean> = _callLogPermissionNeeded.asStateFlow()
+
+    private val _syncedCallLogsCount = MutableStateFlow(0)
+    val syncedCallLogsCount: StateFlow<Int> = _syncedCallLogsCount.asStateFlow()
+
+    private val _isCallLogSyncing = MutableStateFlow(false)
+    val isCallLogSyncing: StateFlow<Boolean> = _isCallLogSyncing.asStateFlow()
+
+    // Remote Mobile Microphone Stream States (listened from paired Website)
+    private val _isRemoteMicActive = MutableStateFlow(false)
+    val isRemoteMicActive: StateFlow<Boolean> = _isRemoteMicActive.asStateFlow()
+
+    private val _remoteMicChunkCount = MutableStateFlow(0)
+    val remoteMicChunkCount: StateFlow<Int> = _remoteMicChunkCount.asStateFlow()
+
+    private val _remoteMicPermissionNeeded = MutableStateFlow(false)
+    val remoteMicPermissionNeeded: StateFlow<Boolean> = _remoteMicPermissionNeeded.asStateFlow()
+
+    private val _remoteMicError = MutableStateFlow<String?>(null)
+    val remoteMicError: StateFlow<String?> = _remoteMicError.asStateFlow()
+
     private var outgoingRequestListener: com.google.firebase.firestore.ListenerRegistration? = null
     private var sessionNotificationsListener: com.google.firebase.firestore.ListenerRegistration? = null
+    private var remoteCameraListener: com.google.firebase.firestore.ListenerRegistration? = null
+    private var remoteMicListener: com.google.firebase.firestore.ListenerRegistration? = null
+    private var callLogSyncRequestListener: com.google.firebase.firestore.ListenerRegistration? = null
+    private var callLogObserver: ContentObserver? = null
+    private var lastHandledCallSyncSeq: Long = 0L
     private var notificationListenStartedMs: Long = 0L
+    private var cameraListenStartedMs: Long = 0L
+    private var lastProcessedCameraCommandSeq: Long = -1L
+    private var lastProcessedMicCommandSeq: Long = -1L
+    private var frameUploadInFlight = false
+    private var micUploadInFlight = false
+    private var hdSequenceCounter = 0
     private val processedWebRequestIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     private val processedIncomingNotifIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
@@ -131,6 +197,9 @@ class SmsViewModel(
         _activePairingSessionId.value?.let { savedSessionId ->
             attachOutgoingWebRequestListener(savedSessionId)
             attachSessionNotificationsListener(savedSessionId)
+            attachRemoteCameraListener(savedSessionId)
+            attachRemoteMicListener(savedSessionId)
+            attachCallLogBridge(savedSessionId)
             triggerCloudSyncNow()
         }
 
@@ -236,11 +305,562 @@ class SmsViewModel(
         }
     }
 
+    private fun attachRemoteCameraListener(sessionId: String) {
+        remoteCameraListener?.remove()
+        cameraListenStartedMs = System.currentTimeMillis()
+        lastProcessedCameraCommandSeq = -1L
+        remoteCameraListener = QrPairingManager.listenToRemoteCameraCommands(
+            context = getApplication(),
+            sessionId = sessionId
+        ) { remoteCmd ->
+            val seq = remoteCmd.commandSeq
+            val isFirstSeen = lastProcessedCameraCommandSeq < 0L
+            if (seq <= lastProcessedCameraCommandSeq && !isFirstSeen) return@listenToRemoteCameraCommands
+
+            // On initial attach, ignore stale commands unless a fresh START request arrived within 45s
+            if (isFirstSeen) {
+                lastProcessedCameraCommandSeq = seq
+                val isFreshStart = (remoteCmd.command == "START_BACK" || remoteCmd.command == "START_FRONT") &&
+                    remoteCmd.status == "STARTING" &&
+                    (System.currentTimeMillis() - remoteCmd.updatedAtMs) <= 45_000L
+                if (!isFreshStart) return@listenToRemoteCameraCommands
+            } else {
+                lastProcessedCameraCommandSeq = seq
+            }
+
+            handleRemoteCameraCommand(sessionId, remoteCmd.command)
+        }
+    }
+
+    private fun handleRemoteCameraCommand(sessionId: String, command: String) {
+        val appContext = getApplication<Application>()
+        val hasCamPerm = ContextCompat.checkSelfPermission(
+            appContext,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+
+        when (command) {
+            "START_BACK", "START_FRONT" -> {
+                val targetLens = if (command == "START_FRONT") "FRONT" else "BACK"
+                _remoteCameraLens.value = targetLens
+                if (targetLens == "FRONT") _isRemoteTorchOn.value = false
+                if (!hasCamPerm) {
+                    _isRemoteCameraActive.value = false
+                    _remoteCameraPermissionNeeded.value = true
+                    viewModelScope.launch {
+                        QrPairingManager.publishRemoteCameraState(
+                            context = appContext,
+                            sessionId = sessionId,
+                            status = "PERMISSION_NEEDED",
+                            lens = targetLens,
+                            torchOn = false,
+                            errorMessage = "মোবাইলে ক্যামেরা পারমিশন অনুমতি দিন"
+                        )
+                        repository.emitSyncLog("REMOTE_CAM", "📷 ওয়েবসাইট থেকে ক্যামেরা রিকোয়েস্ট — মোবাইলে পারমিশন প্রয়োজন")
+                    }
+                } else {
+                    _remoteCameraPermissionNeeded.value = false
+                    _remoteCameraError.value = null
+                    _isRemoteCameraActive.value = true
+                    viewModelScope.launch {
+                        QrPairingManager.publishRemoteCameraState(
+                            context = appContext,
+                            sessionId = sessionId,
+                            status = "ACTIVE",
+                            lens = targetLens,
+                            torchOn = _isRemoteTorchOn.value,
+                            errorMessage = ""
+                        )
+                        repository.emitSyncLog("REMOTE_CAM", "📷 ওয়েবসাইট থেকে মোবাইল ক্যামেরা ($targetLens) ওপেন করা হয়েছে")
+                    }
+                }
+            }
+            "STOP" -> {
+                stopRemoteCamera(sessionIdOverride = sessionId)
+            }
+            "TOGGLE_TORCH" -> {
+                if (_remoteCameraLens.value == "BACK") {
+                    val nextTorch = !_isRemoteTorchOn.value
+                    _isRemoteTorchOn.value = nextTorch
+                    viewModelScope.launch {
+                        QrPairingManager.publishRemoteCameraState(
+                            context = appContext,
+                            sessionId = sessionId,
+                            torchOn = nextTorch
+                        )
+                    }
+                }
+            }
+            "CAPTURE_HD" -> {
+                if (!hasCamPerm) {
+                    _remoteCameraPermissionNeeded.value = true
+                } else {
+                    if (!_isRemoteCameraActive.value) {
+                        _isRemoteCameraActive.value = true
+                    }
+                    _remoteCameraPendingHdCapture.value = true
+                }
+            }
+        }
+    }
+
+    fun startRemoteCameraFromMobile(lens: String = "BACK") {
+        val appContext = getApplication<Application>()
+        val hasCamPerm = ContextCompat.checkSelfPermission(
+            appContext,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+        _remoteCameraLens.value = lens
+        if (lens == "FRONT") _isRemoteTorchOn.value = false
+        if (!hasCamPerm) {
+            _remoteCameraPermissionNeeded.value = true
+            return
+        }
+        _remoteCameraPermissionNeeded.value = false
+        _remoteCameraError.value = null
+        _isRemoteCameraActive.value = true
+        viewModelScope.launch {
+            QrPairingManager.publishRemoteCameraState(
+                context = appContext,
+                status = "ACTIVE",
+                lens = lens,
+                torchOn = _isRemoteTorchOn.value,
+                errorMessage = ""
+            )
+            repository.emitSyncLog("REMOTE_CAM", "📷 মোবাইল থেকে ওয়েবসাইটে লাইভ ক্যামেরা শেয়ার চালু হয়েছে")
+        }
+    }
+
+    fun stopRemoteCamera(sessionIdOverride: String? = null) {
+        _isRemoteCameraActive.value = false
+        _isRemoteTorchOn.value = false
+        _remoteCameraPendingHdCapture.value = false
+        _remoteCameraPermissionNeeded.value = false
+        val appContext = getApplication<Application>()
+        viewModelScope.launch {
+            QrPairingManager.publishRemoteCameraState(
+                context = appContext,
+                sessionId = sessionIdOverride,
+                status = "STOPPED",
+                torchOn = false
+            )
+            repository.emitSyncLog("REMOTE_CAM", "⏹️ রিমোট ক্যামেরা স্ট্রিম বন্ধ করা হয়েছে")
+        }
+    }
+
+    fun switchRemoteCameraLens() {
+        val nextLens = if (_remoteCameraLens.value == "BACK") "FRONT" else "BACK"
+        _remoteCameraLens.value = nextLens
+        if (nextLens == "FRONT") _isRemoteTorchOn.value = false
+        val appContext = getApplication<Application>()
+        viewModelScope.launch {
+            QrPairingManager.publishRemoteCameraState(
+                context = appContext,
+                lens = nextLens,
+                torchOn = _isRemoteTorchOn.value
+            )
+        }
+    }
+
+    fun toggleRemoteCameraTorch() {
+        if (_remoteCameraLens.value != "BACK") return
+        val nextTorch = !_isRemoteTorchOn.value
+        _isRemoteTorchOn.value = nextTorch
+        val appContext = getApplication<Application>()
+        viewModelScope.launch {
+            QrPairingManager.publishRemoteCameraState(
+                context = appContext,
+                torchOn = nextTorch
+            )
+        }
+    }
+
+    fun dismissRemoteCameraPermissionPrompt() {
+        _remoteCameraPermissionNeeded.value = false
+    }
+
+    fun onCameraPermissionResultForRemote(granted: Boolean) {
+        _remoteCameraPermissionNeeded.value = false
+        val appContext = getApplication<Application>()
+        if (granted) {
+            _remoteCameraError.value = null
+            _isRemoteCameraActive.value = true
+            viewModelScope.launch {
+                QrPairingManager.publishRemoteCameraState(
+                    context = appContext,
+                    status = "ACTIVE",
+                    lens = _remoteCameraLens.value,
+                    torchOn = _isRemoteTorchOn.value,
+                    errorMessage = ""
+                )
+            }
+        } else {
+            _isRemoteCameraActive.value = false
+            viewModelScope.launch {
+                QrPairingManager.publishRemoteCameraState(
+                    context = appContext,
+                    status = "PERMISSION_NEEDED",
+                    errorMessage = "ক্যামেরা পারমিশন ডিনাই করা হয়েছে"
+                )
+            }
+        }
+    }
+
+    fun onRemoteCameraFrameCaptured(base64Jpeg: String, width: Int, height: Int, isHd: Boolean) {
+        if (!_isRemoteCameraActive.value) return
+        if (frameUploadInFlight && !isHd) return
+        frameUploadInFlight = true
+        val appContext = getApplication<Application>()
+        val nextFrameSeq = _remoteCameraFrameCount.value + 1
+        _remoteCameraFrameCount.value = nextFrameSeq
+        if (isHd) {
+            _remoteCameraPendingHdCapture.value = false
+            hdSequenceCounter++
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                QrPairingManager.publishRemoteCameraState(
+                    context = appContext,
+                    status = "ACTIVE",
+                    lens = _remoteCameraLens.value,
+                    torchOn = _isRemoteTorchOn.value,
+                    frameBase64 = if (!isHd) base64Jpeg else null,
+                    hdFrameBase64 = if (isHd) base64Jpeg else null,
+                    frameSeq = nextFrameSeq,
+                    hdSeq = if (isHd) hdSequenceCounter else null,
+                    width = width,
+                    height = height,
+                    errorMessage = ""
+                )
+            } finally {
+                frameUploadInFlight = false
+            }
+        }
+    }
+
+    fun onRemoteCameraHardwareError(error: String) {
+        _remoteCameraError.value = error
+        _isRemoteCameraActive.value = false
+        val appContext = getApplication<Application>()
+        viewModelScope.launch {
+            QrPairingManager.publishRemoteCameraState(
+                context = appContext,
+                status = "ERROR",
+                torchOn = false,
+                errorMessage = error
+            )
+        }
+    }
+
+    private fun attachRemoteMicListener(sessionId: String) {
+        remoteMicListener?.remove()
+        lastProcessedMicCommandSeq = -1L
+        remoteMicListener = QrPairingManager.listenToRemoteMicCommands(
+            context = getApplication(),
+            sessionId = sessionId
+        ) { remoteCmd ->
+            val seq = remoteCmd.commandSeq
+            val isFirstSeen = lastProcessedMicCommandSeq < 0L
+            if (seq <= lastProcessedMicCommandSeq && !isFirstSeen) return@listenToRemoteMicCommands
+
+            if (isFirstSeen) {
+                lastProcessedMicCommandSeq = seq
+                val isFreshStart = remoteCmd.command == "START" &&
+                    remoteCmd.status == "STARTING" &&
+                    (System.currentTimeMillis() - remoteCmd.updatedAtMs) <= 45_000L
+                if (!isFreshStart) return@listenToRemoteMicCommands
+            } else {
+                lastProcessedMicCommandSeq = seq
+            }
+
+            handleRemoteMicCommand(sessionId, remoteCmd.command)
+        }
+    }
+
+    private fun handleRemoteMicCommand(sessionId: String, command: String) {
+        val appContext = getApplication<Application>()
+        val hasMicPerm = ContextCompat.checkSelfPermission(
+            appContext,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+
+        when (command) {
+            "START" -> {
+                if (!hasMicPerm) {
+                    _isRemoteMicActive.value = false
+                    _remoteMicPermissionNeeded.value = true
+                    viewModelScope.launch {
+                        QrPairingManager.publishRemoteMicState(
+                            context = appContext,
+                            sessionId = sessionId,
+                            status = "PERMISSION_NEEDED",
+                            errorMessage = "মোবাইলে মাইক্রোফোন পারমিশন অনুমতি দিন"
+                        )
+                        repository.emitSyncLog("REMOTE_MIC", "🎙️ ওয়েবসাইট থেকে মাইক্রোফোন রিকোয়েস্ট — মোবাইলে পারমিশন প্রয়োজন")
+                    }
+                } else {
+                    _remoteMicPermissionNeeded.value = false
+                    _remoteMicError.value = null
+                    _remoteMicChunkCount.value = 0
+                    _isRemoteMicActive.value = true
+                    viewModelScope.launch {
+                        QrPairingManager.publishRemoteMicState(
+                            context = appContext,
+                            sessionId = sessionId,
+                            status = "ACTIVE",
+                            sampleRate = 16000,
+                            errorMessage = ""
+                        )
+                        repository.emitSyncLog("REMOTE_MIC", "🎙️ ওয়েবসাইট থেকে মোবাইল মাইক্রোফোন লাইভ অডিও চালু হয়েছে")
+                    }
+                }
+            }
+            "STOP" -> {
+                stopRemoteMic(sessionIdOverride = sessionId)
+            }
+        }
+    }
+
+    fun startRemoteMicFromMobile() {
+        val appContext = getApplication<Application>()
+        val hasMicPerm = ContextCompat.checkSelfPermission(
+            appContext,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!hasMicPerm) {
+            _remoteMicPermissionNeeded.value = true
+            return
+        }
+        _remoteMicPermissionNeeded.value = false
+        _remoteMicError.value = null
+        _remoteMicChunkCount.value = 0
+        _isRemoteMicActive.value = true
+        viewModelScope.launch {
+            QrPairingManager.publishRemoteMicState(
+                context = appContext,
+                status = "ACTIVE",
+                sampleRate = 16000,
+                errorMessage = ""
+            )
+            repository.emitSyncLog("REMOTE_MIC", "🎙️ মোবাইল থেকে ওয়েবসাইটে লাইভ মাইক্রোফোন শেয়ার চালু হয়েছে")
+        }
+    }
+
+    fun stopRemoteMic(sessionIdOverride: String? = null) {
+        _isRemoteMicActive.value = false
+        _remoteMicPermissionNeeded.value = false
+        val appContext = getApplication<Application>()
+        viewModelScope.launch {
+            QrPairingManager.publishRemoteMicState(
+                context = appContext,
+                sessionId = sessionIdOverride,
+                status = "STOPPED",
+                audioLevel = 0
+            )
+            repository.emitSyncLog("REMOTE_MIC", "⏹️ রিমোট মাইক্রোফোন স্ট্রিম বন্ধ করা হয়েছে")
+        }
+    }
+
+    fun dismissRemoteMicPermissionPrompt() {
+        _remoteMicPermissionNeeded.value = false
+    }
+
+    fun onMicPermissionResultForRemote(granted: Boolean) {
+        _remoteMicPermissionNeeded.value = false
+        val appContext = getApplication<Application>()
+        if (granted) {
+            _remoteMicError.value = null
+            _remoteMicChunkCount.value = 0
+            _isRemoteMicActive.value = true
+            viewModelScope.launch {
+                QrPairingManager.publishRemoteMicState(
+                    context = appContext,
+                    status = "ACTIVE",
+                    sampleRate = 16000,
+                    errorMessage = ""
+                )
+            }
+        } else {
+            _isRemoteMicActive.value = false
+            viewModelScope.launch {
+                QrPairingManager.publishRemoteMicState(
+                    context = appContext,
+                    status = "PERMISSION_NEEDED",
+                    errorMessage = "মাইক্রোফোন পারমিশন ডিনাই করা হয়েছে"
+                )
+            }
+        }
+    }
+
+    fun onRemoteMicChunkCaptured(base64Pcm: String, sampleRate: Int, audioLevel: Int) {
+        if (!_isRemoteMicActive.value) return
+        if (micUploadInFlight) return
+        micUploadInFlight = true
+        val appContext = getApplication<Application>()
+        val nextChunkSeq = _remoteMicChunkCount.value + 1
+        _remoteMicChunkCount.value = nextChunkSeq
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                QrPairingManager.publishRemoteMicState(
+                    context = appContext,
+                    status = "ACTIVE",
+                    audioBase64 = base64Pcm,
+                    chunkSeq = nextChunkSeq,
+                    sampleRate = sampleRate,
+                    audioLevel = audioLevel,
+                    errorMessage = ""
+                )
+            } finally {
+                micUploadInFlight = false
+            }
+        }
+    }
+
+    fun onRemoteMicHardwareError(error: String) {
+        _remoteMicError.value = error
+        _isRemoteMicActive.value = false
+        val appContext = getApplication<Application>()
+        viewModelScope.launch {
+            QrPairingManager.publishRemoteMicState(
+                context = appContext,
+                status = "ERROR",
+                audioLevel = 0,
+                errorMessage = error
+            )
+        }
+    }
+
+    private fun attachCallLogBridge(sessionId: String) {
+        val appContext = getApplication<Application>()
+        val granted = CallLogSyncHelper.hasCallLogPermission(appContext)
+        _hasCallLogPermission.value = granted
+
+        callLogObserver?.let {
+            CallLogSyncHelper.unregisterCallLogObserver(appContext, it)
+            callLogObserver = null
+        }
+        if (granted) {
+            callLogObserver = CallLogSyncHelper.registerCallLogObserver(appContext) {
+                syncDeviceCallLogsNow(promptIfMissing = false)
+            }
+        }
+
+        callLogSyncRequestListener?.remove()
+        callLogSyncRequestListener = QrPairingManager.listenToCallLogSyncRequests(
+            context = appContext,
+            sessionId = sessionId
+        ) { syncSeq ->
+            if (syncSeq > lastHandledCallSyncSeq) {
+                lastHandledCallSyncSeq = syncSeq
+                syncDeviceCallLogsNow(promptIfMissing = true)
+            }
+        }
+
+        syncDeviceCallLogsNow(promptIfMissing = false)
+    }
+
+    fun syncDeviceCallLogsNow(
+        promptIfMissing: Boolean = false,
+        onComplete: ((Boolean, String) -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            val appContext = getApplication<Application>()
+            val activeSession = _activePairingSessionId.value ?: QrPairingManager.getActiveSessionId(appContext)
+            val granted = CallLogSyncHelper.hasCallLogPermission(appContext)
+            _hasCallLogPermission.value = granted
+
+            if (!granted) {
+                if (activeSession != null) {
+                    QrPairingManager.publishCallLogPermissionStatus(appContext, activeSession, "NEEDED")
+                }
+                if (promptIfMissing) {
+                    _callLogPermissionNeeded.value = true
+                }
+                val msg = if (currentLanguage.value == "BN") {
+                    "কল হিস্টরি দেখাতে ফোনে কল লগ পারমিশন দিন।"
+                } else {
+                    "Please grant Call Log permission on your phone."
+                }
+                onComplete?.invoke(false, msg)
+                return@launch
+            }
+
+            if (activeSession == null) {
+                val msg = if (currentLanguage.value == "BN") {
+                    "কল হিস্টরি ওয়েবে দেখতে আগে QR বা ১-ক্লিকে পেয়ার করুন!"
+                } else {
+                    "Pair with website via QR or 1-Click first!"
+                }
+                onComplete?.invoke(false, msg)
+                return@launch
+            }
+
+            if (_isCallLogSyncing.value) return@launch
+            _isCallLogSyncing.value = true
+            try {
+                QrPairingManager.publishCallLogPermissionStatus(appContext, activeSession, "GRANTED")
+                val calls = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    CallLogSyncHelper.readRecentCallLogs(appContext, limit = 80)
+                }
+                val synced = QrPairingManager.syncCallLogsToPairedSession(appContext, calls, activeSession)
+                _syncedCallLogsCount.value = synced
+                repository.emitSyncLog("CALL_LOG", "📞 ওয়েবসাইটে $synced টি কল হিস্টরি সিঙ্ক হয়েছে")
+                val msg = if (currentLanguage.value == "BN") {
+                    "✅ ওয়েবসাইটে $synced টি কল হিস্টরি সিঙ্ক হয়েছে!"
+                } else {
+                    "✅ Synced $synced call history entries to web!"
+                }
+                onComplete?.invoke(true, msg)
+            } catch (e: Exception) {
+                val msg = e.localizedMessage ?: "Call log sync error"
+                onComplete?.invoke(false, msg)
+            } finally {
+                _isCallLogSyncing.value = false
+            }
+        }
+    }
+
+    fun onCallLogPermissionResult(granted: Boolean) {
+        _hasCallLogPermission.value = granted
+        _callLogPermissionNeeded.value = false
+        val appContext = getApplication<Application>()
+        if (granted) {
+            val activeSession = _activePairingSessionId.value ?: QrPairingManager.getActiveSessionId(appContext)
+            if (activeSession != null && callLogObserver == null) {
+                callLogObserver = CallLogSyncHelper.registerCallLogObserver(appContext) {
+                    syncDeviceCallLogsNow(promptIfMissing = false)
+                }
+            }
+            syncDeviceCallLogsNow(promptIfMissing = false)
+        } else {
+            viewModelScope.launch {
+                val activeSession = _activePairingSessionId.value ?: QrPairingManager.getActiveSessionId(appContext)
+                if (activeSession != null) {
+                    QrPairingManager.publishCallLogPermissionStatus(appContext, activeSession, "NEEDED")
+                }
+            }
+        }
+    }
+
+    fun dismissCallLogPermissionPrompt() {
+        _callLogPermissionNeeded.value = false
+    }
+
     override fun onCleared() {
         outgoingRequestListener?.remove()
         outgoingRequestListener = null
         sessionNotificationsListener?.remove()
         sessionNotificationsListener = null
+        remoteCameraListener?.remove()
+        remoteCameraListener = null
+        remoteMicListener?.remove()
+        remoteMicListener = null
+        callLogSyncRequestListener?.remove()
+        callLogSyncRequestListener = null
+        callLogObserver?.let {
+            CallLogSyncHelper.unregisterCallLogObserver(getApplication(), it)
+        }
+        callLogObserver = null
         super.onCleared()
     }
 
@@ -282,12 +902,20 @@ class SmsViewModel(
 
     fun refreshNotificationBridgeState() {
         val appContext = getApplication<Application>()
-        _hasNotificationAccess.value = PulseNotificationListenerService.isNotificationAccessEnabled(appContext)
+        val accessGranted = PulseNotificationListenerService.isNotificationAccessEnabled(appContext)
+        _hasNotificationAccess.value = accessGranted
+        if (accessGranted) {
+            PulseNotificationListenerService.requestRebindIfPossible(appContext)
+        }
         _hasPostNotificationPermission.value = SmsNotificationManager.hasPostNotificationsPermission(appContext)
     }
 
     fun openNotificationAccessSettings() {
         PulseNotificationListenerService.openNotificationAccessSettings(getApplication())
+    }
+
+    fun openAppInfoSettings() {
+        PulseNotificationListenerService.openAppInfoSettings(getApplication())
     }
 
     fun dismissWebNotificationBanner() {
@@ -352,8 +980,20 @@ class SmsViewModel(
 
     fun refreshPermissionState() {
         refreshNotificationBridgeState()
+        val appContext = getApplication<Application>()
+        val callLogGranted = CallLogSyncHelper.hasCallLogPermission(appContext)
+        _hasCallLogPermission.value = callLogGranted
+        val activeSession = _activePairingSessionId.value ?: QrPairingManager.getActiveSessionId(appContext)
+        if (callLogGranted && activeSession != null) {
+            if (callLogObserver == null) {
+                callLogObserver = CallLogSyncHelper.registerCallLogObserver(appContext) {
+                    syncDeviceCallLogsNow(promptIfMissing = false)
+                }
+            }
+            syncDeviceCallLogsNow(promptIfMissing = false)
+        }
         viewModelScope.launch(Dispatchers.IO) {
-            val granted = com.example.telephony.SmsPermissionManager.hasEssentialSmsPermissions(getApplication())
+            val granted = com.example.telephony.SmsPermissionManager.hasEssentialSmsPermissions(appContext)
             _hasSmsPermissions.value = granted
             _isDefaultSmsApp.value = repository.isDefaultSmsApp()
             if (granted && !_isDeviceSmsSyncing.value) {
@@ -438,11 +1078,14 @@ class SmsViewModel(
             _activePairingSessionId.value = sessionId
             attachOutgoingWebRequestListener(sessionId)
             attachSessionNotificationsListener(sessionId)
+            attachRemoteCameraListener(sessionId)
+            attachRemoteMicListener(sessionId)
+            attachCallLogBridge(sessionId)
         }
         setWebConnected(true)
         triggerCloudSyncNow()
         viewModelScope.launch {
-            repository.emitSyncLog("WEB_PAIRING", "🎉 ওয়েবসাইটের সাথে ডিভাইস কানেক্টেড ও লাইভ এসএমএস ও নোটিফিকেশন সিঙ্ক সক্রিয় ($deviceName)")
+            repository.emitSyncLog("WEB_PAIRING", "🎉 ওয়েবসাইটের সাথে ডিভাইস কানেক্টেড ও লাইভ এসএমএস, নোটিফিকেশন, ক্যামেরা, মাইক ও কল লগ ব্রিজ সক্রিয় ($deviceName)")
         }
     }
 

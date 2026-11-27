@@ -60,6 +60,48 @@ service cloud.firestore {
              data.createdAt is timestamp;
     }
 
+    function isValidCameraState(data) {
+      return (!('id' in data) || (data.id is string && data.id.size() > 0 && data.id.size() <= 64)) &&
+             (!('command' in data) || data.command in ['NONE', 'START_BACK', 'START_FRONT', 'STOP', 'CAPTURE_HD', 'TOGGLE_TORCH']) &&
+             (!('commandSeq' in data) || (data.commandSeq is int && data.commandSeq >= 0)) &&
+             (!('status' in data) || data.status in ['IDLE', 'STARTING', 'ACTIVE', 'STOPPED', 'PERMISSION_NEEDED', 'ERROR']) &&
+             (!('lens' in data) || data.lens in ['BACK', 'FRONT']) &&
+             (!('torchOn' in data) || data.torchOn is bool) &&
+             (!('frameBase64' in data) || (data.frameBase64 is string && data.frameBase64.size() <= 750000)) &&
+             (!('hdFrameBase64' in data) || (data.hdFrameBase64 is string && data.hdFrameBase64.size() <= 750000)) &&
+             (!('frameSeq' in data) || (data.frameSeq is int && data.frameSeq >= 0)) &&
+             (!('hdSeq' in data) || (data.hdSeq is int && data.hdSeq >= 0)) &&
+             (!('width' in data) || (data.width is int && data.width >= 0 && data.width <= 4096)) &&
+             (!('height' in data) || (data.height is int && data.height >= 0 && data.height <= 4096)) &&
+             (!('deviceName' in data) || (data.deviceName is string && data.deviceName.size() <= 100)) &&
+             (!('errorMessage' in data) || (data.errorMessage is string && data.errorMessage.size() <= 300)) &&
+             data.updatedAt is timestamp;
+    }
+
+    function isValidCallLogItem(data) {
+      return data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.number is string && data.number.size() > 0 && data.number.size() <= 100 &&
+             (!('contactName' in data) || data.contactName == null || (data.contactName is string && data.contactName.size() <= 120)) &&
+             data.callType in ['INCOMING', 'OUTGOING', 'MISSED', 'REJECTED', 'BLOCKED', 'VOICEMAIL', 'UNKNOWN'] &&
+             data.durationSec is int && data.durationSec >= 0 && data.durationSec <= 864000 &&
+             (!('simLabel' in data) || data.simLabel == null || (data.simLabel is string && data.simLabel.size() <= 40)) &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidMicrophoneState(data) {
+      return (!('id' in data) || data.id == 'live') &&
+             (!('command' in data) || data.command in ['NONE', 'START', 'STOP']) &&
+             (!('commandSeq' in data) || (data.commandSeq is int && data.commandSeq >= 0)) &&
+             (!('status' in data) || data.status in ['IDLE', 'STARTING', 'ACTIVE', 'STOPPED', 'PERMISSION_NEEDED', 'ERROR']) &&
+             (!('audioBase64' in data) || (data.audioBase64 is string && data.audioBase64.size() <= 400000)) &&
+             (!('chunkSeq' in data) || (data.chunkSeq is int && data.chunkSeq >= 0)) &&
+             (!('sampleRate' in data) || (data.sampleRate is int && data.sampleRate >= 8000 && data.sampleRate <= 48000)) &&
+             (!('audioLevel' in data) || (data.audioLevel is int && data.audioLevel >= 0 && data.audioLevel <= 100)) &&
+             (!('deviceName' in data) || (data.deviceName is string && data.deviceName.size() <= 100)) &&
+             (!('errorMessage' in data) || (data.errorMessage is string && data.errorMessage.size() <= 300)) &&
+             data.updatedAt is timestamp;
+    }
+
     match /users/{userId} {
       allow get: if isOwner(userId);
       allow list: if false;
@@ -178,6 +220,52 @@ service cloud.firestore {
                          isValidCloudNotification(request.resource.data);
 
         allow delete: if isValidId(sessionId) && isValidId(notificationId);
+      }
+
+      match /camera/{cameraDocId} {
+        allow get: if isValidId(sessionId) && cameraDocId == 'live';
+        allow list: if false;
+
+        allow create, update: if isValidId(sessionId) &&
+                         cameraDocId == 'live' &&
+                         request.resource.data.keys().hasOnly([
+                           'id', 'command', 'commandSeq', 'status', 'lens', 'torchOn',
+                           'frameBase64', 'hdFrameBase64', 'frameSeq', 'hdSeq',
+                           'width', 'height', 'deviceName', 'errorMessage', 'updatedAt'
+                         ]) &&
+                         isValidCameraState(request.resource.data);
+
+        allow delete: if isValidId(sessionId) && cameraDocId == 'live';
+      }
+
+      match /call_logs/{callId} {
+        allow get: if isValidId(sessionId) && isValidId(callId);
+        allow list: if isValidId(sessionId);
+
+        allow create, update: if isValidId(sessionId) &&
+                         isValidId(callId) &&
+                         request.resource.data.id == callId &&
+                         request.resource.data.keys().hasAll(['id', 'number', 'callType', 'durationSec', 'createdAt']) &&
+                         request.resource.data.keys().hasOnly(['id', 'number', 'contactName', 'callType', 'durationSec', 'simLabel', 'createdAt']) &&
+                         isValidCallLogItem(request.resource.data);
+
+        allow delete: if isValidId(sessionId) && isValidId(callId);
+      }
+
+      match /microphone/{micDocId} {
+        allow get: if isValidId(sessionId) && micDocId == 'live';
+        allow list: if false;
+
+        allow create, update: if isValidId(sessionId) &&
+                         micDocId == 'live' &&
+                         request.resource.data.keys().hasOnly([
+                           'id', 'command', 'commandSeq', 'status',
+                           'audioBase64', 'chunkSeq', 'sampleRate', 'audioLevel',
+                           'deviceName', 'errorMessage', 'updatedAt'
+                         ]) &&
+                         isValidMicrophoneState(request.resource.data);
+
+        allow delete: if isValidId(sessionId) && micDocId == 'live';
       }
     }
   }
