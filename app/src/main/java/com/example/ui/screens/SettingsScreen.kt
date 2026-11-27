@@ -84,6 +84,9 @@ fun SettingsScreen(
     hasTelephonyPermissions: Boolean,
     hasNotificationAccess: Boolean = false,
     hasCallLogPermission: Boolean = false,
+    isAlwaysActiveEnabled: Boolean = true,
+    isKeepAliveServiceRunning: Boolean = false,
+    isBatteryOptimizationIgnored: Boolean = false,
     language: String,
     currentUser: FirebaseUser?,
     isCloudSyncing: Boolean,
@@ -95,6 +98,8 @@ fun SettingsScreen(
     onRequestDefaultSms: () -> Unit,
     onRequestPermissions: () -> Unit,
     onRequestCallLogSync: () -> Unit = {},
+    onToggleAlwaysActiveBackground: (Boolean) -> Unit = {},
+    onOpenBatteryOptimizationSettings: () -> Unit = {},
     onTriggerCloudSync: () -> Unit,
     onSignOut: () -> Unit,
     onAuthSuccess: () -> Unit,
@@ -589,6 +594,75 @@ fun SettingsScreen(
                         ) {
                             Text(if (language == "BN") "এখনই ডিফল্ট করুন" else "Set as Default Now")
                         }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 24/7 Always-Active Background & Battery Card
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (language == "BN") "⚡ ব্যাকগ্রাউন্ডে সবসময় সক্রিয় (২৪/৭)" else "⚡ Always Active in Background",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                            Text(
+                                text = if (isKeepAliveServiceRunning) {
+                                    if (language == "BN") "🟢 ব্যাকগ্রাউন্ড সার্ভিস চলছে (অ্যাপ বন্ধ করলেও সক্রিয়)" else "🟢 Background service running"
+                                } else {
+                                    if (language == "BN") "অ্যাপ থেকে বের হয়ে গেলেও কানেক্টেড থাকতে এটি চালু রাখুন" else "Keep enabled for background sync"
+                                },
+                                fontSize = 11.5.sp,
+                                color = if (isKeepAliveServiceRunning) Color(0xFF059669) else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        androidx.compose.material3.Switch(
+                            checked = isAlwaysActiveEnabled,
+                            onCheckedChange = onToggleAlwaysActiveBackground,
+                            modifier = Modifier.testTag("settings_always_active_switch")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    OutlinedButton(
+                        onClick = onOpenBatteryOptimizationSettings,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .testTag("settings_battery_optimization_btn")
+                    ) {
+                        Icon(
+                            imageVector = if (isBatteryOptimizationIgnored) Icons.Default.CheckCircle else Icons.Default.Security,
+                            contentDescription = null,
+                            tint = if (isBatteryOptimizationIgnored) Color(0xFF10B981) else MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isBatteryOptimizationIgnored) {
+                                if (language == "BN") "✅ ব্যাটারি অপ্টিমাইজেশন আনরেস্ট্রিক্টেড" else "✅ Unrestricted Battery Active"
+                            } else {
+                                if (language == "BN") "🔋 ব্যাটারি আনরেস্ট্রিক্টেড সেটিংস খুলুন" else "🔋 Set Battery to Unrestricted"
+                            },
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
                     }
                 }
             }

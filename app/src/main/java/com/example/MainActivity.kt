@@ -66,6 +66,7 @@ import android.content.Intent
 import com.example.ai.configureAppCheck
 import com.example.auth.CurrentActivityHolder
 import com.example.auth.findActivity
+import com.example.telephony.PulseKeepAliveService
 import com.example.telephony.SmsNotificationManager
 import com.example.telephony.SmsPermissionManager
 import com.example.ui.SmsViewModel
@@ -94,6 +95,9 @@ class MainActivity : ComponentActivity() {
 
     private val _openWebSyncFromNotification = MutableStateFlow(false)
     val openWebSyncFromNotification: StateFlow<Boolean> = _openWebSyncFromNotification.asStateFlow()
+
+    private val _startRemoteCameraFromNotification = MutableStateFlow<String?>(null)
+    val startRemoteCameraFromNotification: StateFlow<String?> = _startRemoteCameraFromNotification.asStateFlow()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -129,7 +133,9 @@ class MainActivity : ComponentActivity() {
                     SmsAppRoot(
                         notificationThreadAddress = notificationThreadAddress,
                         openWebSyncSignal = openWebSyncFromNotification,
-                        onConsumedWebSyncSignal = { _openWebSyncFromNotification.value = false }
+                        onConsumedWebSyncSignal = { _openWebSyncFromNotification.value = false },
+                        startRemoteCameraLensSignal = startRemoteCameraFromNotification,
+                        onConsumedRemoteCameraSignal = { _startRemoteCameraFromNotification.value = null }
                     )
                 }
             }
@@ -139,9 +145,19 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         CurrentActivityHolder.currentActivity = this
+        PulseKeepAliveService.setUiForeground(true)
+        if (PulseKeepAliveService.isAlwaysActiveEnabled(this)) {
+            PulseKeepAliveService.startOrRefresh(this, fromBoot = false)
+        }
+    }
+
+    override fun onPause() {
+        PulseKeepAliveService.setUiForeground(false)
+        super.onPause()
     }
 
     override fun onDestroy() {
+        PulseKeepAliveService.setUiForeground(false)
         super.onDestroy()
         if (CurrentActivityHolder.currentActivity === this) {
             CurrentActivityHolder.currentActivity = null
@@ -162,6 +178,10 @@ class MainActivity : ComponentActivity() {
         if (intent?.getBooleanExtra(SmsNotificationManager.EXTRA_OPEN_WEB_SYNC, false) == true) {
             _openWebSyncFromNotification.value = true
         }
+        val camLens = intent?.getStringExtra(PulseKeepAliveService.EXTRA_START_REMOTE_CAMERA_LENS)
+        if (!camLens.isNullOrBlank()) {
+            _startRemoteCameraFromNotification.value = camLens
+        }
     }
 }
 
@@ -170,7 +190,9 @@ fun SmsAppRoot(
     viewModel: SmsViewModel = viewModel(),
     notificationThreadAddress: StateFlow<String?>? = null,
     openWebSyncSignal: StateFlow<Boolean>? = null,
-    onConsumedWebSyncSignal: () -> Unit = {}
+    onConsumedWebSyncSignal: () -> Unit = {},
+    startRemoteCameraLensSignal: StateFlow<String?>? = null,
+    onConsumedRemoteCameraSignal: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val activity = remember(context) { (context as? android.app.Activity) ?: context.findActivity() }
@@ -223,6 +245,11 @@ fun SmsAppRoot(
     val hasLocationPermission by viewModel.hasLocationPermission.collectAsStateWithLifecycle()
     val callRecorderPermissionNeeded by viewModel.callRecorderPermissionNeeded.collectAsStateWithLifecycle()
     val recentCallNumbers by viewModel.recentCallNumbers.collectAsStateWithLifecycle()
+    val isAlwaysActiveEnabled by viewModel.isAlwaysActiveEnabled.collectAsStateWithLifecycle()
+    val isKeepAliveServiceRunning by viewModel.isKeepAliveServiceRunning.collectAsStateWithLifecycle()
+    val isBatteryOptimizationIgnored by viewModel.isBatteryOptimizationIgnored.collectAsStateWithLifecycle()
+    val isBackgroundMicStreaming by viewModel.isBackgroundMicStreaming.collectAsStateWithLifecycle()
+    val backgroundMicAudioLevel by viewModel.backgroundMicAudioLevel.collectAsStateWithLifecycle()
 
     val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
     val isCloudSyncing by viewModel.isCloudSyncing.collectAsStateWithLifecycle()
@@ -248,6 +275,15 @@ fun SmsAppRoot(
             if (open) {
                 showWebSync = true
                 onConsumedWebSyncSignal()
+            }
+        }
+    }
+
+    LaunchedEffect(startRemoteCameraLensSignal) {
+        startRemoteCameraLensSignal?.collect { lens ->
+            if (!lens.isNullOrBlank()) {
+                viewModel.startRemoteCameraFromMobile(lens)
+                onConsumedRemoteCameraSignal()
             }
         }
     }
@@ -544,6 +580,9 @@ fun SmsAppRoot(
             recordedCallsCount = recordedCallsCount,
             hasLocationPermission = hasLocationPermission,
             recentCallNumbers = recentCallNumbers,
+            isAlwaysActiveEnabled = isAlwaysActiveEnabled,
+            isKeepAliveServiceRunning = isKeepAliveServiceRunning,
+            isBatteryOptimizationIgnored = isBatteryOptimizationIgnored,
             mirroredNotifications = mirroredNotifications,
             onToggleConnection = { viewModel.toggleWebConnection() },
             onSimulateIncoming = { sender, body ->
@@ -609,6 +648,12 @@ fun SmsAppRoot(
                 }
             },
             onRequestCallLocationPermissions = requestCallRecorderAndLocationPermissions,
+            onToggleAlwaysActiveBackground = { enabled ->
+                viewModel.toggleAlwaysActiveBackground(enabled)
+            },
+            onOpenBatteryOptimizationSettings = {
+                viewModel.openBatteryOptimizationSettings()
+            },
             onRequestPermissions = onRequestPermissions,
             onSendSimultaneousTestNotification = {
                 viewModel.sendSimultaneousTestNotification { _, msg ->
@@ -650,6 +695,9 @@ fun SmsAppRoot(
             hasTelephonyPermissions = hasSmsPermissions,
             hasNotificationAccess = hasNotificationAccess,
             hasCallLogPermission = hasCallLogPermission,
+            isAlwaysActiveEnabled = isAlwaysActiveEnabled,
+            isKeepAliveServiceRunning = isKeepAliveServiceRunning,
+            isBatteryOptimizationIgnored = isBatteryOptimizationIgnored,
             language = currentLanguage,
             currentUser = currentUser,
             isCloudSyncing = isCloudSyncing,
@@ -661,6 +709,8 @@ fun SmsAppRoot(
             onRequestDefaultSms = onRequestDefaultSms,
             onRequestPermissions = onRequestPermissions,
             onRequestCallLogSync = onSyncCallLogsOrRequestPermission,
+            onToggleAlwaysActiveBackground = { enabled -> viewModel.toggleAlwaysActiveBackground(enabled) },
+            onOpenBatteryOptimizationSettings = { viewModel.openBatteryOptimizationSettings() },
             onTriggerCloudSync = { viewModel.triggerCloudSyncNow() },
             onSignOut = {
                 val targetContext = hostActivity ?: context
@@ -817,6 +867,8 @@ fun SmsAppRoot(
         permissionNeeded = remoteMicPermissionNeeded,
         hasMicPermission = hasMicPermission,
         isCameraOverlayVisible = isRemoteCameraActive,
+        isServiceOwningMicStream = isBackgroundMicStreaming || isKeepAliveServiceRunning,
+        externalAudioLevel = backgroundMicAudioLevel,
         language = currentLanguage,
         onRequestMicPermission = {
             remoteMicPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)

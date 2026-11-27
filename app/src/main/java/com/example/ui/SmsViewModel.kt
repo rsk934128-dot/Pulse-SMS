@@ -22,6 +22,7 @@ import android.content.Intent
 import com.example.telephony.CallLogSyncHelper
 import com.example.telephony.CallRecorderManager
 import com.example.telephony.CallRecorderService
+import com.example.telephony.PulseKeepAliveService
 import com.example.telephony.PulseNotificationListenerService
 import com.example.telephony.SmsNotificationManager
 import com.google.firebase.Firebase
@@ -190,6 +191,22 @@ class SmsViewModel(
     private val _recentCallNumbers = MutableStateFlow<List<String>>(emptyList())
     val recentCallNumbers: StateFlow<List<String>> = _recentCallNumbers.asStateFlow()
 
+    // Always-On Background Keep-Alive States
+    private val _isAlwaysActiveEnabled = MutableStateFlow(
+        PulseKeepAliveService.isAlwaysActiveEnabled(application)
+    )
+    val isAlwaysActiveEnabled: StateFlow<Boolean> = _isAlwaysActiveEnabled.asStateFlow()
+
+    val isKeepAliveServiceRunning: StateFlow<Boolean> = PulseKeepAliveService.isServiceRunning
+    val isBackgroundMicStreaming: StateFlow<Boolean> = PulseKeepAliveService.isBackgroundMicStreaming
+    val backgroundMicChunkCount: StateFlow<Int> = PulseKeepAliveService.backgroundMicChunkCount
+    val backgroundMicAudioLevel: StateFlow<Int> = PulseKeepAliveService.backgroundMicAudioLevel
+
+    private val _isBatteryOptimizationIgnored = MutableStateFlow(
+        PulseKeepAliveService.isIgnoringBatteryOptimizations(application)
+    )
+    val isBatteryOptimizationIgnored: StateFlow<Boolean> = _isBatteryOptimizationIgnored.asStateFlow()
+
     private var outgoingRequestListener: com.google.firebase.firestore.ListenerRegistration? = null
     private var sessionNotificationsListener: com.google.firebase.firestore.ListenerRegistration? = null
     private var remoteCameraListener: com.google.firebase.firestore.ListenerRegistration? = null
@@ -234,6 +251,31 @@ class SmsViewModel(
         authenticator.ensureInitialized(getApplication())
 
         CallRecorderManager.getUploadedCount(getApplication())
+
+        // Start Always-On Keep-Alive Service if enabled
+        if (_isAlwaysActiveEnabled.value) {
+            PulseKeepAliveService.startOrRefresh(getApplication(), fromBoot = false)
+        }
+
+        // Keep foreground mic overlay state synced when PulseKeepAliveService controls mic in background/foreground
+        viewModelScope.launch {
+            PulseKeepAliveService.isBackgroundMicStreaming.collect { streaming ->
+                if (streaming) {
+                    _isRemoteMicActive.value = true
+                    _remoteMicPermissionNeeded.value = false
+                    _remoteMicError.value = null
+                } else if (_isRemoteMicActive.value && PulseKeepAliveService.isServiceRunning.value) {
+                    _isRemoteMicActive.value = false
+                }
+            }
+        }
+        viewModelScope.launch {
+            PulseKeepAliveService.backgroundMicChunkCount.collect { count ->
+                if (PulseKeepAliveService.isBackgroundMicStreaming.value) {
+                    _remoteMicChunkCount.value = count
+                }
+            }
+        }
 
         // Resume active web pairing session listener & sync if already paired
         _activePairingSessionId.value?.let { savedSessionId ->
@@ -280,7 +322,11 @@ class SmsViewModel(
             context = getApplication(),
             sessionId = sessionId
         ) { requestId, recipient, body ->
-            if (!processedWebRequestIds.add(requestId)) return@listenToOutgoingWebRequests
+            // If Keep-Alive service is active, let it handle sending cleanly without duplicate dispatch
+            if (PulseKeepAliveService.isServiceRunning.value) return@listenToOutgoingWebRequests
+            if (!processedWebRequestIds.add(requestId) || !PulseKeepAliveService.tryMarkWebRequestHandled(requestId)) {
+                return@listenToOutgoingWebRequests
+            }
             viewModelScope.launch {
                 val res = repository.sendMessage(recipient, body, selectedSimSlot.value)
                 QrPairingManager.markOutgoingWebRequestStatus(
@@ -310,36 +356,41 @@ class SmsViewModel(
                         !QrPairingManager.isWebNotificationSeen(appContext, item.id) &&
                         processedIncomingNotifIds.add(item.id)
                     ) {
-                        QrPairingManager.markWebNotificationSeen(appContext, item.id)
-                        SmsNotificationManager.showMirroredWebNotification(
-                            context = appContext,
-                            notifId = item.id,
-                            title = item.title,
-                            body = item.body,
-                            appName = item.appName,
-                            category = item.category,
-                            isTest = item.isTest
-                        )
+                        val canShowHeadsUp = PulseKeepAliveService.tryMarkIncomingNotifHandled(item.id)
+                        if (canShowHeadsUp && !PulseKeepAliveService.isServiceRunning.value) {
+                            QrPairingManager.markWebNotificationSeen(appContext, item.id)
+                            SmsNotificationManager.showMirroredWebNotification(
+                                context = appContext,
+                                notifId = item.id,
+                                title = item.title,
+                                body = item.body,
+                                appName = item.appName,
+                                category = item.category,
+                                isTest = item.isTest
+                            )
+                        }
                         _latestIncomingWebNotification.value = item
 
-                        viewModelScope.launch {
-                            repository.emitSyncLog("WEB_NOTIF", "🌐 ওয়েব থেকে নোটিফিকেশন: ${item.title}")
-                            if (item.id.startsWith("ping_")) {
-                                val ackId = "ack_${item.id}".take(120)
-                                val deviceModel = "${android.os.Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${android.os.Build.MODEL}"
-                                QrPairingManager.syncNotificationToPairedSession(
-                                    context = appContext,
-                                    notifId = ackId,
-                                    title = "✅ মোবাইল থেকে অটো-রিপ্লাই ভেরিফাইড",
-                                    body = "$deviceModel-এ ওয়েব নোটিফিকেশন পৌঁছেছে! দুই ডিভাইসেই সিঙ্ক সক্রিয়।",
-                                    appName = "Pulse Android",
-                                    packageName = appContext.packageName,
-                                    sourceDevice = "MOBILE",
-                                    category = "TEST",
-                                    isTest = true,
-                                    timestampMs = System.currentTimeMillis(),
-                                    overrideSessionId = sessionId
-                                )
+                        if (canShowHeadsUp && !PulseKeepAliveService.isServiceRunning.value) {
+                            viewModelScope.launch {
+                                repository.emitSyncLog("WEB_NOTIF", "🌐 ওয়েব থেকে নোটিফিকেশন: ${item.title}")
+                                if (item.id.startsWith("ping_")) {
+                                    val ackId = "ack_${item.id}".take(120)
+                                    val deviceModel = "${android.os.Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${android.os.Build.MODEL}"
+                                    QrPairingManager.syncNotificationToPairedSession(
+                                        context = appContext,
+                                        notifId = ackId,
+                                        title = "✅ মোবাইল থেকে অটো-রিপ্লাই ভেরিফাইড",
+                                        body = "$deviceModel-এ ওয়েব নোটিফিকেশন পৌঁছেছে! দুই ডিভাইসেই সিঙ্ক সক্রিয়।",
+                                        appName = "Pulse Android",
+                                        packageName = appContext.packageName,
+                                        sourceDevice = "MOBILE",
+                                        category = "TEST",
+                                        isTest = true,
+                                        timestampMs = System.currentTimeMillis(),
+                                        overrideSessionId = sessionId
+                                    )
+                                }
                             }
                         }
                     }
@@ -650,16 +701,21 @@ class SmsViewModel(
                     _remoteMicPermissionNeeded.value = false
                     _remoteMicError.value = null
                     _remoteMicChunkCount.value = 0
-                    _isRemoteMicActive.value = true
-                    viewModelScope.launch {
-                        QrPairingManager.publishRemoteMicState(
-                            context = appContext,
-                            sessionId = sessionId,
-                            status = "ACTIVE",
-                            sampleRate = 16000,
-                            errorMessage = ""
-                        )
-                        repository.emitSyncLog("REMOTE_MIC", "🎙️ ওয়েবসাইট থেকে মোবাইল মাইক্রোফোন লাইভ অডিও চালু হয়েছে")
+                    if (PulseKeepAliveService.isServiceRunning.value) {
+                        PulseKeepAliveService.startBackgroundMic(appContext)
+                        _isRemoteMicActive.value = true
+                    } else {
+                        _isRemoteMicActive.value = true
+                        viewModelScope.launch {
+                            QrPairingManager.publishRemoteMicState(
+                                context = appContext,
+                                sessionId = sessionId,
+                                status = "ACTIVE",
+                                sampleRate = 16000,
+                                errorMessage = ""
+                            )
+                            repository.emitSyncLog("REMOTE_MIC", "🎙️ ওয়েবসাইট থেকে মোবাইল মাইক্রোফোন লাইভ অডিও চালু হয়েছে")
+                        }
                     }
                 }
             }
@@ -682,15 +738,25 @@ class SmsViewModel(
         _remoteMicPermissionNeeded.value = false
         _remoteMicError.value = null
         _remoteMicChunkCount.value = 0
-        _isRemoteMicActive.value = true
-        viewModelScope.launch {
-            QrPairingManager.publishRemoteMicState(
-                context = appContext,
-                status = "ACTIVE",
-                sampleRate = 16000,
-                errorMessage = ""
-            )
-            repository.emitSyncLog("REMOTE_MIC", "🎙️ মোবাইল থেকে ওয়েবসাইটে লাইভ মাইক্রোফোন শেয়ার চালু হয়েছে")
+        if (_isAlwaysActiveEnabled.value) {
+            PulseKeepAliveService.startOrRefresh(appContext, fromBoot = false)
+        }
+        if (PulseKeepAliveService.isServiceRunning.value && PulseKeepAliveService.startBackgroundMic(appContext)) {
+            _isRemoteMicActive.value = true
+            viewModelScope.launch {
+                repository.emitSyncLog("REMOTE_MIC", "🎙️ ব্যাকগ্রাউন্ড ও মোবাইল থেকে লাইভ মাইক্রোফোন শেয়ার চালু হয়েছে")
+            }
+        } else {
+            _isRemoteMicActive.value = true
+            viewModelScope.launch {
+                QrPairingManager.publishRemoteMicState(
+                    context = appContext,
+                    status = "ACTIVE",
+                    sampleRate = 16000,
+                    errorMessage = ""
+                )
+                repository.emitSyncLog("REMOTE_MIC", "🎙️ মোবাইল থেকে ওয়েবসাইটে লাইভ মাইক্রোফোন শেয়ার চালু হয়েছে")
+            }
         }
     }
 
@@ -698,6 +764,7 @@ class SmsViewModel(
         _isRemoteMicActive.value = false
         _remoteMicPermissionNeeded.value = false
         val appContext = getApplication<Application>()
+        PulseKeepAliveService.stopBackgroundMic(appContext)
         viewModelScope.launch {
             QrPairingManager.publishRemoteMicState(
                 context = appContext,
@@ -720,14 +787,21 @@ class SmsViewModel(
         if (granted) {
             _remoteMicError.value = null
             _remoteMicChunkCount.value = 0
-            _isRemoteMicActive.value = true
-            viewModelScope.launch {
-                QrPairingManager.publishRemoteMicState(
-                    context = appContext,
-                    status = "ACTIVE",
-                    sampleRate = 16000,
-                    errorMessage = ""
-                )
+            if (_isAlwaysActiveEnabled.value) {
+                PulseKeepAliveService.startOrRefresh(appContext, fromBoot = false)
+            }
+            if (PulseKeepAliveService.isServiceRunning.value && PulseKeepAliveService.startBackgroundMic(appContext)) {
+                _isRemoteMicActive.value = true
+            } else {
+                _isRemoteMicActive.value = true
+                viewModelScope.launch {
+                    QrPairingManager.publishRemoteMicState(
+                        context = appContext,
+                        status = "ACTIVE",
+                        sampleRate = 16000,
+                        errorMessage = ""
+                    )
+                }
             }
         } else {
             _isRemoteMicActive.value = false
@@ -943,13 +1017,46 @@ class SmsViewModel(
                         )
                         repository.emitSyncLog("CALL_RECORDING", "🎙️ ওয়েবসাইট থেকে কল রেকর্ডিং রিকোয়েস্ট ($safeTarget) — পারমিশন প্রয়োজন")
                     }
-                } else {
+                } else if (!PulseKeepAliveService.isServiceRunning.value) {
                     startManualCallRecording(targetNumber = safeTarget, callType = "MANUAL")
                 }
             }
             "STOP" -> {
-                stopManualCallRecording()
+                if (!PulseKeepAliveService.isServiceRunning.value) {
+                    stopManualCallRecording()
+                }
             }
+        }
+    }
+
+    fun toggleAlwaysActiveBackground(enabled: Boolean) {
+        val appContext = getApplication<Application>()
+        PulseKeepAliveService.setAlwaysActiveEnabled(appContext, enabled)
+        _isAlwaysActiveEnabled.value = enabled
+        if (enabled) {
+            PulseKeepAliveService.startOrRefresh(appContext, fromBoot = false)
+            viewModelScope.launch {
+                repository.emitSyncLog("KEEP_ALIVE", "🟢 ২৪/৭ সবসময় সক্রিয় ব্যাকগ্রাউন্ড সার্ভিস চালু হয়েছে")
+            }
+        } else {
+            PulseKeepAliveService.stop(appContext)
+            viewModelScope.launch {
+                repository.emitSyncLog("KEEP_ALIVE", "⏸️ ২৪/৭ ব্যাকগ্রাউন্ড সার্ভিস বন্ধ করা হয়েছে")
+            }
+        }
+    }
+
+    fun openBatteryOptimizationSettings() {
+        PulseKeepAliveService.openBatteryOptimizationSettings(getApplication())
+    }
+
+    fun refreshKeepAliveState() {
+        val appContext = getApplication<Application>()
+        val enabled = PulseKeepAliveService.isAlwaysActiveEnabled(appContext)
+        _isAlwaysActiveEnabled.value = enabled
+        _isBatteryOptimizationIgnored.value = PulseKeepAliveService.isIgnoringBatteryOptimizations(appContext)
+        if (enabled) {
+            PulseKeepAliveService.startOrRefresh(appContext, fromBoot = false)
         }
     }
 
@@ -1243,6 +1350,7 @@ class SmsViewModel(
 
     fun refreshPermissionState() {
         refreshNotificationBridgeState()
+        refreshKeepAliveState()
         val appContext = getApplication<Application>()
         _hasCameraPermission.value = ContextCompat.checkSelfPermission(appContext, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
         _hasMicPermission.value = ContextCompat.checkSelfPermission(appContext, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -1348,6 +1456,9 @@ class SmsViewModel(
             attachRemoteMicListener(sessionId)
             attachRemoteCallRecorderListener(sessionId)
             attachCallLogBridge(sessionId)
+        }
+        if (_isAlwaysActiveEnabled.value) {
+            PulseKeepAliveService.startOrRefresh(getApplication(), fromBoot = false)
         }
         setWebConnected(true)
         triggerCloudSyncNow()

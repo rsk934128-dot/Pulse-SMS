@@ -35,6 +35,9 @@ class PulseNotificationListenerService : NotificationListenerService() {
     override fun onListenerConnected() {
         super.onListenerConnected()
         Log.i(TAG, "NotificationListenerService connected and ready to mirror notifications.")
+        if (PulseKeepAliveService.isAlwaysActiveEnabled(applicationContext) && !PulseKeepAliveService.isServiceRunning.value) {
+            PulseKeepAliveService.startOrRefresh(applicationContext, fromBoot = true)
+        }
     }
 
     override fun onListenerDisconnected() {
@@ -44,6 +47,9 @@ class PulseNotificationListenerService : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         if (sbn == null) return
+        if (PulseKeepAliveService.isAlwaysActiveEnabled(applicationContext) && !PulseKeepAliveService.isServiceRunning.value) {
+            PulseKeepAliveService.startOrRefresh(applicationContext, fromBoot = true)
+        }
         val pkg = sbn.packageName ?: return
 
         // Avoid echo loops from our own SMS/Web-mirrored notifications

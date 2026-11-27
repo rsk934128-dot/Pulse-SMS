@@ -85,6 +85,8 @@ fun RemoteMicBridgeOverlay(
     permissionNeeded: Boolean,
     hasMicPermission: Boolean = true,
     isCameraOverlayVisible: Boolean,
+    isServiceOwningMicStream: Boolean = false,
+    externalAudioLevel: Int = 0,
     language: String,
     onRequestMicPermission: () -> Unit,
     onDismissPermissionPrompt: () -> Unit,
@@ -102,6 +104,7 @@ fun RemoteMicBridgeOverlay(
     val latestOnChunkCaptured by rememberUpdatedState(onAudioChunkCaptured)
     val latestOnHardwareError by rememberUpdatedState(onHardwareError)
     var localLevel by remember { mutableIntStateOf(0) }
+    val displayLevel = if (isServiceOwningMicStream) externalAudioLevel else localLevel
 
     if (permissionNeeded) {
         AlertDialog(
@@ -149,8 +152,8 @@ fun RemoteMicBridgeOverlay(
         )
     }
 
-    LaunchedEffect(isActive, hasPermission) {
-        if (!isActive || !hasPermission) {
+    LaunchedEffect(isActive, hasPermission, isServiceOwningMicStream) {
+        if (!isActive || !hasPermission || isServiceOwningMicStream) {
             localLevel = 0
             return@LaunchedEffect
         }
@@ -342,7 +345,7 @@ fun RemoteMicBridgeOverlay(
                         Spacer(modifier = Modifier.height(6.dp))
 
                         LinearProgressIndicator(
-                            progress = { (localLevel / 100f).coerceIn(0.05f, 1f) },
+                            progress = { (displayLevel / 100f).coerceIn(0.05f, 1f) },
                             color = Color(0xFF34D399),
                             trackColor = Color(0xFF1E293B),
                             modifier = Modifier

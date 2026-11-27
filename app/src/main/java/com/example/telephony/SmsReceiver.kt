@@ -15,6 +15,9 @@ class SmsReceiver : BroadcastReceiver() {
         if (action == Telephony.Sms.Intents.SMS_DELIVER_ACTION ||
             action == Telephony.Sms.Intents.SMS_RECEIVED_ACTION
         ) {
+            if (PulseKeepAliveService.isAlwaysActiveEnabled(context) && !PulseKeepAliveService.isServiceRunning.value) {
+                PulseKeepAliveService.startOrRefresh(context, fromBoot = true)
+            }
             val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent) ?: return
             val repository = SmsRepository(context)
 

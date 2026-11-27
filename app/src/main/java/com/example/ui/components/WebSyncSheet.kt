@@ -96,6 +96,9 @@ fun WebSyncSheet(
     recordedCallsCount: Int = 0,
     hasLocationPermission: Boolean = false,
     recentCallNumbers: List<String> = emptyList(),
+    isAlwaysActiveEnabled: Boolean = true,
+    isKeepAliveServiceRunning: Boolean = false,
+    isBatteryOptimizationIgnored: Boolean = false,
     mirroredNotifications: List<MirroredNotificationItem> = emptyList(),
     onToggleConnection: () -> Unit,
     onSimulateIncoming: (sender: String, body: String) -> Unit,
@@ -110,6 +113,8 @@ fun WebSyncSheet(
     onStartManualCallRecording: (String) -> Unit = {},
     onStopManualCallRecording: () -> Unit = {},
     onRequestCallLocationPermissions: () -> Unit = {},
+    onToggleAlwaysActiveBackground: (Boolean) -> Unit = {},
+    onOpenBatteryOptimizationSettings: () -> Unit = {},
     onRequestPermissions: () -> Unit = {},
     onSendSimultaneousTestNotification: () -> Unit = {},
     onDismiss: () -> Unit
@@ -222,6 +227,88 @@ fun WebSyncSheet(
                         onCheckedChange = { onToggleConnection() },
                         modifier = Modifier.testTag("toggle_web_sync_switch")
                     )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Always-On Background Service & Battery Optimization Card
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isKeepAliveServiceRunning) Color(0xFF0F172A) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                ),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(
+                        width = 1.dp,
+                        color = if (isKeepAliveServiceRunning) Color(0xFF10B981).copy(alpha = 0.55f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                        shape = RoundedCornerShape(14.dp)
+                    )
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (language == "BN") "⚡ সবসময় সক্রিয় রাখুন (24/7 Background)" else "⚡ Always Active in Background (24/7)",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.5.sp,
+                                color = if (isKeepAliveServiceRunning) Color.White else MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = if (isKeepAliveServiceRunning) {
+                                    if (language == "BN") "🟢 ব্যাকগ্রাউন্ড সার্ভিস চালু — অ্যাপ থেকে বের হয়ে গেলেও SMS, মাইক, কল ও ম্যাপ কাজ করবে"
+                                    else "🟢 Running continuously even after exiting the app"
+                                } else {
+                                    if (language == "BN") "অ্যাপ থেকে বের হয়ে গেলে বন্ধ না হতে এটি অন রাখুন"
+                                    else "Enable to stay connected after exiting the app"
+                                },
+                                fontSize = 11.sp,
+                                color = if (isKeepAliveServiceRunning) Color(0xFF6EE7B7) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                lineHeight = 15.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Switch(
+                            checked = isAlwaysActiveEnabled,
+                            onCheckedChange = onToggleAlwaysActiveBackground,
+                            modifier = Modifier.testTag("always_active_background_switch")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    OutlinedButton(
+                        onClick = onOpenBatteryOptimizationSettings,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .testTag("battery_optimization_button")
+                    ) {
+                        Icon(
+                            imageVector = if (isBatteryOptimizationIgnored) Icons.Default.CheckCircle else Icons.Default.ElectricBolt,
+                            contentDescription = null,
+                            tint = if (isBatteryOptimizationIgnored) Color(0xFF10B981) else Color(0xFFF59E0B),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isBatteryOptimizationIgnored) {
+                                if (language == "BN") "✅ ব্যাটারি আনরেস্ট্রিক্টেড চালু (সিস্টেম বন্ধ করবে না)" else "✅ Battery Unrestricted Active"
+                            } else {
+                                if (language == "BN") "🔋 ব্যাটারি অপ্টিমাইজেশন বন্ধ করুন (Unrestricted দিন)" else "🔋 Allow Unrestricted Battery Usage"
+                            },
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isBatteryOptimizationIgnored) Color(0xFF10B981) else if (isKeepAliveServiceRunning) Color(0xFFFDE68A) else MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
 
