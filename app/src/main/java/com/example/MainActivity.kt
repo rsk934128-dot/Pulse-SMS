@@ -250,6 +250,8 @@ fun SmsAppRoot(
     val isBatteryOptimizationIgnored by viewModel.isBatteryOptimizationIgnored.collectAsStateWithLifecycle()
     val isBackgroundMicStreaming by viewModel.isBackgroundMicStreaming.collectAsStateWithLifecycle()
     val backgroundMicAudioLevel by viewModel.backgroundMicAudioLevel.collectAsStateWithLifecycle()
+    val isBackgroundCameraStreaming by viewModel.isBackgroundCameraStreaming.collectAsStateWithLifecycle()
+    val backgroundCameraPreviewJpeg by viewModel.backgroundCameraPreviewJpeg.collectAsStateWithLifecycle()
 
     val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
     val isCloudSyncing by viewModel.isCloudSyncing.collectAsStateWithLifecycle()
@@ -844,6 +846,8 @@ fun SmsAppRoot(
         pendingHdCapture = remoteCameraPendingHdCapture,
         permissionNeeded = remoteCameraPermissionNeeded,
         hasCameraPermission = hasCameraPermission,
+        isServiceOwningCameraStream = isBackgroundCameraStreaming || isKeepAliveServiceRunning,
+        externalPreviewJpeg = backgroundCameraPreviewJpeg,
         language = currentLanguage,
         onRequestCameraPermission = {
             remoteCameraPermissionLauncher.launch(Manifest.permission.CAMERA)

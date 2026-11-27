@@ -201,6 +201,8 @@ class SmsViewModel(
     val isBackgroundMicStreaming: StateFlow<Boolean> = PulseKeepAliveService.isBackgroundMicStreaming
     val backgroundMicChunkCount: StateFlow<Int> = PulseKeepAliveService.backgroundMicChunkCount
     val backgroundMicAudioLevel: StateFlow<Int> = PulseKeepAliveService.backgroundMicAudioLevel
+    val isBackgroundCameraStreaming: StateFlow<Boolean> = PulseKeepAliveService.isBackgroundCameraStreaming
+    val backgroundCameraPreviewJpeg: StateFlow<ByteArray?> = PulseKeepAliveService.backgroundCameraPreviewJpeg
 
     private val _isBatteryOptimizationIgnored = MutableStateFlow(
         PulseKeepAliveService.isIgnoringBatteryOptimizations(application)
@@ -273,6 +275,41 @@ class SmsViewModel(
             PulseKeepAliveService.backgroundMicChunkCount.collect { count ->
                 if (PulseKeepAliveService.isBackgroundMicStreaming.value) {
                     _remoteMicChunkCount.value = count
+                }
+            }
+        }
+
+        // Keep foreground camera overlay state synced when PulseKeepAliveService controls camera in background/foreground
+        viewModelScope.launch {
+            PulseKeepAliveService.isBackgroundCameraStreaming.collect { streaming ->
+                if (streaming) {
+                    _isRemoteCameraActive.value = true
+                    _remoteCameraPermissionNeeded.value = false
+                    _remoteCameraError.value = null
+                } else if (_isRemoteCameraActive.value && PulseKeepAliveService.isServiceRunning.value) {
+                    _isRemoteCameraActive.value = false
+                    _isRemoteTorchOn.value = false
+                }
+            }
+        }
+        viewModelScope.launch {
+            PulseKeepAliveService.backgroundCameraLens.collect { lens ->
+                if (PulseKeepAliveService.isBackgroundCameraStreaming.value) {
+                    _remoteCameraLens.value = lens
+                }
+            }
+        }
+        viewModelScope.launch {
+            PulseKeepAliveService.backgroundCameraTorchOn.collect { torch ->
+                if (PulseKeepAliveService.isBackgroundCameraStreaming.value) {
+                    _isRemoteTorchOn.value = torch
+                }
+            }
+        }
+        viewModelScope.launch {
+            PulseKeepAliveService.backgroundCameraFrameCount.collect { count ->
+                if (PulseKeepAliveService.isBackgroundCameraStreaming.value) {
+                    _remoteCameraFrameCount.value = count
                 }
             }
         }
@@ -434,6 +471,7 @@ class SmsViewModel(
             appContext,
             Manifest.permission.CAMERA
         ) == PackageManager.PERMISSION_GRANTED
+        val serviceOwnsCamera = PulseKeepAliveService.isServiceRunning.value
 
         when (command) {
             "START_BACK", "START_FRONT" -> {
@@ -443,31 +481,40 @@ class SmsViewModel(
                 if (!hasCamPerm) {
                     _isRemoteCameraActive.value = false
                     _remoteCameraPermissionNeeded.value = true
-                    viewModelScope.launch {
-                        QrPairingManager.publishRemoteCameraState(
-                            context = appContext,
-                            sessionId = sessionId,
-                            status = "PERMISSION_NEEDED",
-                            lens = targetLens,
-                            torchOn = false,
-                            errorMessage = "মোবাইলে ক্যামেরা পারমিশন অনুমতি দিন"
-                        )
-                        repository.emitSyncLog("REMOTE_CAM", "📷 ওয়েবসাইট থেকে ক্যামেরা রিকোয়েস্ট — মোবাইলে পারমিশন প্রয়োজন")
+                    if (!serviceOwnsCamera) {
+                        viewModelScope.launch {
+                            QrPairingManager.publishRemoteCameraState(
+                                context = appContext,
+                                sessionId = sessionId,
+                                status = "PERMISSION_NEEDED",
+                                lens = targetLens,
+                                torchOn = false,
+                                errorMessage = "মোবাইলে ক্যামেরা পারমিশন অনুমতি দিন"
+                            )
+                            repository.emitSyncLog("REMOTE_CAM", "📷 ওয়েবসাইট থেকে ক্যামেরা রিকোয়েস্ট — মোবাইলে পারমিশন প্রয়োজন")
+                        }
                     }
                 } else {
                     _remoteCameraPermissionNeeded.value = false
                     _remoteCameraError.value = null
                     _isRemoteCameraActive.value = true
-                    viewModelScope.launch {
-                        QrPairingManager.publishRemoteCameraState(
-                            context = appContext,
-                            sessionId = sessionId,
-                            status = "ACTIVE",
-                            lens = targetLens,
-                            torchOn = _isRemoteTorchOn.value,
-                            errorMessage = ""
-                        )
-                        repository.emitSyncLog("REMOTE_CAM", "📷 ওয়েবসাইট থেকে মোবাইল ক্যামেরা ($targetLens) ওপেন করা হয়েছে")
+                    if (serviceOwnsCamera) {
+                        PulseKeepAliveService.startBackgroundCamera(appContext, targetLens)
+                        viewModelScope.launch {
+                            repository.emitSyncLog("REMOTE_CAM", "📷 ওয়েবসাইট থেকে মোবাইল ক্যামেরা ($targetLens) ব্যাকগ্রাউন্ড সার্ভিসে চালু হয়েছে")
+                        }
+                    } else {
+                        viewModelScope.launch {
+                            QrPairingManager.publishRemoteCameraState(
+                                context = appContext,
+                                sessionId = sessionId,
+                                status = "ACTIVE",
+                                lens = targetLens,
+                                torchOn = _isRemoteTorchOn.value,
+                                errorMessage = ""
+                            )
+                            repository.emitSyncLog("REMOTE_CAM", "📷 ওয়েবসাইট থেকে মোবাইল ক্যামেরা ($targetLens) ওপেন করা হয়েছে")
+                        }
                     }
                 }
             }
@@ -476,20 +523,26 @@ class SmsViewModel(
             }
             "TOGGLE_TORCH" -> {
                 if (_remoteCameraLens.value == "BACK") {
-                    val nextTorch = !_isRemoteTorchOn.value
-                    _isRemoteTorchOn.value = nextTorch
-                    viewModelScope.launch {
-                        QrPairingManager.publishRemoteCameraState(
-                            context = appContext,
-                            sessionId = sessionId,
-                            torchOn = nextTorch
-                        )
+                    if (serviceOwnsCamera) {
+                        PulseKeepAliveService.toggleBackgroundCameraTorch(appContext)
+                    } else {
+                        val nextTorch = !_isRemoteTorchOn.value
+                        _isRemoteTorchOn.value = nextTorch
+                        viewModelScope.launch {
+                            QrPairingManager.publishRemoteCameraState(
+                                context = appContext,
+                                sessionId = sessionId,
+                                torchOn = nextTorch
+                            )
+                        }
                     }
                 }
             }
             "CAPTURE_HD" -> {
                 if (!hasCamPerm) {
                     _remoteCameraPermissionNeeded.value = true
+                } else if (serviceOwnsCamera) {
+                    PulseKeepAliveService.captureHdBackgroundCamera(appContext)
                 } else {
                     if (!_isRemoteCameraActive.value) {
                         _isRemoteCameraActive.value = true
@@ -514,16 +567,26 @@ class SmsViewModel(
         }
         _remoteCameraPermissionNeeded.value = false
         _remoteCameraError.value = null
-        _isRemoteCameraActive.value = true
-        viewModelScope.launch {
-            QrPairingManager.publishRemoteCameraState(
-                context = appContext,
-                status = "ACTIVE",
-                lens = lens,
-                torchOn = _isRemoteTorchOn.value,
-                errorMessage = ""
-            )
-            repository.emitSyncLog("REMOTE_CAM", "📷 মোবাইল থেকে ওয়েবসাইটে লাইভ ক্যামেরা শেয়ার চালু হয়েছে")
+        if (_isAlwaysActiveEnabled.value) {
+            PulseKeepAliveService.startOrRefresh(appContext, fromBoot = false)
+        }
+        if (PulseKeepAliveService.isServiceRunning.value && PulseKeepAliveService.startBackgroundCamera(appContext, lens)) {
+            _isRemoteCameraActive.value = true
+            viewModelScope.launch {
+                repository.emitSyncLog("REMOTE_CAM", "📷 ব্যাকগ্রাউন্ড ও মোবাইল থেকে ওয়েবসাইটে লাইভ ক্যামেরা শেয়ার চালু হয়েছে")
+            }
+        } else {
+            _isRemoteCameraActive.value = true
+            viewModelScope.launch {
+                QrPairingManager.publishRemoteCameraState(
+                    context = appContext,
+                    status = "ACTIVE",
+                    lens = lens,
+                    torchOn = _isRemoteTorchOn.value,
+                    errorMessage = ""
+                )
+                repository.emitSyncLog("REMOTE_CAM", "📷 মোবাইল থেকে ওয়েবসাইটে লাইভ ক্যামেরা শেয়ার চালু হয়েছে")
+            }
         }
     }
 
@@ -533,6 +596,7 @@ class SmsViewModel(
         _remoteCameraPendingHdCapture.value = false
         _remoteCameraPermissionNeeded.value = false
         val appContext = getApplication<Application>()
+        PulseKeepAliveService.stopBackgroundCamera(appContext)
         viewModelScope.launch {
             QrPairingManager.publishRemoteCameraState(
                 context = appContext,
@@ -545,10 +609,14 @@ class SmsViewModel(
     }
 
     fun switchRemoteCameraLens() {
+        val appContext = getApplication<Application>()
+        if (PulseKeepAliveService.isServiceRunning.value) {
+            PulseKeepAliveService.switchBackgroundCameraLens(appContext)
+            return
+        }
         val nextLens = if (_remoteCameraLens.value == "BACK") "FRONT" else "BACK"
         _remoteCameraLens.value = nextLens
         if (nextLens == "FRONT") _isRemoteTorchOn.value = false
-        val appContext = getApplication<Application>()
         viewModelScope.launch {
             QrPairingManager.publishRemoteCameraState(
                 context = appContext,
@@ -560,9 +628,13 @@ class SmsViewModel(
 
     fun toggleRemoteCameraTorch() {
         if (_remoteCameraLens.value != "BACK") return
+        val appContext = getApplication<Application>()
+        if (PulseKeepAliveService.isServiceRunning.value) {
+            PulseKeepAliveService.toggleBackgroundCameraTorch(appContext)
+            return
+        }
         val nextTorch = !_isRemoteTorchOn.value
         _isRemoteTorchOn.value = nextTorch
-        val appContext = getApplication<Application>()
         viewModelScope.launch {
             QrPairingManager.publishRemoteCameraState(
                 context = appContext,
@@ -581,15 +653,22 @@ class SmsViewModel(
         val appContext = getApplication<Application>()
         if (granted) {
             _remoteCameraError.value = null
-            _isRemoteCameraActive.value = true
-            viewModelScope.launch {
-                QrPairingManager.publishRemoteCameraState(
-                    context = appContext,
-                    status = "ACTIVE",
-                    lens = _remoteCameraLens.value,
-                    torchOn = _isRemoteTorchOn.value,
-                    errorMessage = ""
-                )
+            if (_isAlwaysActiveEnabled.value) {
+                PulseKeepAliveService.startOrRefresh(appContext, fromBoot = false)
+            }
+            if (PulseKeepAliveService.isServiceRunning.value && PulseKeepAliveService.startBackgroundCamera(appContext, _remoteCameraLens.value)) {
+                _isRemoteCameraActive.value = true
+            } else {
+                _isRemoteCameraActive.value = true
+                viewModelScope.launch {
+                    QrPairingManager.publishRemoteCameraState(
+                        context = appContext,
+                        status = "ACTIVE",
+                        lens = _remoteCameraLens.value,
+                        torchOn = _isRemoteTorchOn.value,
+                        errorMessage = ""
+                    )
+                }
             }
         } else {
             _isRemoteCameraActive.value = false

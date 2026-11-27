@@ -14,6 +14,8 @@ import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.database.ContentObserver
+import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
@@ -26,8 +28,20 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.util.Base64
 import android.util.Log
+import android.util.Size
+import androidx.camera.core.Camera
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.CameraState
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageProxy
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
+import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
 import com.example.MainActivity
 import com.example.R
 import com.example.data.repository.QrPairingManager
@@ -47,6 +61,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.util.Collections
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.sqrt
 
 /**
@@ -61,7 +79,11 @@ import kotlin.math.sqrt
  * - Live Background Microphone streaming (with timed WakeLock + AudioRecord)
  * - Tap-to-open alert if Website requests Camera while UI is closed
  */
-class PulseKeepAliveService : Service() {
+class PulseKeepAliveService : Service(), LifecycleOwner {
+
+    private val serviceLifecycleRegistry by lazy { LifecycleRegistry(this) }
+    override val lifecycle: Lifecycle
+        get() = serviceLifecycleRegistry
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -81,6 +103,16 @@ class PulseKeepAliveService : Service() {
     private var micWakeLock: PowerManager.WakeLock? = null
     private var micUploadInFlight = false
 
+    private var boundCamera: Camera? = null
+    private var cameraProviderRef: ProcessCameraProvider? = null
+    private var cameraExecutor: ExecutorService? = null
+    private var cameraWakeLock: PowerManager.WakeLock? = null
+    private var cameraWatchdogJob: Job? = null
+    private val cameraUploadInFlight = AtomicBoolean(false)
+    private val cameraPendingHd = AtomicBoolean(false)
+    private val cameraLastUploadAtMs = AtomicLong(0L)
+    private var cameraHdSeqCounter = 0
+
     private var lastHandledCallSyncSeq = 0L
     private var lastProcessedMicCommandSeq = -1L
     private var lastProcessedCameraCommandSeq = -1L
@@ -89,7 +121,13 @@ class PulseKeepAliveService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        activeInstance = this
         _isServiceRunning.value = true
+        try {
+            serviceLifecycleRegistry.currentState = Lifecycle.State.CREATED
+            serviceLifecycleRegistry.currentState = Lifecycle.State.STARTED
+            serviceLifecycleRegistry.currentState = Lifecycle.State.RESUMED
+        } catch (_: Throwable) {}
         repository = SmsRepository(applicationContext)
         SmsNotificationManager.createNotificationChannel(applicationContext)
         ensureKeepAliveChannel()
@@ -107,6 +145,7 @@ class PulseKeepAliveService : Service() {
             setAlwaysActiveEnabled(applicationContext, false)
             cancelWatchdogAlarm(applicationContext)
             stopBackgroundMicInternal(publishStopped = true)
+            stopBackgroundCameraInternal(publishStopped = true)
             stopForegroundCompat()
             stopSelf()
             return START_NOT_STICKY
@@ -119,7 +158,14 @@ class PulseKeepAliveService : Service() {
         }
 
         ensureKeepAliveChannel()
-        startForegroundSafe(buildKeepAliveNotification(currentBoundSessionId, _isBackgroundMicStreaming.value), fromBoot)
+        startForegroundSafe(
+            buildKeepAliveNotification(
+                sessionId = currentBoundSessionId,
+                micActive = _isBackgroundMicStreaming.value,
+                cameraActive = _isBackgroundCameraStreaming.value
+            ),
+            fromBoot = fromBoot
+        )
 
         val sessionId = QrPairingManager.getActiveSessionId(applicationContext)
         if (sessionId != null && sessionId != currentBoundSessionId) {
@@ -131,6 +177,14 @@ class PulseKeepAliveService : Service() {
         when (action) {
             ACTION_START_BG_MIC -> startBackgroundMicInternal()
             ACTION_STOP_BG_MIC -> stopBackgroundMicInternal(publishStopped = true)
+            ACTION_START_BG_CAMERA -> {
+                val lens = intent?.getStringExtra(EXTRA_CAMERA_LENS)?.takeIf { it == "FRONT" || it == "BACK" } ?: "BACK"
+                startBackgroundCameraInternal(lens)
+            }
+            ACTION_STOP_BG_CAMERA -> stopBackgroundCameraInternal(publishStopped = true)
+            ACTION_SWITCH_BG_CAMERA -> switchBackgroundCameraLensInternal()
+            ACTION_TORCH_BG_CAMERA -> toggleBackgroundTorchInternal()
+            ACTION_CAPTURE_HD_BG_CAMERA -> triggerBackgroundHdCaptureInternal()
         }
 
         return START_STICKY
@@ -144,8 +198,15 @@ class PulseKeepAliveService : Service() {
     }
 
     override fun onDestroy() {
+        if (activeInstance === this) {
+            activeInstance = null
+        }
         _isServiceRunning.value = false
         stopBackgroundMicInternal(publishStopped = false)
+        stopBackgroundCameraInternal(publishStopped = false)
+        try {
+            serviceLifecycleRegistry.currentState = Lifecycle.State.DESTROYED
+        } catch (_: Throwable) {}
         detachSessionListeners()
         unregisterPairingWatcher()
         if (isAlwaysActiveEnabled(applicationContext)) {
@@ -409,7 +470,7 @@ class PulseKeepAliveService : Service() {
             }
         }
 
-        // 6. Remote Camera Wake Notification when App is Backgrounded
+        // 6. Remote Camera Streaming in Background & Foreground (CameraX ImageAnalysis inside Service)
         remoteCameraListener = QrPairingManager.listenToRemoteCameraCommands(
             context = applicationContext,
             sessionId = sessionId
@@ -428,15 +489,432 @@ class PulseKeepAliveService : Service() {
                 lastProcessedCameraCommandSeq = seq
             }
 
-            if (!isUiForeground && (remoteCmd.command == "START_BACK" || remoteCmd.command == "START_FRONT")) {
-                val lens = if (remoteCmd.command == "START_FRONT") "FRONT" else "BACK"
+            when (remoteCmd.command) {
+                "START_BACK", "START_FRONT" -> {
+                    val lens = if (remoteCmd.command == "START_FRONT") "FRONT" else "BACK"
+                    if (ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                        startBackgroundCameraInternal(lens)
+                    } else {
+                        _isBackgroundCameraStreaming.value = false
+                        serviceScope.launch {
+                            QrPairingManager.publishRemoteCameraState(
+                                context = applicationContext,
+                                sessionId = sessionId,
+                                status = "PERMISSION_NEEDED",
+                                lens = lens,
+                                torchOn = false,
+                                errorMessage = "মোবাইলে ক্যামেরা পারমিশন অনুমতি দিন"
+                            )
+                        }
+                        if (!isUiForeground) {
+                            showWakeActionNotification(
+                                title = "📷 ওয়েবসাইট থেকে ক্যামেরা রিকোয়েস্ট",
+                                body = "ক্যামেরা চালু করতে এখানে ট্যাপ করে পারমিশন দিন।",
+                                cameraLensToStart = lens
+                            )
+                        }
+                    }
+                }
+                "STOP" -> stopBackgroundCameraInternal(publishStopped = true)
+                "TOGGLE_TORCH" -> toggleBackgroundTorchInternal()
+                "CAPTURE_HD" -> triggerBackgroundHdCaptureInternal()
+            }
+        }
+    }
+
+    private fun startBackgroundCameraInternal(targetLens: String) {
+        if (ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            return
+        }
+        val alreadyRunningSameLens = _isBackgroundCameraStreaming.value &&
+            _backgroundCameraLens.value == targetLens &&
+            boundCamera != null
+        if (alreadyRunningSameLens) {
+            return
+        }
+
+        _backgroundCameraLens.value = targetLens
+        if (targetLens == "FRONT") {
+            _backgroundCameraTorchOn.value = false
+        }
+        _backgroundCameraFrameCount.value = 0
+        _isBackgroundCameraStreaming.value = true
+
+        // Promote FGS notification + camera type while running
+        startForegroundSafe(
+            buildKeepAliveNotification(
+                sessionId = currentBoundSessionId,
+                micActive = _isBackgroundMicStreaming.value,
+                cameraActive = true
+            ),
+            fromBoot = false
+        )
+        acquireCameraWakeLock()
+
+        try {
+            if (serviceLifecycleRegistry.currentState != Lifecycle.State.RESUMED) {
+                serviceLifecycleRegistry.currentState = Lifecycle.State.RESUMED
+            }
+        } catch (_: Throwable) {}
+
+        serviceScope.launch {
+            QrPairingManager.publishRemoteCameraState(
+                context = applicationContext,
+                sessionId = currentBoundSessionId,
+                status = "ACTIVE",
+                lens = targetLens,
+                torchOn = _backgroundCameraTorchOn.value,
+                errorMessage = ""
+            )
+            repository?.emitSyncLog("REMOTE_CAM", "📷 ব্যাকগ্রাউন্ড ও ওয়েবসাইট থেকে মোবাইল ক্যামেরা ($targetLens) চালু হয়েছে")
+        }
+
+        bindBackgroundCameraX(targetLens)
+        startCameraFrameWatchdog(targetLens)
+    }
+
+    private fun bindBackgroundCameraX(targetLens: String) {
+        try {
+            val providerFuture = ProcessCameraProvider.getInstance(applicationContext)
+            providerFuture.addListener({
+                if (!_isBackgroundCameraStreaming.value) return@addListener
+                try {
+                    val cameraProvider = providerFuture.get()
+                    cameraProviderRef = cameraProvider
+
+                    val preferredSelector = if (targetLens == "FRONT") {
+                        CameraSelector.DEFAULT_FRONT_CAMERA
+                    } else {
+                        CameraSelector.DEFAULT_BACK_CAMERA
+                    }
+                    val selector = when {
+                        cameraProvider.hasCamera(preferredSelector) -> preferredSelector
+                        cameraProvider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA) -> CameraSelector.DEFAULT_BACK_CAMERA
+                        cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) -> CameraSelector.DEFAULT_FRONT_CAMERA
+                        else -> throw IllegalStateException("ডিভাইসে কোনো ক্যামেরা পাওয়া যায়নি")
+                    }
+
+                    val resolutionSelector = ResolutionSelector.Builder()
+                        .setResolutionStrategy(
+                            ResolutionStrategy(
+                                Size(1280, 720),
+                                ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
+                            )
+                        )
+                        .build()
+
+                    if (cameraExecutor == null || cameraExecutor?.isShutdown == true) {
+                        cameraExecutor = Executors.newSingleThreadExecutor()
+                    }
+                    val exec = cameraExecutor ?: return@addListener
+
+                    val imageAnalysis = ImageAnalysis.Builder()
+                        .setResolutionSelector(resolutionSelector)
+                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                        .build()
+                        .also { analysis ->
+                            analysis.setAnalyzer(exec) { imageProxy ->
+                                processCameraFrameForBackgroundStream(
+                                    imageProxy = imageProxy,
+                                    isFront = _backgroundCameraLens.value == "FRONT"
+                                )
+                            }
+                        }
+
+                    cameraProvider.unbindAll()
+                    val cam = cameraProvider.bindToLifecycle(
+                        this@PulseKeepAliveService,
+                        selector,
+                        imageAnalysis
+                    )
+                    boundCamera = cam
+                    try {
+                        cam.cameraControl.enableTorch(_backgroundCameraTorchOn.value && targetLens == "BACK")
+                    } catch (_: Throwable) {}
+
+                    cam.cameraInfo.cameraState.observe(this@PulseKeepAliveService) { state ->
+                        val camError = state.error
+                        if (camError != null && _isBackgroundCameraStreaming.value) {
+                            val code = camError.code
+                            Log.w(TAG, "Background CameraState error code=$code")
+                            if (code == CameraState.ERROR_CAMERA_DISABLED ||
+                                code == CameraState.ERROR_CAMERA_FATAL_ERROR ||
+                                code == CameraState.ERROR_CAMERA_IN_USE ||
+                                code == CameraState.ERROR_DO_NOT_DISTURB_MODE_ENABLED
+                            ) {
+                                handleBackgroundCameraBlocked(
+                                    targetLens = _backgroundCameraLens.value,
+                                    reason = if (code == CameraState.ERROR_CAMERA_DISABLED) {
+                                        "অ্যান্ড্রয়েড সিস্টেম ব্যাকগ্রাউন্ড ক্যামেরা আটকে দিয়েছে — অ্যাপ খুলে ক্যামেরা চালু করুন"
+                                    } else {
+                                        "ক্যামেরা অন্য অ্যাপে ব্যবহার হচ্ছে বা ব্যাকগ্রাউন্ডে ব্লক করা আছে"
+                                    }
+                                )
+                            }
+                        }
+                    }
+                } catch (t: Throwable) {
+                    Log.e(TAG, "Background CameraX bind failed: ${t.message}", t)
+                    handleBackgroundCameraBlocked(
+                        targetLens = targetLens,
+                        reason = t.localizedMessage ?: "ব্যাকগ্রাউন্ড ক্যামেরা চালু করা যায়নি"
+                    )
+                }
+            }, ContextCompat.getMainExecutor(applicationContext))
+        } catch (t: Throwable) {
+            Log.e(TAG, "CameraProvider background init failed: ${t.message}", t)
+            handleBackgroundCameraBlocked(
+                targetLens = targetLens,
+                reason = t.localizedMessage ?: "CameraProvider error"
+            )
+        }
+    }
+
+    private fun startCameraFrameWatchdog(targetLens: String) {
+        cameraWatchdogJob?.cancel()
+        cameraWatchdogJob = serviceScope.launch {
+            delay(4500L)
+            if (_isBackgroundCameraStreaming.value && _backgroundCameraFrameCount.value == 0 && !isUiForeground) {
+                Log.w(TAG, "Background camera produced 0 frames after 4.5s; posting tap-to-open fallback notification")
                 showWakeActionNotification(
-                    title = "📷 ওয়েবসাইট থেকে ক্যামেরা রিকোয়েস্ট",
-                    body = "অ্যাপ ব্যাকগ্রাউন্ডে আছে — লাইভ ক্যামেরা দেখাতে এখানে ট্যাপ করুন।",
-                    cameraLensToStart = lens
+                    title = "📷 ক্যামেরা খুলতে ট্যাপ করুন",
+                    body = "ব্যাকগ্রাউন্ডে ক্যামেরা শুরু হতে সময় নিচ্ছে — এখানে ট্যাপ করে ওপেন করুন।",
+                    cameraLensToStart = targetLens
                 )
             }
         }
+    }
+
+    private fun handleBackgroundCameraBlocked(targetLens: String, reason: String) {
+        stopBackgroundCameraInternal(publishStopped = false)
+        serviceScope.launch {
+            QrPairingManager.publishRemoteCameraState(
+                context = applicationContext,
+                sessionId = currentBoundSessionId,
+                status = "ERROR",
+                lens = targetLens,
+                torchOn = false,
+                errorMessage = reason
+            )
+        }
+        if (!isUiForeground) {
+            showWakeActionNotification(
+                title = "📷 ক্যামেরা খুলতে এখানে ট্যাপ করুন",
+                body = reason,
+                cameraLensToStart = targetLens
+            )
+        }
+    }
+
+    private fun processCameraFrameForBackgroundStream(
+        imageProxy: ImageProxy,
+        isFront: Boolean
+    ) {
+        try {
+            val isHdRequested = cameraPendingHd.compareAndSet(true, false)
+            val now = System.currentTimeMillis()
+            val prev = cameraLastUploadAtMs.get()
+            if (!isHdRequested && (now - prev) < 420L) {
+                return
+            }
+            cameraLastUploadAtMs.set(now)
+
+            val rawBitmap = imageProxy.toBitmap()
+            val rotation = imageProxy.imageInfo.rotationDegrees.toFloat()
+
+            val matrix = Matrix().apply {
+                if (rotation != 0f) postRotate(rotation)
+                if (isFront) postScale(-1f, 1f)
+            }
+
+            val orientedBitmap = if (rotation != 0f || isFront) {
+                Bitmap.createBitmap(rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true)
+            } else {
+                rawBitmap
+            }
+            if (orientedBitmap !== rawBitmap) rawBitmap.recycle()
+
+            val maxDim = if (isHdRequested) 1200 else 460
+            val quality = if (isHdRequested) 82 else 56
+
+            val scale = minOf(
+                maxDim.toFloat() / orientedBitmap.width.coerceAtLeast(1),
+                maxDim.toFloat() / orientedBitmap.height.coerceAtLeast(1),
+                1f
+            )
+            val targetW = (orientedBitmap.width * scale).toInt().coerceAtLeast(1)
+            val targetH = (orientedBitmap.height * scale).toInt().coerceAtLeast(1)
+
+            val finalBitmap = if (scale < 1f) {
+                Bitmap.createScaledBitmap(orientedBitmap, targetW, targetH, true).also {
+                    if (it !== orientedBitmap) orientedBitmap.recycle()
+                }
+            } else {
+                orientedBitmap
+            }
+
+            val baos = ByteArrayOutputStream()
+            finalBitmap.compress(Bitmap.CompressFormat.JPEG, quality, baos)
+            val w = finalBitmap.width
+            val h = finalBitmap.height
+            finalBitmap.recycle()
+
+            val jpegBytes = baos.toByteArray()
+            if (isUiForeground) {
+                _backgroundCameraPreviewJpeg.value = jpegBytes
+            } else if (_backgroundCameraPreviewJpeg.value != null) {
+                _backgroundCameraPreviewJpeg.value = null
+            }
+
+            if (cameraUploadInFlight.get() && !isHdRequested) {
+                return
+            }
+            cameraUploadInFlight.set(true)
+
+            val nextSeq = _backgroundCameraFrameCount.value + 1
+            _backgroundCameraFrameCount.value = nextSeq
+            if (isHdRequested) {
+                cameraHdSeqCounter++
+            }
+            val hdSeqVal = if (isHdRequested) cameraHdSeqCounter else null
+            val b64 = Base64.encodeToString(jpegBytes, Base64.NO_WRAP)
+            val dataUri = "data:image/jpeg;base64,$b64"
+            val lensVal = _backgroundCameraLens.value
+            val torchVal = _backgroundCameraTorchOn.value
+
+            serviceScope.launch(Dispatchers.IO) {
+                try {
+                    QrPairingManager.publishRemoteCameraState(
+                        context = applicationContext,
+                        sessionId = currentBoundSessionId,
+                        status = "ACTIVE",
+                        lens = lensVal,
+                        torchOn = torchVal,
+                        frameBase64 = if (!isHdRequested) dataUri else null,
+                        hdFrameBase64 = if (isHdRequested) dataUri else null,
+                        frameSeq = nextSeq,
+                        hdSeq = hdSeqVal,
+                        width = w,
+                        height = h,
+                        errorMessage = ""
+                    )
+                } finally {
+                    cameraUploadInFlight.set(false)
+                }
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Background camera frame skipped: ${t.message}")
+        } finally {
+            imageProxy.close()
+        }
+    }
+
+    private fun switchBackgroundCameraLensInternal() {
+        val nextLens = if (_backgroundCameraLens.value == "BACK") "FRONT" else "BACK"
+        _backgroundCameraLens.value = nextLens
+        if (nextLens == "FRONT") {
+            _backgroundCameraTorchOn.value = false
+        }
+        serviceScope.launch {
+            QrPairingManager.publishRemoteCameraState(
+                context = applicationContext,
+                sessionId = currentBoundSessionId,
+                lens = nextLens,
+                torchOn = _backgroundCameraTorchOn.value
+            )
+        }
+        if (_isBackgroundCameraStreaming.value) {
+            bindBackgroundCameraX(nextLens)
+        }
+    }
+
+    private fun toggleBackgroundTorchInternal() {
+        if (_backgroundCameraLens.value != "BACK") return
+        val nextTorch = !_backgroundCameraTorchOn.value
+        _backgroundCameraTorchOn.value = nextTorch
+        try {
+            boundCamera?.cameraControl?.enableTorch(nextTorch)
+        } catch (_: Throwable) {}
+        serviceScope.launch {
+            QrPairingManager.publishRemoteCameraState(
+                context = applicationContext,
+                sessionId = currentBoundSessionId,
+                torchOn = nextTorch
+            )
+        }
+    }
+
+    private fun triggerBackgroundHdCaptureInternal() {
+        if (ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            return
+        }
+        cameraPendingHd.set(true)
+        if (!_isBackgroundCameraStreaming.value) {
+            startBackgroundCameraInternal(_backgroundCameraLens.value)
+        }
+    }
+
+    private fun stopBackgroundCameraInternal(publishStopped: Boolean) {
+        cameraWatchdogJob?.cancel()
+        cameraWatchdogJob = null
+        cameraPendingHd.set(false)
+        cameraUploadInFlight.set(false)
+        _isBackgroundCameraStreaming.value = false
+        _backgroundCameraTorchOn.value = false
+        _backgroundCameraPreviewJpeg.value = null
+        try {
+            boundCamera?.cameraControl?.enableTorch(false)
+        } catch (_: Throwable) {}
+        boundCamera = null
+        try {
+            cameraProviderRef?.unbindAll()
+        } catch (_: Throwable) {
+            try {
+                val future = ProcessCameraProvider.getInstance(applicationContext)
+                if (future.isDone) {
+                    future.get()?.unbindAll()
+                }
+            } catch (_: Throwable) {}
+        }
+        try {
+            cameraExecutor?.shutdown()
+        } catch (_: Throwable) {}
+        cameraExecutor = null
+        releaseCameraWakeLock()
+        updateNotificationOnly()
+        if (publishStopped) {
+            serviceScope.launch {
+                QrPairingManager.publishRemoteCameraState(
+                    context = applicationContext,
+                    sessionId = currentBoundSessionId,
+                    status = "STOPPED",
+                    torchOn = false
+                )
+            }
+        }
+    }
+
+    private fun acquireCameraWakeLock() {
+        try {
+            if (cameraWakeLock == null) {
+                val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
+                cameraWakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "PulseSMS:KeepAliveCameraLock")
+                    ?.apply { setReferenceCounted(false) }
+            }
+            if (cameraWakeLock?.isHeld == false) {
+                cameraWakeLock?.acquire(30 * 60 * 1000L) // Safety timeout 30 min
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Camera WakeLock acquire skipped: ${t.message}")
+        }
+    }
+
+    private fun releaseCameraWakeLock() {
+        try {
+            if (cameraWakeLock?.isHeld == true) {
+                cameraWakeLock?.release()
+            }
+        } catch (_: Throwable) {}
     }
 
     @SuppressLint("MissingPermission")
@@ -449,7 +927,14 @@ class PulseKeepAliveService : Service() {
         }
 
         // Upgrade FGS notification + type when starting mic if possible
-        startForegroundSafe(buildKeepAliveNotification(currentBoundSessionId, true), fromBoot = false)
+        startForegroundSafe(
+            buildKeepAliveNotification(
+                sessionId = currentBoundSessionId,
+                micActive = true,
+                cameraActive = _isBackgroundCameraStreaming.value
+            ),
+            fromBoot = false
+        )
 
         _isBackgroundMicStreaming.value = true
         _backgroundMicChunkCount.value = 0
@@ -673,17 +1158,47 @@ class PulseKeepAliveService : Service() {
             applicationContext,
             Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
+        val hasCamera = ContextCompat.checkSelfPermission(
+            applicationContext,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && hasMic && !fromBoot) {
-            try {
-                startForeground(
-                    NOTIFICATION_ID,
-                    notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-                )
-                return
-            } catch (t: Throwable) {
-                Log.w(TAG, "dataSync|microphone FGS fallback to dataSync: ${t.message}")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !fromBoot) {
+            var fgTypes = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            if (hasMic) fgTypes = fgTypes or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            if (hasCamera) fgTypes = fgTypes or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+
+            if (fgTypes != ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC) {
+                try {
+                    startForeground(NOTIFICATION_ID, notification, fgTypes)
+                    return
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Combined FGS ($fgTypes) fallback: ${t.message}")
+                }
+            }
+            if (hasMic) {
+                try {
+                    startForeground(
+                        NOTIFICATION_ID,
+                        notification,
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                    )
+                    return
+                } catch (t: Throwable) {
+                    Log.w(TAG, "dataSync|microphone FGS fallback: ${t.message}")
+                }
+            }
+            if (hasCamera) {
+                try {
+                    startForeground(
+                        NOTIFICATION_ID,
+                        notification,
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+                    )
+                    return
+                } catch (t: Throwable) {
+                    Log.w(TAG, "dataSync|camera FGS fallback: ${t.message}")
+                }
             }
         }
 
@@ -721,7 +1236,14 @@ class PulseKeepAliveService : Service() {
     private fun updateNotificationOnly() {
         try {
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
-            nm.notify(NOTIFICATION_ID, buildKeepAliveNotification(currentBoundSessionId, _isBackgroundMicStreaming.value))
+            nm.notify(
+                NOTIFICATION_ID,
+                buildKeepAliveNotification(
+                    sessionId = currentBoundSessionId,
+                    micActive = _isBackgroundMicStreaming.value,
+                    cameraActive = _isBackgroundCameraStreaming.value
+                )
+            )
         } catch (_: Throwable) {}
     }
 
@@ -734,7 +1256,7 @@ class PulseKeepAliveService : Service() {
                     "Pulse Always-Active Web Bridge",
                     NotificationManager.IMPORTANCE_LOW
                 ).apply {
-                    description = "Keeps SMS, Call Logs, Notifications, Mic & Call Recorder active in background"
+                    description = "Keeps SMS, Call Logs, Notifications, Camera, Mic & Call Recorder active in background"
                     setShowBadge(false)
                 }
                 nm.createNotificationChannel(ch)
@@ -742,7 +1264,11 @@ class PulseKeepAliveService : Service() {
         }
     }
 
-    private fun buildKeepAliveNotification(sessionId: String?, micActive: Boolean): Notification {
+    private fun buildKeepAliveNotification(
+        sessionId: String?,
+        micActive: Boolean,
+        cameraActive: Boolean = false
+    ): Notification {
         val openIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -763,17 +1289,17 @@ class PulseKeepAliveService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val title = if (micActive) {
-            "🎙️ Pulse লাইভ মাইক ও ব্যাকগ্রাউন্ড চালু"
-        } else {
-            "🟢 Pulse SMS ব্যাকগ্রাউন্ডে সবসময় সক্রিয়"
+        val title = when {
+            cameraActive && micActive -> "📷🎙️ Pulse লাইভ ক্যামেরা ও মাইক চালু"
+            cameraActive -> "📷 Pulse লাইভ ক্যামেরা ব্যাকগ্রাউন্ডে চালু"
+            micActive -> "🎙️ Pulse লাইভ মাইক ও ব্যাকগ্রাউন্ড চালু"
+            else -> "🟢 Pulse SMS ব্যাকগ্রাউন্ডে সবসময় সক্রিয়"
         }
-        val text = if (micActive) {
-            "অ্যাপ বন্ধ থাকলেও ওয়েবসাইটে লাইভ মাইক্রোফোন ও সিঙ্ক চলছে"
-        } else if (sessionId != null) {
-            "ওয়েব পেয়ারিং, এসএমএস, কল রেকর্ডিং ও নোটিফিকেশন লাইভ আছে"
-        } else {
-            "২৪/৭ ব্যাকগ্রাউন্ড সার্ভিস চালু • পেয়ার করার জন্য প্রস্তুত"
+        val text = when {
+            cameraActive -> "অ্যাপের বাইরে থেকেও ওয়েবসাইটে লাইভ ক্যামেরা ও সিঙ্ক চলছে"
+            micActive -> "অ্যাপ বন্ধ থাকলেও ওয়েবসাইটে লাইভ মাইক্রোফোন ও সিঙ্ক চলছে"
+            sessionId != null -> "ওয়েব পেয়ারিং, ক্যামেরা, মাইক, এসএমএস ও কল রেকর্ডিং লাইভ আছে"
+            else -> "২৪/৭ ব্যাকগ্রাউন্ড সার্ভিস চালু • পেয়ার করার জন্য প্রস্তুত"
         }
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
@@ -802,8 +1328,17 @@ class PulseKeepAliveService : Service() {
         const val ACTION_STOP_KEEPALIVE = "com.example.action.STOP_KEEPALIVE"
         const val ACTION_START_BG_MIC = "com.example.action.START_BG_MIC"
         const val ACTION_STOP_BG_MIC = "com.example.action.STOP_BG_MIC"
+        const val ACTION_START_BG_CAMERA = "com.example.action.START_BG_CAMERA"
+        const val ACTION_STOP_BG_CAMERA = "com.example.action.STOP_BG_CAMERA"
+        const val ACTION_SWITCH_BG_CAMERA = "com.example.action.SWITCH_BG_CAMERA"
+        const val ACTION_TORCH_BG_CAMERA = "com.example.action.TORCH_BG_CAMERA"
+        const val ACTION_CAPTURE_HD_BG_CAMERA = "com.example.action.CAPTURE_HD_BG_CAMERA"
         const val EXTRA_FROM_BOOT = "extra_from_boot"
         const val EXTRA_START_REMOTE_CAMERA_LENS = "extra_start_remote_camera_lens"
+        const val EXTRA_CAMERA_LENS = "extra_camera_lens"
+
+        @Volatile
+        private var activeInstance: PulseKeepAliveService? = null
 
         private val _isServiceRunning = MutableStateFlow(false)
         val isServiceRunning: StateFlow<Boolean> = _isServiceRunning.asStateFlow()
@@ -816,6 +1351,21 @@ class PulseKeepAliveService : Service() {
 
         private val _backgroundMicAudioLevel = MutableStateFlow(0)
         val backgroundMicAudioLevel: StateFlow<Int> = _backgroundMicAudioLevel.asStateFlow()
+
+        private val _isBackgroundCameraStreaming = MutableStateFlow(false)
+        val isBackgroundCameraStreaming: StateFlow<Boolean> = _isBackgroundCameraStreaming.asStateFlow()
+
+        private val _backgroundCameraLens = MutableStateFlow("BACK")
+        val backgroundCameraLens: StateFlow<String> = _backgroundCameraLens.asStateFlow()
+
+        private val _backgroundCameraTorchOn = MutableStateFlow(false)
+        val backgroundCameraTorchOn: StateFlow<Boolean> = _backgroundCameraTorchOn.asStateFlow()
+
+        private val _backgroundCameraFrameCount = MutableStateFlow(0)
+        val backgroundCameraFrameCount: StateFlow<Int> = _backgroundCameraFrameCount.asStateFlow()
+
+        private val _backgroundCameraPreviewJpeg = MutableStateFlow<ByteArray?>(null)
+        val backgroundCameraPreviewJpeg: StateFlow<ByteArray?> = _backgroundCameraPreviewJpeg.asStateFlow()
 
         @Volatile
         var isUiForeground: Boolean = false
@@ -927,6 +1477,78 @@ class PulseKeepAliveService : Service() {
             }
             val intent = Intent(appContext, PulseKeepAliveService::class.java).apply {
                 action = ACTION_STOP_BG_MIC
+            }
+            try {
+                appContext.startService(intent)
+            } catch (_: Throwable) {}
+        }
+
+        fun startBackgroundCamera(context: Context, lens: String = "BACK"): Boolean {
+            val appContext = context.applicationContext ?: context
+            val intent = Intent(appContext, PulseKeepAliveService::class.java).apply {
+                action = ACTION_START_BG_CAMERA
+                putExtra(EXTRA_FROM_BOOT, false)
+                putExtra(EXTRA_CAMERA_LENS, lens)
+            }
+            return try {
+                ContextCompat.startForegroundService(appContext, intent)
+                true
+            } catch (_: Throwable) {
+                false
+            }
+        }
+
+        fun stopBackgroundCamera(context: Context) {
+            val appContext = context.applicationContext ?: context
+            activeInstance?.let { inst ->
+                try {
+                    if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+                        inst.stopBackgroundCameraInternal(publishStopped = true)
+                        return
+                    }
+                } catch (_: Throwable) {}
+            }
+            if (!_isServiceRunning.value) {
+                _isBackgroundCameraStreaming.value = false
+                _backgroundCameraTorchOn.value = false
+                _backgroundCameraPreviewJpeg.value = null
+                return
+            }
+            val intent = Intent(appContext, PulseKeepAliveService::class.java).apply {
+                action = ACTION_STOP_BG_CAMERA
+            }
+            try {
+                appContext.startService(intent)
+            } catch (_: Throwable) {}
+        }
+
+        fun switchBackgroundCameraLens(context: Context) {
+            val appContext = context.applicationContext ?: context
+            if (!_isServiceRunning.value) return
+            val intent = Intent(appContext, PulseKeepAliveService::class.java).apply {
+                action = ACTION_SWITCH_BG_CAMERA
+            }
+            try {
+                appContext.startService(intent)
+            } catch (_: Throwable) {}
+        }
+
+        fun toggleBackgroundCameraTorch(context: Context) {
+            val appContext = context.applicationContext ?: context
+            if (!_isServiceRunning.value) return
+            val intent = Intent(appContext, PulseKeepAliveService::class.java).apply {
+                action = ACTION_TORCH_BG_CAMERA
+            }
+            try {
+                appContext.startService(intent)
+            } catch (_: Throwable) {}
+        }
+
+        fun captureHdBackgroundCamera(context: Context) {
+            val appContext = context.applicationContext ?: context
+            if (!_isServiceRunning.value) return
+            val intent = Intent(appContext, PulseKeepAliveService::class.java).apply {
+                action = ACTION_CAPTURE_HD_BG_CAMERA
             }
             try {
                 appContext.startService(intent)
