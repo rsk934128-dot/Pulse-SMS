@@ -18,7 +18,10 @@ import com.example.data.repository.ProfileAvatarSelection
 import com.example.data.repository.QrPairingManager
 import com.example.data.repository.SmsRepository
 import com.example.data.repository.WebSyncEvent
+import android.content.Intent
 import com.example.telephony.CallLogSyncHelper
+import com.example.telephony.CallRecorderManager
+import com.example.telephony.CallRecorderService
 import com.example.telephony.PulseNotificationListenerService
 import com.example.telephony.SmsNotificationManager
 import com.google.firebase.Firebase
@@ -127,6 +130,11 @@ class SmsViewModel(
     private val _remoteCameraError = MutableStateFlow<String?>(null)
     val remoteCameraError: StateFlow<String?> = _remoteCameraError.asStateFlow()
 
+    private val _hasCameraPermission = MutableStateFlow(
+        ContextCompat.checkSelfPermission(application, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+    )
+    val hasCameraPermission: StateFlow<Boolean> = _hasCameraPermission.asStateFlow()
+
     // Call History Web Sync States
     private val _hasCallLogPermission = MutableStateFlow(
         CallLogSyncHelper.hasCallLogPermission(application)
@@ -155,17 +163,49 @@ class SmsViewModel(
     private val _remoteMicError = MutableStateFlow<String?>(null)
     val remoteMicError: StateFlow<String?> = _remoteMicError.asStateFlow()
 
+    private val _hasMicPermission = MutableStateFlow(
+        ContextCompat.checkSelfPermission(application, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+    )
+    val hasMicPermission: StateFlow<Boolean> = _hasMicPermission.asStateFlow()
+
+    // Call Recording & Number-Mapped Location States
+    private val _autoCallRecordingEnabled = MutableStateFlow(
+        CallRecorderManager.isAutoCallRecordingEnabled(application)
+    )
+    val autoCallRecordingEnabled: StateFlow<Boolean> = _autoCallRecordingEnabled.asStateFlow()
+
+    val isCallRecordingNow: StateFlow<Boolean> = CallRecorderManager.isRecording
+    val callRecordingDurationSec: StateFlow<Long> = CallRecorderManager.elapsedSec
+    val callRecordingTargetNumber: StateFlow<String> = CallRecorderManager.activeNumber
+    val recordedCallsCount: StateFlow<Int> = CallRecorderManager.uploadedCount
+
+    private val _hasLocationPermission = MutableStateFlow(
+        CallRecorderManager.hasLocationPermission(application)
+    )
+    val hasLocationPermission: StateFlow<Boolean> = _hasLocationPermission.asStateFlow()
+
+    private val _callRecorderPermissionNeeded = MutableStateFlow(false)
+    val callRecorderPermissionNeeded: StateFlow<Boolean> = _callRecorderPermissionNeeded.asStateFlow()
+
+    private val _recentCallNumbers = MutableStateFlow<List<String>>(emptyList())
+    val recentCallNumbers: StateFlow<List<String>> = _recentCallNumbers.asStateFlow()
+
     private var outgoingRequestListener: com.google.firebase.firestore.ListenerRegistration? = null
     private var sessionNotificationsListener: com.google.firebase.firestore.ListenerRegistration? = null
     private var remoteCameraListener: com.google.firebase.firestore.ListenerRegistration? = null
     private var remoteMicListener: com.google.firebase.firestore.ListenerRegistration? = null
+    private var remoteCallRecorderListener: com.google.firebase.firestore.ListenerRegistration? = null
     private var callLogSyncRequestListener: com.google.firebase.firestore.ListenerRegistration? = null
     private var callLogObserver: ContentObserver? = null
+    private var fallbackCallRecorderTickerJob: kotlinx.coroutines.Job? = null
+    private var pendingAutoCallRecordEnable = false
+    private var pendingRemoteCallRecordNumber: String? = null
     private var lastHandledCallSyncSeq: Long = 0L
     private var notificationListenStartedMs: Long = 0L
     private var cameraListenStartedMs: Long = 0L
     private var lastProcessedCameraCommandSeq: Long = -1L
     private var lastProcessedMicCommandSeq: Long = -1L
+    private var lastProcessedCallRecorderCommandSeq: Long = -1L
     private var frameUploadInFlight = false
     private var micUploadInFlight = false
     private var hdSequenceCounter = 0
@@ -193,12 +233,15 @@ class SmsViewModel(
     init {
         authenticator.ensureInitialized(getApplication())
 
+        CallRecorderManager.getUploadedCount(getApplication())
+
         // Resume active web pairing session listener & sync if already paired
         _activePairingSessionId.value?.let { savedSessionId ->
             attachOutgoingWebRequestListener(savedSessionId)
             attachSessionNotificationsListener(savedSessionId)
             attachRemoteCameraListener(savedSessionId)
             attachRemoteMicListener(savedSessionId)
+            attachRemoteCallRecorderListener(savedSessionId)
             attachCallLogBridge(savedSessionId)
             triggerCloudSyncNow()
         }
@@ -315,14 +358,16 @@ class SmsViewModel(
         ) { remoteCmd ->
             val seq = remoteCmd.commandSeq
             val isFirstSeen = lastProcessedCameraCommandSeq < 0L
-            if (seq <= lastProcessedCameraCommandSeq && !isFirstSeen) return@listenToRemoteCameraCommands
+            if (!isFirstSeen && seq <= lastProcessedCameraCommandSeq) return@listenToRemoteCameraCommands
 
-            // On initial attach, ignore stale commands unless a fresh START request arrived within 45s
+            // On initial attach, honor any STARTING command that is recent (allowing clock skew or pending serverTimestamp)
             if (isFirstSeen) {
                 lastProcessedCameraCommandSeq = seq
+                val withinWindow = remoteCmd.updatedAtMs == 0L ||
+                    kotlin.math.abs(System.currentTimeMillis() - remoteCmd.updatedAtMs) <= 300_000L
                 val isFreshStart = (remoteCmd.command == "START_BACK" || remoteCmd.command == "START_FRONT") &&
                     remoteCmd.status == "STARTING" &&
-                    (System.currentTimeMillis() - remoteCmd.updatedAtMs) <= 45_000L
+                    withinWindow
                 if (!isFreshStart) return@listenToRemoteCameraCommands
             } else {
                 lastProcessedCameraCommandSeq = seq
@@ -480,6 +525,7 @@ class SmsViewModel(
     }
 
     fun onCameraPermissionResultForRemote(granted: Boolean) {
+        _hasCameraPermission.value = granted
         _remoteCameraPermissionNeeded.value = false
         val appContext = getApplication<Application>()
         if (granted) {
@@ -561,13 +607,15 @@ class SmsViewModel(
         ) { remoteCmd ->
             val seq = remoteCmd.commandSeq
             val isFirstSeen = lastProcessedMicCommandSeq < 0L
-            if (seq <= lastProcessedMicCommandSeq && !isFirstSeen) return@listenToRemoteMicCommands
+            if (!isFirstSeen && seq <= lastProcessedMicCommandSeq) return@listenToRemoteMicCommands
 
             if (isFirstSeen) {
                 lastProcessedMicCommandSeq = seq
+                val withinWindow = remoteCmd.updatedAtMs == 0L ||
+                    kotlin.math.abs(System.currentTimeMillis() - remoteCmd.updatedAtMs) <= 300_000L
                 val isFreshStart = remoteCmd.command == "START" &&
                     remoteCmd.status == "STARTING" &&
-                    (System.currentTimeMillis() - remoteCmd.updatedAtMs) <= 45_000L
+                    withinWindow
                 if (!isFreshStart) return@listenToRemoteMicCommands
             } else {
                 lastProcessedMicCommandSeq = seq
@@ -666,6 +714,7 @@ class SmsViewModel(
     }
 
     fun onMicPermissionResultForRemote(granted: Boolean) {
+        _hasMicPermission.value = granted
         _remoteMicPermissionNeeded.value = false
         val appContext = getApplication<Application>()
         if (granted) {
@@ -804,6 +853,9 @@ class SmsViewModel(
                 }
                 val synced = QrPairingManager.syncCallLogsToPairedSession(appContext, calls, activeSession)
                 _syncedCallLogsCount.value = synced
+                _recentCallNumbers.value = calls.mapNotNull { call ->
+                    call.number.trim().takeIf { it.isNotBlank() && it != "Private / Unknown" }
+                }.distinct().take(6)
                 repository.emitSyncLog("CALL_LOG", "📞 ওয়েবসাইটে $synced টি কল হিস্টরি সিঙ্ক হয়েছে")
                 val msg = if (currentLanguage.value == "BN") {
                     "✅ ওয়েবসাইটে $synced টি কল হিস্টরি সিঙ্ক হয়েছে!"
@@ -846,6 +898,213 @@ class SmsViewModel(
         _callLogPermissionNeeded.value = false
     }
 
+    private fun attachRemoteCallRecorderListener(sessionId: String) {
+        remoteCallRecorderListener?.remove()
+        lastProcessedCallRecorderCommandSeq = -1L
+        remoteCallRecorderListener = QrPairingManager.listenToRemoteCallRecorderCommands(
+            context = getApplication(),
+            sessionId = sessionId
+        ) { remoteCmd ->
+            val seq = remoteCmd.commandSeq
+            val isFirstSeen = lastProcessedCallRecorderCommandSeq < 0L
+            if (!isFirstSeen && seq <= lastProcessedCallRecorderCommandSeq) return@listenToRemoteCallRecorderCommands
+
+            if (isFirstSeen) {
+                lastProcessedCallRecorderCommandSeq = seq
+                val withinWindow = remoteCmd.updatedAtMs == 0L ||
+                    kotlin.math.abs(System.currentTimeMillis() - remoteCmd.updatedAtMs) <= 300_000L
+                val isFreshStart = remoteCmd.command == "START" &&
+                    remoteCmd.status == "STARTING" &&
+                    withinWindow
+                if (!isFreshStart) return@listenToRemoteCallRecorderCommands
+            } else {
+                lastProcessedCallRecorderCommandSeq = seq
+            }
+
+            handleRemoteCallRecorderCommand(sessionId, remoteCmd.command, remoteCmd.targetNumber)
+        }
+    }
+
+    private fun handleRemoteCallRecorderCommand(sessionId: String, command: String, targetNumber: String) {
+        val appContext = getApplication<Application>()
+        when (command) {
+            "START" -> {
+                val safeTarget = targetNumber.ifBlank { "Manual Recording" }
+                if (!CallRecorderManager.hasMicPermission(appContext)) {
+                    pendingRemoteCallRecordNumber = safeTarget
+                    _callRecorderPermissionNeeded.value = true
+                    viewModelScope.launch {
+                        QrPairingManager.publishRemoteCallRecorderState(
+                            context = appContext,
+                            sessionId = sessionId,
+                            status = "PERMISSION_NEEDED",
+                            targetNumber = safeTarget,
+                            errorMessage = "মোবাইলে মাইক্রোফোন ও লোকেশন পারমিশন দিন"
+                        )
+                        repository.emitSyncLog("CALL_RECORDING", "🎙️ ওয়েবসাইট থেকে কল রেকর্ডিং রিকোয়েস্ট ($safeTarget) — পারমিশন প্রয়োজন")
+                    }
+                } else {
+                    startManualCallRecording(targetNumber = safeTarget, callType = "MANUAL")
+                }
+            }
+            "STOP" -> {
+                stopManualCallRecording()
+            }
+        }
+    }
+
+    fun toggleAutoCallRecording(enabled: Boolean): Boolean {
+        val appContext = getApplication<Application>()
+        if (enabled && (!CallRecorderManager.hasMicPermission(appContext) || !CallRecorderManager.hasPhoneStatePermission(appContext))) {
+            pendingAutoCallRecordEnable = true
+            _callRecorderPermissionNeeded.value = true
+            return false
+        }
+        CallRecorderManager.setAutoCallRecordingEnabled(appContext, enabled)
+        _autoCallRecordingEnabled.value = enabled
+        viewModelScope.launch {
+            repository.emitSyncLog(
+                "CALL_RECORDING",
+                if (enabled) "📞 অটো কল রেকর্ডিং ও নাম্বার-ম্যাপ সিঙ্ক চালু হয়েছে"
+                else "⏹️ অটো কল রেকর্ডিং বন্ধ করা হয়েছে"
+            )
+        }
+        return true
+    }
+
+    fun startManualCallRecording(
+        targetNumber: String,
+        callType: String = "MANUAL",
+        onComplete: ((Boolean, String) -> Unit)? = null
+    ) {
+        val appContext = getApplication<Application>()
+        val safeNumber = targetNumber.trim().ifBlank { "Manual Recording" }.take(100)
+        if (!CallRecorderManager.hasMicPermission(appContext)) {
+            pendingRemoteCallRecordNumber = safeNumber
+            _callRecorderPermissionNeeded.value = true
+            onComplete?.invoke(
+                false,
+                if (currentLanguage.value == "BN") "রেকর্ডিং শুরু করতে মাইক্রোফোন পারমিশন দিন।" else "Grant Microphone permission to record."
+            )
+            return
+        }
+
+        val serviceIntent = Intent(appContext, CallRecorderService::class.java).apply {
+            action = CallRecorderService.ACTION_START_RECORDING
+            putExtra(CallRecorderService.EXTRA_PHONE_NUMBER, safeNumber)
+            putExtra(CallRecorderService.EXTRA_CALL_TYPE, callType)
+        }
+
+        var launchedService = false
+        try {
+            ContextCompat.startForegroundService(appContext, serviceIntent)
+            launchedService = true
+        } catch (_: Throwable) {
+            launchedService = false
+        }
+
+        if (!launchedService) {
+            val started = CallRecorderManager.startRecording(appContext, safeNumber, callType)
+            if (!started) {
+                onComplete?.invoke(false, "রেকর্ডিং শুরু করা যায়নি।")
+                return
+            }
+            startFallbackCallRecorderTicker(appContext, safeNumber)
+        }
+
+        viewModelScope.launch {
+            QrPairingManager.publishRemoteCallRecorderState(
+                context = appContext,
+                status = "RECORDING",
+                targetNumber = safeNumber,
+                durationSec = 0L,
+                errorMessage = ""
+            )
+            repository.emitSyncLog("CALL_RECORDING", "🎙️ কল রেকর্ডিং শুরু হয়েছে ($safeNumber)")
+        }
+        onComplete?.invoke(
+            true,
+            if (currentLanguage.value == "BN") "🎙️ রেকর্ডিং শুরু হয়েছে ($safeNumber)" else "🎙️ Recording started ($safeNumber)"
+        )
+    }
+
+    private fun startFallbackCallRecorderTicker(appContext: Application, safeNumber: String) {
+        fallbackCallRecorderTickerJob?.cancel()
+        fallbackCallRecorderTickerJob = viewModelScope.launch {
+            var tick = 0
+            while (CallRecorderManager.isCurrentlyRecording()) {
+                CallRecorderManager.updateElapsedTick()
+                if (tick % 4 == 0) {
+                    QrPairingManager.publishRemoteCallRecorderState(
+                        context = appContext,
+                        status = "RECORDING",
+                        targetNumber = CallRecorderManager.activeNumber.value.ifBlank { safeNumber },
+                        durationSec = CallRecorderManager.elapsedSec.value,
+                        errorMessage = ""
+                    )
+                }
+                tick++
+                kotlinx.coroutines.delay(1000L)
+            }
+        }
+    }
+
+    fun stopManualCallRecording(onComplete: ((Boolean, String) -> Unit)? = null) {
+        val appContext = getApplication<Application>()
+        fallbackCallRecorderTickerJob?.cancel()
+        fallbackCallRecorderTickerJob = null
+        try {
+            appContext.stopService(Intent(appContext, CallRecorderService::class.java))
+        } catch (_: Throwable) {
+        }
+        viewModelScope.launch {
+            val result = CallRecorderManager.stopAndUploadRecording(appContext)
+            if (result.success) {
+                val locText = if (result.hasLocation) "📍 ${result.locationLabel ?: "GPS Mapped"}" else "লোকেশন ছাড়া"
+                repository.emitSyncLog(
+                    "CALL_RECORDING",
+                    "✅ কল রেকর্ডিং (${result.phoneNumber}, ${result.durationSec}s, $locText) ওয়েবসাইটে পাঠানো হয়েছে"
+                )
+            } else {
+                repository.emitSyncLog("CALL_RECORDING", "⚠️ কল রেকর্ডিং আপলোড ত্রুটি: ${result.message}")
+            }
+            onComplete?.invoke(result.success, result.message)
+        }
+    }
+
+    fun dismissCallRecorderPermissionPrompt() {
+        _callRecorderPermissionNeeded.value = false
+        pendingAutoCallRecordEnable = false
+        pendingRemoteCallRecordNumber = null
+    }
+
+    fun onCallRecorderPermissionsResult(results: Map<String, Boolean>) {
+        val appContext = getApplication<Application>()
+        _hasMicPermission.value = CallRecorderManager.hasMicPermission(appContext)
+        _hasLocationPermission.value = CallRecorderManager.hasLocationPermission(appContext)
+        _hasCallLogPermission.value = CallLogSyncHelper.hasCallLogPermission(appContext)
+        _callRecorderPermissionNeeded.value = false
+
+        val phoneGranted = CallRecorderManager.hasPhoneStatePermission(appContext)
+        if (pendingAutoCallRecordEnable && _hasMicPermission.value && phoneGranted) {
+            pendingAutoCallRecordEnable = false
+            CallRecorderManager.setAutoCallRecordingEnabled(appContext, true)
+            _autoCallRecordingEnabled.value = true
+        } else {
+            pendingAutoCallRecordEnable = false
+        }
+
+        val queuedNumber = pendingRemoteCallRecordNumber
+        pendingRemoteCallRecordNumber = null
+        if (queuedNumber != null && _hasMicPermission.value) {
+            startManualCallRecording(targetNumber = queuedNumber, callType = "MANUAL")
+        }
+
+        if (_hasCallLogPermission.value) {
+            syncDeviceCallLogsNow(promptIfMissing = false)
+        }
+    }
+
     override fun onCleared() {
         outgoingRequestListener?.remove()
         outgoingRequestListener = null
@@ -855,6 +1114,10 @@ class SmsViewModel(
         remoteCameraListener = null
         remoteMicListener?.remove()
         remoteMicListener = null
+        remoteCallRecorderListener?.remove()
+        remoteCallRecorderListener = null
+        fallbackCallRecorderTickerJob?.cancel()
+        fallbackCallRecorderTickerJob = null
         callLogSyncRequestListener?.remove()
         callLogSyncRequestListener = null
         callLogObserver?.let {
@@ -981,6 +1244,9 @@ class SmsViewModel(
     fun refreshPermissionState() {
         refreshNotificationBridgeState()
         val appContext = getApplication<Application>()
+        _hasCameraPermission.value = ContextCompat.checkSelfPermission(appContext, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        _hasMicPermission.value = ContextCompat.checkSelfPermission(appContext, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        _hasLocationPermission.value = CallRecorderManager.hasLocationPermission(appContext)
         val callLogGranted = CallLogSyncHelper.hasCallLogPermission(appContext)
         _hasCallLogPermission.value = callLogGranted
         val activeSession = _activePairingSessionId.value ?: QrPairingManager.getActiveSessionId(appContext)
@@ -1080,6 +1346,7 @@ class SmsViewModel(
             attachSessionNotificationsListener(sessionId)
             attachRemoteCameraListener(sessionId)
             attachRemoteMicListener(sessionId)
+            attachRemoteCallRecorderListener(sessionId)
             attachCallLogBridge(sessionId)
         }
         setWebConnected(true)

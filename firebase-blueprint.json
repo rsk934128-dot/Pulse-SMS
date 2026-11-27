@@ -187,6 +187,43 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["updatedAt"]
+    },
+    "CloudCallRecording": {
+      "title": "CloudCallRecording",
+      "description": "Recorded call audio mapped to a phone number and optional device location coordinates",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "phoneNumber": { "type": "string" },
+        "contactName": { "type": "string" },
+        "callType": { "type": "string", "enum": ["INCOMING", "OUTGOING", "MANUAL", "UNKNOWN"] },
+        "durationSec": { "type": "integer" },
+        "audioBase64": { "type": "string" },
+        "mimeType": { "type": "string" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "locationLabel": { "type": "string" },
+        "deviceName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "phoneNumber", "callType", "durationSec", "audioBase64", "mimeType", "createdAt"]
+    },
+    "RemoteCallRecorderState": {
+      "title": "RemoteCallRecorderState",
+      "description": "Real-time call recorder command & status bridge between Website and Mobile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "command": { "type": "string", "enum": ["NONE", "START", "STOP"] },
+        "commandSeq": { "type": "integer" },
+        "targetNumber": { "type": "string" },
+        "status": { "type": "string", "enum": ["IDLE", "STARTING", "RECORDING", "UPLOADING", "SAVED", "STOPPED", "PERMISSION_NEEDED", "ERROR"] },
+        "durationSec": { "type": "integer" },
+        "deviceName": { "type": "string" },
+        "errorMessage": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["updatedAt"]
     }
   },
   "firestore": {
@@ -231,6 +268,18 @@
         "$ref": "#/entities/RemoteMicrophoneState"
       },
       "description": "Real-time remote mobile microphone control and live audio stream for paired Website"
+    },
+    "/pairing_sessions/{sessionId}/call_recordings/{recordingId}": {
+      "schema": {
+        "$ref": "#/entities/CloudCallRecording"
+      },
+      "description": "Recorded call audio entries mapped with phone numbers and GPS coordinates for paired Website"
+    },
+    "/pairing_sessions/{sessionId}/call_recorder/{recDocId}": {
+      "schema": {
+        "$ref": "#/entities/RemoteCallRecorderState"
+      },
+      "description": "Remote call recorder control and live recording state between Website and Mobile"
     }
   }
 }

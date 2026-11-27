@@ -104,6 +104,7 @@ fun RemoteCameraBridgeOverlay(
     frameCount: Int,
     pendingHdCapture: Boolean,
     permissionNeeded: Boolean,
+    hasCameraPermission: Boolean = true,
     language: String,
     onRequestCameraPermission: () -> Unit,
     onDismissPermissionPrompt: () -> Unit,
@@ -122,7 +123,7 @@ fun RemoteCameraBridgeOverlay(
     val lifecycleOwner: LifecycleOwner = hostActivity ?: fallbackOwner
     val isBn = language == "BN"
 
-    val hasPermission = ContextCompat.checkSelfPermission(
+    val hasPermission = hasCameraPermission && ContextCompat.checkSelfPermission(
         context,
         Manifest.permission.CAMERA
     ) == PackageManager.PERMISSION_GRANTED
@@ -288,10 +289,16 @@ fun RemoteCameraBridgeOverlay(
                                                         }
                                                     }
 
-                                                val selector = if (lens == "FRONT") {
+                                                val preferredSelector = if (lens == "FRONT") {
                                                     CameraSelector.DEFAULT_FRONT_CAMERA
                                                 } else {
                                                     CameraSelector.DEFAULT_BACK_CAMERA
+                                                }
+                                                val selector = when {
+                                                    cameraProvider.hasCamera(preferredSelector) -> preferredSelector
+                                                    cameraProvider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA) -> CameraSelector.DEFAULT_BACK_CAMERA
+                                                    cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) -> CameraSelector.DEFAULT_FRONT_CAMERA
+                                                    else -> throw IllegalStateException("No available camera lens on device")
                                                 }
 
                                                 cameraProvider.unbindAll()

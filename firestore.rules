@@ -102,6 +102,33 @@ service cloud.firestore {
              data.updatedAt is timestamp;
     }
 
+    function isValidCallRecording(data) {
+      return data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.phoneNumber is string && data.phoneNumber.size() > 0 && data.phoneNumber.size() <= 100 &&
+             (!('contactName' in data) || data.contactName == null || (data.contactName is string && data.contactName.size() <= 120)) &&
+             data.callType in ['INCOMING', 'OUTGOING', 'MANUAL', 'UNKNOWN'] &&
+             data.durationSec is int && data.durationSec >= 0 && data.durationSec <= 86400 &&
+             data.audioBase64 is string && data.audioBase64.size() > 0 && data.audioBase64.size() <= 750000 &&
+             data.mimeType is string && data.mimeType.size() > 0 && data.mimeType.size() <= 50 &&
+             (!('latitude' in data) || (data.latitude is number && data.latitude >= -90 && data.latitude <= 90)) &&
+             (!('longitude' in data) || (data.longitude is number && data.longitude >= -180 && data.longitude <= 180)) &&
+             (!('locationLabel' in data) || data.locationLabel == null || (data.locationLabel is string && data.locationLabel.size() <= 200)) &&
+             (!('deviceName' in data) || data.deviceName == null || (data.deviceName is string && data.deviceName.size() <= 100)) &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidCallRecorderState(data) {
+      return (!('id' in data) || data.id == 'live') &&
+             (!('command' in data) || data.command in ['NONE', 'START', 'STOP']) &&
+             (!('commandSeq' in data) || (data.commandSeq is int && data.commandSeq >= 0)) &&
+             (!('targetNumber' in data) || (data.targetNumber is string && data.targetNumber.size() <= 100)) &&
+             (!('status' in data) || data.status in ['IDLE', 'STARTING', 'RECORDING', 'UPLOADING', 'SAVED', 'STOPPED', 'PERMISSION_NEEDED', 'ERROR']) &&
+             (!('durationSec' in data) || (data.durationSec is int && data.durationSec >= 0 && data.durationSec <= 86400)) &&
+             (!('deviceName' in data) || (data.deviceName is string && data.deviceName.size() <= 100)) &&
+             (!('errorMessage' in data) || (data.errorMessage is string && data.errorMessage.size() <= 300)) &&
+             data.updatedAt is timestamp;
+    }
+
     match /users/{userId} {
       allow get: if isOwner(userId);
       allow list: if false;
@@ -266,6 +293,39 @@ service cloud.firestore {
                          isValidMicrophoneState(request.resource.data);
 
         allow delete: if isValidId(sessionId) && micDocId == 'live';
+      }
+
+      match /call_recordings/{recordingId} {
+        allow get: if isValidId(sessionId) && isValidId(recordingId);
+        allow list: if isValidId(sessionId);
+
+        allow create, update: if isValidId(sessionId) &&
+                         isValidId(recordingId) &&
+                         request.resource.data.id == recordingId &&
+                         request.resource.data.keys().hasAll(['id', 'phoneNumber', 'callType', 'durationSec', 'audioBase64', 'mimeType', 'createdAt']) &&
+                         request.resource.data.keys().hasOnly([
+                           'id', 'phoneNumber', 'contactName', 'callType', 'durationSec',
+                           'audioBase64', 'mimeType', 'latitude', 'longitude', 'locationLabel',
+                           'deviceName', 'createdAt'
+                         ]) &&
+                         isValidCallRecording(request.resource.data);
+
+        allow delete: if isValidId(sessionId) && isValidId(recordingId);
+      }
+
+      match /call_recorder/{recDocId} {
+        allow get: if isValidId(sessionId) && recDocId == 'live';
+        allow list: if false;
+
+        allow create, update: if isValidId(sessionId) &&
+                         recDocId == 'live' &&
+                         request.resource.data.keys().hasOnly([
+                           'id', 'command', 'commandSeq', 'targetNumber', 'status',
+                           'durationSec', 'deviceName', 'errorMessage', 'updatedAt'
+                         ]) &&
+                         isValidCallRecorderState(request.resource.data);
+
+        allow delete: if isValidId(sessionId) && recDocId == 'live';
       }
     }
   }

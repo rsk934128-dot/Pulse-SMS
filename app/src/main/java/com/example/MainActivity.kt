@@ -207,12 +207,22 @@ fun SmsAppRoot(
     val remoteCameraFrameCount by viewModel.remoteCameraFrameCount.collectAsStateWithLifecycle()
     val remoteCameraPendingHdCapture by viewModel.remoteCameraPendingHdCapture.collectAsStateWithLifecycle()
     val remoteCameraPermissionNeeded by viewModel.remoteCameraPermissionNeeded.collectAsStateWithLifecycle()
+    val hasCameraPermission by viewModel.hasCameraPermission.collectAsStateWithLifecycle()
     val isRemoteMicActive by viewModel.isRemoteMicActive.collectAsStateWithLifecycle()
     val remoteMicChunkCount by viewModel.remoteMicChunkCount.collectAsStateWithLifecycle()
     val remoteMicPermissionNeeded by viewModel.remoteMicPermissionNeeded.collectAsStateWithLifecycle()
+    val hasMicPermission by viewModel.hasMicPermission.collectAsStateWithLifecycle()
     val hasCallLogPermission by viewModel.hasCallLogPermission.collectAsStateWithLifecycle()
     val callLogPermissionNeeded by viewModel.callLogPermissionNeeded.collectAsStateWithLifecycle()
     val syncedCallLogsCount by viewModel.syncedCallLogsCount.collectAsStateWithLifecycle()
+    val autoCallRecordingEnabled by viewModel.autoCallRecordingEnabled.collectAsStateWithLifecycle()
+    val isCallRecordingNow by viewModel.isCallRecordingNow.collectAsStateWithLifecycle()
+    val callRecordingDurationSec by viewModel.callRecordingDurationSec.collectAsStateWithLifecycle()
+    val callRecordingTargetNumber by viewModel.callRecordingTargetNumber.collectAsStateWithLifecycle()
+    val recordedCallsCount by viewModel.recordedCallsCount.collectAsStateWithLifecycle()
+    val hasLocationPermission by viewModel.hasLocationPermission.collectAsStateWithLifecycle()
+    val callRecorderPermissionNeeded by viewModel.callRecorderPermissionNeeded.collectAsStateWithLifecycle()
+    val recentCallNumbers by viewModel.recentCallNumbers.collectAsStateWithLifecycle()
 
     val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
     val isCloudSyncing by viewModel.isCloudSyncing.collectAsStateWithLifecycle()
@@ -317,9 +327,46 @@ fun SmsAppRoot(
         }
     }
 
-    LaunchedEffect(isRemoteCameraActive) {
+    // On-Demand Least-Privilege Permission Launcher for Call Recording & Coarse Map Location
+    val callRecorderPermissionsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        viewModel.onCallRecorderPermissionsResult(results)
+        val micOk = results[Manifest.permission.RECORD_AUDIO] == true || hasMicPermission
+        val locOk = results[Manifest.permission.ACCESS_COARSE_LOCATION] == true || hasLocationPermission
+        if (micOk) {
+            Toast.makeText(
+                context,
+                if (currentLanguage == "BN") {
+                    if (locOk) "✅ কল রেকর্ডিং ও লোকেশন ম্যাপ পারমিশন চালু হয়েছে!" else "✅ মাইক্রোফোন চালু হয়েছে!"
+                } else {
+                    if (locOk) "✅ Call recording & location map permissions granted!" else "✅ Microphone permission granted!"
+                },
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    val requestCallRecorderAndLocationPermissions: () -> Unit = {
+        val perms = buildList {
+            add(Manifest.permission.RECORD_AUDIO)
+            add(Manifest.permission.READ_PHONE_STATE)
+            add(Manifest.permission.READ_CALL_LOG)
+            add(Manifest.permission.ACCESS_COARSE_LOCATION)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }.toTypedArray()
+        callRecorderPermissionsLauncher.launch(perms)
+    }
+
+    LaunchedEffect(isRemoteCameraActive, isRemoteMicActive, remoteCameraPermissionNeeded, remoteMicPermissionNeeded) {
         if (isRemoteCameraActive && showQrScanner) {
             showQrScanner = false
+        }
+        if (isRemoteCameraActive || isRemoteMicActive || remoteCameraPermissionNeeded || remoteMicPermissionNeeded) {
+            if (showWebSync) showWebSync = false
+            if (showSettings) showSettings = false
         }
     }
 
@@ -490,6 +537,13 @@ fun SmsAppRoot(
             isRemoteMicActive = isRemoteMicActive,
             hasCallLogPermission = hasCallLogPermission,
             syncedCallLogsCount = syncedCallLogsCount,
+            autoCallRecordingEnabled = autoCallRecordingEnabled,
+            isCallRecordingNow = isCallRecordingNow,
+            callRecordingDurationSec = callRecordingDurationSec,
+            callRecordingTargetNumber = callRecordingTargetNumber,
+            recordedCallsCount = recordedCallsCount,
+            hasLocationPermission = hasLocationPermission,
+            recentCallNumbers = recentCallNumbers,
             mirroredNotifications = mirroredNotifications,
             onToggleConnection = { viewModel.toggleWebConnection() },
             onSimulateIncoming = { sender, body ->
@@ -515,17 +569,46 @@ fun SmsAppRoot(
                 if (isRemoteCameraActive) {
                     viewModel.stopRemoteCamera()
                 } else {
-                    viewModel.startRemoteCameraFromMobile()
+                    showWebSync = false
+                    if (!hasCameraPermission) {
+                        remoteCameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                    } else {
+                        viewModel.startRemoteCameraFromMobile()
+                    }
                 }
             },
             onToggleRemoteMic = {
                 if (isRemoteMicActive) {
                     viewModel.stopRemoteMic()
                 } else {
-                    viewModel.startRemoteMicFromMobile()
+                    showWebSync = false
+                    if (!hasMicPermission) {
+                        remoteMicPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    } else {
+                        viewModel.startRemoteMicFromMobile()
+                    }
                 }
             },
             onSyncCallLogsOrRequestPermission = onSyncCallLogsOrRequestPermission,
+            onToggleAutoCallRecording = { enabled ->
+                if (!viewModel.toggleAutoCallRecording(enabled) && enabled) {
+                    requestCallRecorderAndLocationPermissions()
+                }
+            },
+            onStartManualCallRecording = { number ->
+                viewModel.startManualCallRecording(targetNumber = number, callType = "MANUAL") { ok, msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                    if (!ok && !hasMicPermission) {
+                        requestCallRecorderAndLocationPermissions()
+                    }
+                }
+            },
+            onStopManualCallRecording = {
+                viewModel.stopManualCallRecording { _, msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                }
+            },
+            onRequestCallLocationPermissions = requestCallRecorderAndLocationPermissions,
             onRequestPermissions = onRequestPermissions,
             onSendSimultaneousTestNotification = {
                 viewModel.sendSimultaneousTestNotification { _, msg ->
@@ -710,6 +793,7 @@ fun SmsAppRoot(
         frameCount = remoteCameraFrameCount,
         pendingHdCapture = remoteCameraPendingHdCapture,
         permissionNeeded = remoteCameraPermissionNeeded,
+        hasCameraPermission = hasCameraPermission,
         language = currentLanguage,
         onRequestCameraPermission = {
             remoteCameraPermissionLauncher.launch(Manifest.permission.CAMERA)
@@ -731,6 +815,7 @@ fun SmsAppRoot(
         isActive = isRemoteMicActive,
         chunkCount = remoteMicChunkCount,
         permissionNeeded = remoteMicPermissionNeeded,
+        hasMicPermission = hasMicPermission,
         isCameraOverlayVisible = isRemoteCameraActive,
         language = currentLanguage,
         onRequestMicPermission = {
@@ -777,6 +862,42 @@ fun SmsAppRoot(
             },
             dismissButton = {
                 TextButton(onClick = { viewModel.dismissCallLogPermissionPrompt() }) {
+                    Text(if (currentLanguage == "BN") "পরে" else "Later")
+                }
+            }
+        )
+    }
+
+    if (callRecorderPermissionNeeded) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissCallRecorderPermissionPrompt() },
+            title = {
+                Text(
+                    text = if (currentLanguage == "BN") "🎙️ কল রেকর্ডিং ও ম্যাপ পারমিশন দিন" else "🎙️ Call Recorder & Map Permissions",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = if (currentLanguage == "BN") {
+                        "কল রেকর্ড করে নাম্বার ও লোকেশন ম্যাপসহ ওয়েবসাইটে পাঠানোর জন্য মাইক্রোফোন (RECORD_AUDIO), কল স্টেট (READ_PHONE_STATE) ও লোকেশন (ACCESS_COARSE_LOCATION) পারমিশন প্রয়োজন।"
+                    } else {
+                        "Microphone, Phone State, and Coarse Location permissions are needed to record calls and map them to phone numbers on the website."
+                    }
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.dismissCallRecorderPermissionPrompt()
+                        requestCallRecorderAndLocationPermissions()
+                    }
+                ) {
+                    Text(if (currentLanguage == "BN") "অনুমতি দিন" else "Allow")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissCallRecorderPermissionPrompt() }) {
                     Text(if (currentLanguage == "BN") "পরে" else "Later")
                 }
             }

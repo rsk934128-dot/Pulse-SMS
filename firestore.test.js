@@ -378,5 +378,59 @@ test("Pairing session: web can issue microphone commands and mobile can stream l
   );
 });
 
+test("Pairing session: mobile can upload call recording mapped with number & GPS location, and web can list/delete", async () => {
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+  const recCol = unauthDb.collection("pairing_sessions").doc("pulse_pair_test123").collection("call_recordings");
 
+  await assertSucceeds(
+    recCol.doc("rec_1700000_ab12").set({
+      id: "rec_1700000_ab12",
+      phoneNumber: "+8801711223344",
+      contactName: "Rahim Telecom",
+      callType: "INCOMING",
+      durationSec: 42,
+      audioBase64: "data:audio/mp4;base64,AAAAIGZ0eXBpc29t",
+      mimeType: "audio/mp4",
+      latitude: 23.8103,
+      longitude: 90.4125,
+      locationLabel: "Gulshan, Dhaka",
+      deviceName: "Pixel 9",
+      createdAt: new Date(),
+    })
+  );
 
+  await assertSucceeds(recCol.get());
+
+  // Invalid coordinates (> 90 latitude) should fail
+  await assertFails(
+    recCol.doc("rec_bad_loc").set({
+      id: "rec_bad_loc",
+      phoneNumber: "+8801711223344",
+      callType: "OUTGOING",
+      durationSec: 12,
+      audioBase64: "data:audio/mp4;base64,AAAAIGZ0eXBpc29t",
+      mimeType: "audio/mp4",
+      latitude: 120.5,
+      longitude: 90.4125,
+      createdAt: new Date(),
+    })
+  );
+});
+
+test("Pairing session: web can issue call_recorder commands with targetNumber", async () => {
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+  const recStateRef = unauthDb.collection("pairing_sessions").doc("pulse_pair_test123").collection("call_recorder").doc("live");
+
+  await assertSucceeds(
+    recStateRef.set({
+      id: "live",
+      command: "START",
+      commandSeq: 1,
+      targetNumber: "+8801811002233",
+      status: "STARTING",
+      updatedAt: new Date(),
+    }, { merge: true })
+  );
+
+  await assertSucceeds(recStateRef.get());
+});

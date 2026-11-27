@@ -66,6 +66,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
+import kotlin.coroutines.coroutineContext
 import kotlin.math.sqrt
 
 private const val TAG = "RemoteMicBridge"
@@ -82,6 +83,7 @@ fun RemoteMicBridgeOverlay(
     isActive: Boolean,
     chunkCount: Int,
     permissionNeeded: Boolean,
+    hasMicPermission: Boolean = true,
     isCameraOverlayVisible: Boolean,
     language: String,
     onRequestMicPermission: () -> Unit,
@@ -92,7 +94,7 @@ fun RemoteMicBridgeOverlay(
 ) {
     val context = LocalContext.current
     val isBn = language == "BN"
-    val hasPermission = ContextCompat.checkSelfPermission(
+    val hasPermission = hasMicPermission && ContextCompat.checkSelfPermission(
         context,
         Manifest.permission.RECORD_AUDIO
     ) == PackageManager.PERMISSION_GRANTED
@@ -165,22 +167,40 @@ fun RemoteMicBridgeOverlay(
                     return@withContext
                 }
 
-                val minBufBytes = AudioRecord.getMinBufferSize(
-                    SAMPLE_RATE,
-                    AudioFormat.CHANNEL_IN_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT
-                ).coerceAtLeast(3200)
+                var activeSampleRate = SAMPLE_RATE
+                var rec: AudioRecord? = null
+                val candidateRates = listOf(16000, 44100, 8000)
+                val candidateSources = listOf(MediaRecorder.AudioSource.MIC, MediaRecorder.AudioSource.VOICE_COMMUNICATION)
 
-                val rec = AudioRecord(
-                    MediaRecorder.AudioSource.MIC,
-                    SAMPLE_RATE,
-                    AudioFormat.CHANNEL_IN_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT,
-                    minBufBytes * 2
-                )
+                loopInit@ for (source in candidateSources) {
+                    for (rate in candidateRates) {
+                        val minBufBytes = AudioRecord.getMinBufferSize(
+                            rate,
+                            AudioFormat.CHANNEL_IN_MONO,
+                            AudioFormat.ENCODING_PCM_16BIT
+                        )
+                        if (minBufBytes <= 0) continue
+                        try {
+                            val candidate = AudioRecord(
+                                source,
+                                rate,
+                                AudioFormat.CHANNEL_IN_MONO,
+                                AudioFormat.ENCODING_PCM_16BIT,
+                                (minBufBytes * 2).coerceAtLeast(4096)
+                            )
+                            if (candidate.state == AudioRecord.STATE_INITIALIZED) {
+                                rec = candidate
+                                activeSampleRate = rate
+                                break@loopInit
+                            } else {
+                                candidate.release()
+                            }
+                        } catch (_: Throwable) {}
+                    }
+                }
+
                 recorder = rec
-
-                if (rec.state != AudioRecord.STATE_INITIALIZED) {
+                if (rec == null || rec.state != AudioRecord.STATE_INITIALIZED) {
                     withContext(Dispatchers.Main) {
                         latestOnHardwareError("Microphone hardware initialization failed")
                     }
@@ -197,10 +217,11 @@ fun RemoteMicBridgeOverlay(
 
                 rec.startRecording()
 
+                val targetChunkBytes = ((activeSampleRate * 2 * 8) / 10).coerceIn(12800, 72000)
                 val shortBuf = ShortArray(1024)
-                val chunkStream = ByteArrayOutputStream(TARGET_CHUNK_BYTES + 2048)
+                val chunkStream = ByteArrayOutputStream(targetChunkBytes + 2048)
 
-                while (isActive) {
+                while (coroutineContext.isActive && isActive) {
                     val readSamples = rec.read(shortBuf, 0, shortBuf.size)
                     if (readSamples > 0) {
                         var sumSq = 0.0
@@ -214,11 +235,11 @@ fun RemoteMicBridgeOverlay(
                         val level = ((rms / 5500.0) * 100.0).toInt().coerceIn(0, 100)
                         localLevel = level
 
-                        if (chunkStream.size() >= TARGET_CHUNK_BYTES) {
+                        if (chunkStream.size() >= targetChunkBytes) {
                             val pcmBytes = chunkStream.toByteArray()
                             chunkStream.reset()
                             val b64 = Base64.encodeToString(pcmBytes, Base64.NO_WRAP)
-                            latestOnChunkCaptured(b64, SAMPLE_RATE, level)
+                            latestOnChunkCaptured(b64, activeSampleRate, level)
                         }
                     } else if (readSamples < 0) {
                         Log.w(TAG, "AudioRecord read error code: $readSamples")
