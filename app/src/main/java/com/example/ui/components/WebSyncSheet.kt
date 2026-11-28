@@ -26,7 +26,11 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.Devices
+import androidx.compose.material.icons.filled.Dialpad
 import androidx.compose.material.icons.filled.ElectricBolt
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.NotificationsActive
@@ -95,6 +99,10 @@ fun WebSyncSheet(
     callRecordingTargetNumber: String = "",
     recordedCallsCount: Int = 0,
     hasLocationPermission: Boolean = false,
+    isSystemLocationEnabled: Boolean = false,
+    isLiveLocationSharingEnabled: Boolean = true,
+    isRefreshingLocation: Boolean = false,
+    currentLocationLabel: String? = null,
     recentCallNumbers: List<String> = emptyList(),
     isAlwaysActiveEnabled: Boolean = true,
     isKeepAliveServiceRunning: Boolean = false,
@@ -113,10 +121,20 @@ fun WebSyncSheet(
     onStartManualCallRecording: (String) -> Unit = {},
     onStopManualCallRecording: () -> Unit = {},
     onRequestCallLocationPermissions: () -> Unit = {},
+    onTurnOnLocation: () -> Unit = {},
+    onToggleLocationSharing: (Boolean) -> Unit = {},
+    onRefreshLocation: () -> Unit = {},
     onToggleAlwaysActiveBackground: (Boolean) -> Unit = {},
     onOpenBatteryOptimizationSettings: () -> Unit = {},
     onRequestPermissions: () -> Unit = {},
     onSendSimultaneousTestNotification: () -> Unit = {},
+    onOpenCallDialer: () -> Unit = {},
+    pairedScreensCount: Int = 0,
+    connectedPeerDevicesCount: Int = 0,
+    hasCustomFolderAccess: Boolean = false,
+    onOpenFileManager: () -> Unit = {},
+    onGrantFileFolder: () -> Unit = {},
+    onOpenMultiDevice: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -365,6 +383,291 @@ fun WebSyncSheet(
                 )
             }
 
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // 2b. Multi-Device & Screen Manager Button
+            OutlinedButton(
+                onClick = onOpenMultiDevice,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("web_sync_multi_device_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Devices,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (language == "BN") {
+                        "মাল্টিপল ডিভাইস ও স্ক্রিন যুক্ত করুন ($connectedPeerDevicesCount টি ফোন · $pairedScreensCount টি স্ক্রিন)"
+                    } else {
+                        "Connect Multiple Devices ($connectedPeerDevicesCount phones · $pairedScreensCount screens)"
+                    },
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // 2c. Live Device Location & Map Control Card
+            val isLocActive = hasLocationPermission && isSystemLocationEnabled && isLiveLocationSharingEnabled
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isLocActive) Color(0xFF064E3B).copy(alpha = 0.14f)
+                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(
+                        width = 1.dp,
+                        color = if (isLocActive) Color(0xFF10B981).copy(alpha = 0.5f)
+                        else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                        shape = RoundedCornerShape(16.dp)
+                    )
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isLocActive) Color(0xFF10B981).copy(alpha = 0.2f) else Color(0xFF0284C7).copy(alpha = 0.16f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.LocationOn,
+                                    contentDescription = null,
+                                    tint = if (isLocActive) Color(0xFF059669) else Color(0xFF0284C7),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = if (language == "BN") "📍 লাইভ ডিভাইস লোকেশন ও ম্যাপ" else "📍 Live Device Location & Map",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.5.sp
+                                )
+                                Text(
+                                    text = when {
+                                        isLocActive && !currentLocationLabel.isNullOrBlank() -> "🟢 $currentLocationLabel"
+                                        isLocActive -> if (language == "BN") "🟢 লোকেশন চালু আছে — ম্যাপে সিঙ্ক হচ্ছে" else "🟢 Location active — syncing to map"
+                                        !hasLocationPermission -> if (language == "BN") "ডিভাইসের লোকেশন ম্যাপে দেখতে অনুমতি দিন" else "Grant permission to view device on map"
+                                        !isSystemLocationEnabled -> if (language == "BN") "ফোনের GPS / Location সুইচটি বন্ধ আছে" else "Phone GPS / Location setting is OFF"
+                                        else -> if (language == "BN") "লোকেশন শেয়ারিং বন্ধ আছে" else "Location sharing is paused"
+                                    },
+                                    fontSize = 11.sp,
+                                    color = if (isLocActive) Color(0xFF059669) else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        if (hasLocationPermission && isSystemLocationEnabled) {
+                            Switch(
+                                checked = isLiveLocationSharingEnabled,
+                                onCheckedChange = onToggleLocationSharing,
+                                modifier = Modifier.testTag("websync_location_sharing_switch")
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                if (isLocActive) onRefreshLocation() else onTurnOnLocation()
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isLocActive) Color(0xFF0284C7) else Color(0xFF059669)
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .testTag("websync_turn_on_location_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.LocationOn,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = when {
+                                    isRefreshingLocation -> if (language == "BN") "আপডেট হচ্ছে..." else "Updating..."
+                                    isLocActive -> if (language == "BN") "🔄 লোকেশন আপডেট" else "🔄 Update Pin"
+                                    !hasLocationPermission -> if (language == "BN") "লোকেশন চালু করুন" else "Turn On Location"
+                                    !isSystemLocationEnabled -> if (language == "BN") "GPS চালু করুন" else "Enable GPS"
+                                    else -> if (language == "BN") "লোকেশন চালু করুন" else "Turn On Location"
+                                },
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = onOpenMultiDevice,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .testTag("websync_open_device_map_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Language,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (language == "BN") "🗺️ ডিভাইস ম্যাপ" else "🗺️ Device Map",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // 2.6 Mobile File Manager (Play-Policy Compliant SAF Web Bridge)
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (hasCustomFolderAccess) Color(0xFFECFDF5) else Color(0xFFF5F3FF)
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(
+                        width = 1.dp,
+                        color = if (hasCustomFolderAccess) Color(0xFF34D399) else Color(0xFFA78BFA),
+                        shape = RoundedCornerShape(16.dp)
+                    )
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (hasCustomFolderAccess) Color(0xFFD1FAE5) else Color(0xFFEDE9FE)
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.FolderOpen,
+                                    contentDescription = null,
+                                    tint = if (hasCustomFolderAccess) Color(0xFF047857) else Color(0xFF6D28D9),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = if (language == "BN") "📁 মোবাইল ফাইল ম্যানেজার" else "📁 Mobile File Manager",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = if (language == "BN") {
+                                        if (hasCustomFolderAccess) "🟢 ফোল্ডার শেয়ারিং চালু · ওয়েবসাইট থেকে ব্রাউজ, ডাউনলোড ও আপলোড করুন"
+                                        else "ওয়েবসাইট থেকে ফোনের ফাইল ও ফোল্ডার নিরাপদে দেখতে ফোল্ডার শেয়ার করুন"
+                                    } else {
+                                        if (hasCustomFolderAccess) "🟢 Folder sharing active · Browse, download & upload from website"
+                                        else "Grant folder access to safely browse phone files from the website"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = onGrantFileFolder,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (hasCustomFolderAccess) Color(0xFF047857) else Color(0xFF6D28D9)
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .testTag("websync_grant_file_folder_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CreateNewFolder,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (language == "BN") "ফোল্ডার শেয়ার" else "Share Folder",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = onOpenFileManager,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .testTag("websync_open_file_manager_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FolderOpen,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (language == "BN") "ফাইল ম্যানেজার" else "Open Files",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(18.dp))
 
             // 3. Two-Way Notification Sync & Simultaneous Test Card
@@ -405,15 +708,15 @@ fun WebSyncSheet(
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
                                 Text(
-                                    text = if (language == "BN") "দুই-মুখী নোটিফিকেশন সিঙ্ক ও টেস্ট" else "Two-Way Notification Mirror",
+                                    text = if (language == "BN") "WhatsApp · Telegram · IMO · Messenger ও নোটিফিকেশন মিরর" else "WhatsApp · Telegram · IMO · Messenger & Notification Mirror",
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp
+                                    fontSize = 13.5.sp
                                 )
                                 Text(
                                     text = if (activePairingSessionId != null) {
-                                        if (language == "BN") "মোবাইল ⇄ ওয়েব সেম-টাইম লাইভ মিরর সক্রিয়" else "Mobile ⇄ Web Live Mirror Active"
+                                        if (language == "BN") "ফোনের WhatsApp, Telegram, IMO, Messenger মেসেজ সরাসরি ওয়েবসাইটে দেখাবে" else "WhatsApp, Telegram, IMO & Messenger messages mirrored live"
                                     } else {
-                                        if (language == "BN") "লাইভ সিঙ্কের জন্য উপরে QR বা ১-ক্লিকে কানেক্ট করুন" else "Pair above for live cross-device alerts"
+                                        if (language == "BN") "লাইভ মেসেজ দেখার জন্য উপরে QR বা ১-ক্লিকে কানেক্ট করুন" else "Pair above to mirror social messages"
                                     },
                                     fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -621,6 +924,31 @@ fun WebSyncSheet(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     OutlinedButton(
+                        onClick = onOpenCallDialer,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .testTag("web_sync_open_dialer_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Dialpad,
+                            contentDescription = null,
+                            tint = Color(0xFF10B981),
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (language == "BN") "☎️ কল ডায়ালার খুলুন (নাম্বার লিখে কল করুন)" else "☎️ Open Call Dialer Pad",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF059669)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedButton(
                         onClick = onToggleRemoteMic,
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
@@ -767,11 +1095,11 @@ fun WebSyncSheet(
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = if (autoCallRecordingEnabled) {
-                            if (language == "BN") "✅ অটো কল রেকর্ডিং চালু (কল এলে/গেলে অটো রেকর্ড হয়ে ম্যাপসহ ওয়েবে যাবে)"
-                            else "✅ Auto Call Recording ON (records calls and uploads with map pin)"
+                            if (language == "BN") "✅ অটো কল রেকর্ডিং চালু (সাধারণ কল এবং WhatsApp/Telegram/IMO/Messenger কলে কথা বলার সময় রেকর্ড হয়ে ওয়েবে যাবে)"
+                            else "✅ Auto Call Recording ON (records cellular & WhatsApp/Telegram/IMO/Messenger calls and uploads)"
                         } else {
-                            if (language == "BN") "সুইচ অন করলে ফোনে কল আসা-যাওয়া অটো রেকর্ড হবে; অথবা নিচ থেকে ম্যানুয়ালি রেকর্ড করুন।"
-                            else "Turn on to auto-record phone calls, or record manually for any number below."
+                            if (language == "BN") "সুইচ অন করলে কথা বলার সময় অটো কল রেকর্ড হয়ে ওয়েবসাইটে শুনতে পারবেন; অথবা নিচ থেকে ম্যানুয়ালি রেকর্ড করুন।"
+                            else "Turn on to auto-record calls (cellular & VoIP) and listen on the website, or record manually below."
                         },
                         fontSize = 11.sp,
                         color = if (autoCallRecordingEnabled) Color(0xFF059669) else MaterialTheme.colorScheme.onSurfaceVariant

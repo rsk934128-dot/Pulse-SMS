@@ -31,6 +31,9 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <!-- D3.js v7 CDN for Data Visualization -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+  <!-- Leaflet 1.9.4 CSS & JS for Interactive Multi-Device Location Map -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 
   <!-- Firebase v10 Modular SDK (Supports Named Firestore Database + Auth) -->
   <script type="module">
@@ -195,6 +198,25 @@
       display: block !important;
       image-rendering: pixelated;
     }
+    .pulse-dark-popup .leaflet-popup-content-wrapper,
+    .pulse-dark-popup .leaflet-popup-tip {
+      background: #0f172a;
+      color: #f1f5f9;
+      border: 1px solid rgba(52, 211, 153, 0.35);
+      box-shadow: 0 10px 25px rgba(2, 6, 23, 0.65);
+      border-radius: 14px;
+    }
+    .pulse-dark-popup .leaflet-popup-close-button {
+      color: #94a3b8 !important;
+    }
+    @keyframes pulsePinRipple {
+      0% { transform: scale(0.9); opacity: 0.75; }
+      70% { transform: scale(2.1); opacity: 0; }
+      100% { transform: scale(2.1); opacity: 0; }
+    }
+    .pulse-device-pin-ripple {
+      animation: pulsePinRipple 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+    }
   </style>
 </head>
 
@@ -223,6 +245,10 @@
           <i class="ph ph-qr-code text-cyan-400"></i>
           <span>QR কানেক্ট</span>
         </a>
+        <a href="#social-chat-hub" class="hover:text-emerald-400 transition-colors flex items-center gap-1.5 text-emerald-300 font-semibold">
+          <i class="ph ph-whatsapp-logo text-emerald-400"></i>
+          <span>WhatsApp/IMO/TG</span>
+        </a>
         <a href="#notification-mirror" class="hover:text-emerald-400 transition-colors flex items-center gap-1.5 text-emerald-300 font-semibold">
           <i class="ph ph-bell-ringing text-emerald-400"></i>
           <span>নোটিফিকেশন সিঙ্ক</span>
@@ -242,6 +268,14 @@
         <a href="#call-recordings" class="hover:text-amber-400 transition-colors flex items-center gap-1.5 text-amber-300 font-semibold">
           <i class="ph ph-record text-amber-400"></i>
           <span>রেকর্ডিং ও ম্যাপ</span>
+        </a>
+        <a href="#device-location-map" class="hover:text-emerald-400 transition-colors flex items-center gap-1.5 text-emerald-300 font-semibold">
+          <i class="ph ph-map-pin text-emerald-400"></i>
+          <span>ডিভাইস ম্যাপ</span>
+        </a>
+        <a href="#file-manager" class="hover:text-violet-400 transition-colors flex items-center gap-1.5 text-violet-300 font-semibold">
+          <i class="ph ph-folder-open text-violet-400"></i>
+          <span>ফাইল ম্যানেজার</span>
         </a>
         <a href="#features" class="hover:text-blue-400 transition-colors">ফিচারসমূহ</a>
         <a href="#booking-hub" class="hover:text-blue-400 transition-colors flex items-center gap-1.5 text-blue-300 font-semibold">
@@ -352,6 +386,13 @@
 
             <!-- Top Actions & Auth status -->
             <div class="flex items-center gap-2">
+              <!-- Jump to WhatsApp / Telegram / IMO / Messenger Chats -->
+              <a href="#social-chat-hub" class="px-2.5 py-1 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-medium flex items-center gap-1.5 transition-all active:scale-95 shadow-sm" title="WhatsApp, Telegram, IMO ও Messenger মেসেজ দেখুন">
+                <i class="ph ph-whatsapp-logo text-emerald-400"></i>
+                <span class="hidden lg:inline">সোশ্যাল চ্যাট</span>
+                <span id="liveSocialChatBadgeCount" class="px-1.5 py-0.2 rounded-full bg-emerald-500/30 text-emerald-200 text-[10px] font-mono font-bold">0</span>
+              </a>
+
               <!-- Jump to Live Notification Mirror -->
               <a href="#notification-mirror" id="btnNotificationSyncJump" class="px-2.5 py-1 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-medium flex items-center gap-1.5 transition-all active:scale-95 shadow-sm" title="মোবাইল ও ওয়েব লাইভ নোটিফিকেশন মিরর">
                 <i class="ph ph-bell-ringing text-cyan-400"></i>
@@ -406,6 +447,47 @@
                 <span class="text-[11px] hidden sm:inline">QR পেয়ারিং</span>
               </button>
             </div>
+          </div>
+
+          <!-- Multi-Device Switcher & Command Bar -->
+          <div id="multiDeviceSwitcherBar" class="px-4 py-2.5 bg-slate-900/75 border-b border-slate-800/90 flex flex-wrap items-center justify-between gap-2 text-left">
+            <div class="flex items-center gap-2 flex-1 min-w-0 flex-wrap">
+              <span class="text-[11px] font-bold text-cyan-300 flex items-center gap-1.5 shrink-0">
+                <i class="ph ph-devices text-sm text-cyan-400"></i>
+                <span>যুক্ত ডিভাইস (<span id="multiDeviceTotalCount">0</span>):</span>
+              </span>
+              <div id="multiDevicePillsContainer" class="flex flex-wrap items-center gap-1.5 flex-1 min-w-0">
+                <span class="text-[11px] text-slate-400">কোনো ডিভাইস যুক্ত নেই — QR স্ক্যান বা ১-ক্লিকে যুক্ত করুন</span>
+              </div>
+            </div>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <button type="button" onclick="scrollToDeviceLocationMap()" class="px-2.5 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-[11px] font-semibold flex items-center gap-1 transition-all active:scale-95" title="সব যুক্ত ডিভাইসের লাইভ লোকেশন ম্যাপে দেখুন">
+                <i class="ph ph-map-pin text-sm"></i>
+                <span class="hidden sm:inline">ডিভাইস ম্যাপ</span>
+              </button>
+              <button type="button" onclick="scrollToFileManager()" class="px-2.5 py-1.5 rounded-xl bg-violet-500/15 hover:bg-violet-500/25 text-violet-300 border border-violet-500/30 text-[11px] font-semibold flex items-center gap-1 transition-all active:scale-95" title="মোবাইলের ফাইল ম্যানেজার দেখুন">
+                <i class="ph ph-folder-open text-sm"></i>
+                <span class="hidden sm:inline">ফাইল ম্যানেজার</span>
+              </button>
+              <button type="button" onclick="toggleManualSessionPairInput()" class="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] font-semibold flex items-center gap-1 transition-all active:scale-95">
+                <i class="ph ph-key text-amber-400 text-sm"></i>
+                <span class="hidden sm:inline">কোড দিয়ে যুক্ত</span>
+              </button>
+              <button type="button" onclick="addAnotherDeviceQr()" class="px-2.5 py-1.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-[11px] font-semibold flex items-center gap-1.5 transition-all active:scale-95">
+                <i class="ph ph-plus-circle text-sm"></i>
+                <span>আরেকটি ডিভাইস যুক্ত করুন</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Optional Manual Pairing Token Input Bar -->
+          <div id="manualWebPairInputBar" class="hidden px-4 py-2 bg-slate-950/90 border-b border-slate-800 flex flex-wrap items-center gap-2 text-left">
+            <input type="text" id="manualWebPairTokenInput" placeholder="ফোনের পেয়ারিং টোকেন বা ডিভাইস সেশন আইডি লিখুন (যেমন: pulse_pair_dev_...)" class="flex-1 min-w-[200px] bg-slate-900 border border-slate-700 focus:border-cyan-500 rounded-xl px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none font-mono" />
+            <button type="button" onclick="pairManualTokenFromWeb()" class="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95">
+              <i class="ph ph-link text-sm"></i>
+              <span>কানেক্ট করুন</span>
+            </button>
+            <button type="button" onclick="toggleManualSessionPairInput(false)" class="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs">বাতিল</button>
           </div>
 
           <!-- Messenger Main Dual Pane (Responsive Grid) -->
@@ -486,6 +568,94 @@
 
     </div>
   </header>
+
+  <!-- Dedicated WhatsApp, Telegram, IMO & Messenger Live Message Viewer -->
+  <section id="social-chat-hub" class="relative z-10 py-6 sm:py-10 px-4 max-w-6xl mx-auto scroll-mt-24">
+    <div class="rounded-3xl bg-slate-900/95 border border-emerald-500/35 shadow-2xl p-5 sm:p-7 lg:p-8">
+      <!-- Header -->
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 mb-5 border-b border-slate-800">
+        <div>
+          <div class="flex flex-wrap items-center gap-2 mb-1.5">
+            <span class="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-300 bg-emerald-950/70 px-3 py-1 rounded-full border border-emerald-500/30">
+              <i class="ph ph-chats text-sm"></i>
+              <span>WhatsApp · Telegram · IMO · Messenger Hub</span>
+            </span>
+            <span id="socialChatStatusPill" class="text-[11px] px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 font-semibold">
+              পেয়ারিং অপেক্ষমাণ
+            </span>
+          </div>
+          <h2 class="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
+            WhatsApp · Telegram · IMO · Messenger মেসেজ ভিউয়ার
+          </h2>
+          <p class="text-xs sm:text-sm text-slate-400 mt-1">
+            মোবাইল অ্যাপে "Notification Access" চালু থাকলে আপনার ফোনে আসা WhatsApp, Telegram, IMO ও Messenger মেসেজ রিয়েল-টাইমে এখানে কনভার্সেশন আকারে দেখাবে।
+          </p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2 shrink-0 text-xs">
+          <a href="#call-recordings" class="px-3.5 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 font-bold flex items-center gap-1.5 transition-all active:scale-95">
+            <i class="ph ph-record text-base"></i>
+            <span>কল রেকর্ডিং শুনুন</span>
+          </a>
+        </div>
+      </div>
+
+      <!-- App Filter Tabs -->
+      <div class="flex flex-wrap items-center gap-2 mb-4 text-xs">
+        <button type="button" id="socialFilterBtnALL" onclick="setSocialAppFilter('ALL')" class="px-3 py-1.5 rounded-xl bg-emerald-600 text-white font-bold flex items-center gap-1.5 shadow-sm transition-all">
+          <i class="ph ph-squares-four"></i>
+          <span>সব সোশ্যাল চ্যাট</span>
+          <span id="socialCountALL" class="px-1.5 py-0.2 rounded-full bg-black/25 font-mono text-[10px]">0</span>
+        </button>
+        <button type="button" id="socialFilterBtnWHATSAPP" onclick="setSocialAppFilter('WHATSAPP')" class="px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-emerald-300 border border-emerald-500/30 font-semibold flex items-center gap-1.5 transition-all">
+          <i class="ph ph-whatsapp-logo text-base text-emerald-400"></i>
+          <span>WhatsApp</span>
+          <span id="socialCountWHATSAPP" class="px-1.5 py-0.2 rounded-full bg-emerald-500/20 font-mono text-[10px]">0</span>
+        </button>
+        <button type="button" id="socialFilterBtnTELEGRAM" onclick="setSocialAppFilter('TELEGRAM')" class="px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-sky-300 border border-sky-500/30 font-semibold flex items-center gap-1.5 transition-all">
+          <i class="ph ph-telegram-logo text-base text-sky-400"></i>
+          <span>Telegram</span>
+          <span id="socialCountTELEGRAM" class="px-1.5 py-0.2 rounded-full bg-sky-500/20 font-mono text-[10px]">0</span>
+        </button>
+        <button type="button" id="socialFilterBtnIMO" onclick="setSocialAppFilter('IMO')" class="px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-cyan-300 border border-cyan-500/30 font-semibold flex items-center gap-1.5 transition-all">
+          <i class="ph ph-video-camera text-base text-cyan-400"></i>
+          <span>IMO</span>
+          <span id="socialCountIMO" class="px-1.5 py-0.2 rounded-full bg-cyan-500/20 font-mono text-[10px]">0</span>
+        </button>
+        <button type="button" id="socialFilterBtnMESSENGER" onclick="setSocialAppFilter('MESSENGER')" class="px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-blue-300 border border-blue-500/30 font-semibold flex items-center gap-1.5 transition-all">
+          <i class="ph ph-messenger-logo text-base text-blue-400"></i>
+          <span>Messenger</span>
+          <span id="socialCountMESSENGER" class="px-1.5 py-0.2 rounded-full bg-blue-500/20 font-mono text-[10px]">0</span>
+        </button>
+      </div>
+
+      <!-- 2-Pane Social Chat Inbox -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 rounded-2xl overflow-hidden border border-slate-800 bg-slate-950/90 min-h-[380px] max-h-[520px]">
+        <!-- Left: Conversations -->
+        <div class="lg:col-span-5 border-b lg:border-b-0 lg:border-r border-slate-800 flex flex-col">
+          <div class="p-3 border-b border-slate-800 bg-slate-900/50">
+            <div class="relative">
+              <i class="ph ph-magnifying-glass absolute left-3 top-2.5 text-slate-400 text-sm"></i>
+              <input type="text" id="socialChatSearchInput" oninput="renderSocialChatHub()" placeholder="নাম, গ্রুপ বা মেসেজ খুঁজুন..." class="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl pl-9 pr-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none" />
+            </div>
+          </div>
+          <div id="socialChatConversationList" class="flex-1 overflow-y-auto custom-scrollbar p-2.5 space-y-1.5 max-h-[420px]">
+            <!-- Rendered by renderSocialChatHub() -->
+          </div>
+        </div>
+
+        <!-- Right: Active Social Thread Messages -->
+        <div class="lg:col-span-7 flex flex-col bg-slate-900/30">
+          <div id="socialChatThreadHeader" class="px-4 py-3 border-b border-slate-800 bg-slate-950/70 flex items-center justify-between gap-2">
+            <!-- Rendered dynamically -->
+          </div>
+          <div id="socialChatMessagesStream" class="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3 max-h-[420px]">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
 
   <!-- Two-Way Real-Time Notification Mirror & Simultaneous Test Studio -->
   <section id="notification-mirror" class="relative z-10 py-6 sm:py-10 px-4 max-w-6xl mx-auto scroll-mt-24">
@@ -954,6 +1124,63 @@
         </button>
       </div>
 
+      <!-- Quick Remote Call Dialer Bar & Expandable Keypad -->
+      <div class="mb-4 p-4 rounded-2xl bg-slate-950/90 border border-emerald-500/30 shadow-lg">
+        <div class="flex flex-col md:flex-row md:items-center gap-2.5">
+          <div class="flex items-center gap-2 shrink-0">
+            <div class="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+              <i class="ph ph-phone-outgoing text-lg"></i>
+            </div>
+            <div>
+              <div class="text-xs font-bold text-white">মোবাইল কল ডায়ালার</div>
+              <div class="text-[10px] text-slate-400">নাম্বার লিখে সরাসরি ফোন থেকে কল দিন</div>
+            </div>
+          </div>
+
+          <div class="flex-1 flex flex-wrap sm:flex-nowrap items-center gap-2">
+            <div class="relative flex-1 min-w-[180px]">
+              <i class="ph ph-hash absolute left-3 top-2.5 text-emerald-400 text-sm"></i>
+              <input type="tel" id="callDialNumberInput" placeholder="নাম্বার লিখুন (+88017...)" onkeydown="if(event.key==='Enter'){event.preventDefault();dialNumberFromWeb();}" class="w-full bg-slate-900 border border-slate-700 focus:border-emerald-500 rounded-xl pl-8 pr-8 py-2 text-sm font-mono text-white placeholder:text-slate-500 focus:outline-none transition-colors" />
+              <button type="button" onclick="backspaceWebDialNumber()" title="মুছুন" class="absolute right-2 top-1.5 p-1 text-slate-400 hover:text-white transition-colors">
+                <i class="ph ph-backspace text-base"></i>
+              </button>
+            </div>
+
+            <button type="button" onclick="toggleWebDialPad()" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 shrink-0">
+              <i class="ph ph-dots-nine text-base text-emerald-400"></i>
+              <span>কি-প্যাড</span>
+            </button>
+
+            <button type="button" id="btnWebDialCall" onclick="dialNumberFromWeb()" class="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-emerald-600/25 transition-all active:scale-95 shrink-0">
+              <i class="ph ph-phone-call text-base"></i>
+              <span>কল করুন</span>
+            </button>
+          </div>
+        </div>
+
+        <div id="webDialStatusBanner" class="hidden mt-2.5 px-3 py-2 rounded-xl text-[11px] font-medium border"></div>
+
+        <!-- Expandable T9 Keypad -->
+        <div id="webDialPadGrid" class="hidden mt-3 pt-3 border-t border-slate-800/90 max-w-xs mx-auto">
+          <div class="grid grid-cols-3 gap-2 text-center">
+            <button type="button" onclick="appendWebDialChar('1')" class="py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-white font-bold text-base transition-all active:scale-95">1</button>
+            <button type="button" onclick="appendWebDialChar('2')" class="py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-white font-bold text-base transition-all active:scale-95">2 <span class="block text-[9px] text-slate-400 font-normal">ABC</span></button>
+            <button type="button" onclick="appendWebDialChar('3')" class="py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-white font-bold text-base transition-all active:scale-95">3 <span class="block text-[9px] text-slate-400 font-normal">DEF</span></button>
+            <button type="button" onclick="appendWebDialChar('4')" class="py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-white font-bold text-base transition-all active:scale-95">4 <span class="block text-[9px] text-slate-400 font-normal">GHI</span></button>
+            <button type="button" onclick="appendWebDialChar('5')" class="py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-white font-bold text-base transition-all active:scale-95">5 <span class="block text-[9px] text-slate-400 font-normal">JKL</span></button>
+            <button type="button" onclick="appendWebDialChar('6')" class="py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-white font-bold text-base transition-all active:scale-95">6 <span class="block text-[9px] text-slate-400 font-normal">MNO</span></button>
+            <button type="button" onclick="appendWebDialChar('7')" class="py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-white font-bold text-base transition-all active:scale-95">7 <span class="block text-[9px] text-slate-400 font-normal">PQRS</span></button>
+            <button type="button" onclick="appendWebDialChar('8')" class="py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-white font-bold text-base transition-all active:scale-95">8 <span class="block text-[9px] text-slate-400 font-normal">TUV</span></button>
+            <button type="button" onclick="appendWebDialChar('9')" class="py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-white font-bold text-base transition-all active:scale-95">9 <span class="block text-[9px] text-slate-400 font-normal">WXYZ</span></button>
+            <button type="button" onclick="appendWebDialChar('*')" class="py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-white font-bold text-base transition-all active:scale-95">*</button>
+            <button type="button" onclick="appendWebDialChar('0')" class="py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-white font-bold text-base transition-all active:scale-95">0</button>
+            <button type="button" onclick="appendWebDialChar('#')" class="py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-white font-bold text-base transition-all active:scale-95">#</button>
+            <button type="button" onclick="appendWebDialChar('+')" class="py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-emerald-300 font-bold text-sm transition-all">+</button>
+            <button type="button" onclick="const el=document.getElementById('callDialNumberInput'); if(el) el.value='';" class="col-span-2 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 font-semibold text-xs transition-all">নাম্বার ক্লিয়ার</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Search & Filter Toolbar -->
       <div class="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 mb-4">
         <div class="relative flex-1 max-w-md">
@@ -1145,6 +1372,11 @@
             </div>
           </div>
 
+          <!-- Multi-Device Discovered & Paired Quick Switcher inside QR Connect -->
+          <div id="inlineMultiDeviceList" class="p-3 rounded-xl bg-slate-950/80 border border-slate-800 text-xs">
+            <div class="text-slate-400">মাল্টি-ডিভাইস তালিকা লোড হচ্ছে...</div>
+          </div>
+
           <div class="flex flex-wrap items-center gap-3 pt-1">
             <div class="inline-flex items-center gap-2.5 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs">
               <span class="flex items-center gap-1.5 text-slate-300 font-medium">
@@ -1185,6 +1417,240 @@
       </div>
     </div>
   </section>
+
+  <!-- Interactive Live Multi-Device Location Map Section -->
+  <section id="device-location-map" class="relative z-10 py-6 sm:py-10 px-4 max-w-6xl mx-auto scroll-mt-24">
+    <div class="rounded-3xl bg-slate-900/95 border border-emerald-500/30 shadow-2xl p-5 sm:p-7 lg:p-8">
+      <!-- Header -->
+      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 mb-6 border-b border-slate-800">
+        <div>
+          <div class="flex flex-wrap items-center gap-2 mb-1.5">
+            <span class="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-300 bg-emerald-950/70 px-3 py-1 rounded-full border border-emerald-500/30">
+              <i class="ph ph-map-trifold text-sm"></i>
+              <span>Live Multi-Device Location Map</span>
+            </span>
+            <span id="deviceMapLocatedBadge" class="text-[11px] px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-semibold">
+              ০ / ০ ডিভাইস লোকেশন সক্রিয়
+            </span>
+          </div>
+          <h2 class="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
+            সব যুক্ত মোবাইল ডিভাইসের রিয়েল-টাইম লোকেশন ম্যাপ
+          </h2>
+          <p class="text-xs sm:text-sm text-slate-400 mt-1">
+            একই ম্যাপে সবগুলো কানেক্টেড অ্যান্ড্রয়েড ফোনের অবস্থান দেখুন, পিন ট্যাপ করে ঠিকানা জানুন এবং ওয়েবসাইট থেকেই লোকেশন রিফ্রেশ করুন।
+          </p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2 shrink-0">
+          <button type="button" onclick="fitAllDeviceMapMarkers()" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95">
+            <i class="ph ph-corners-out text-cyan-400 text-base"></i>
+            <span>সব ডিভাইস ফিট</span>
+          </button>
+          <button type="button" id="btnToggleDeviceMapTheme" onclick="toggleDeviceMapTileTheme()" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95">
+            <i class="ph ph-globe-hemisphere-east text-amber-400 text-base"></i>
+            <span id="deviceMapThemeLabel">স্ট্রিট ম্যাপ</span>
+          </button>
+          <button type="button" onclick="requestAllDevicesLocationRefresh()" class="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-emerald-600/25 transition-all active:scale-95">
+            <i class="ph ph-crosshair text-base"></i>
+            <span>📍 সব ডিভাইস লোকেশন আপডেট</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Main Map + Device Directory Grid -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+        <!-- Map Canvas Column -->
+        <div class="lg:col-span-8 flex flex-col gap-3 min-w-0">
+          <div class="relative rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 h-[360px] sm:h-[430px]">
+            <div id="liveDevicesLeafletMap" class="w-full h-full z-0"></div>
+            <div id="deviceMapFallbackFrame" class="hidden w-full h-full"></div>
+
+            <!-- Non-blocking Overlay when no devices have reported location yet -->
+            <div id="deviceMapEmptyOverlay" class="hidden absolute inset-0 z-10 bg-slate-950/75 backdrop-blur-xs flex flex-col items-center justify-center text-center p-6">
+              <div class="w-16 h-16 rounded-2xl bg-emerald-500/15 border border-emerald-500/35 flex items-center justify-center text-emerald-400 mb-3 shadow-lg">
+                <i class="ph ph-map-pin-line text-3xl animate-bounce"></i>
+              </div>
+              <h3 class="text-sm sm:text-base font-bold text-white mb-1">এখনো কোনো ডিভাইস থেকে লাইভ লোকেশন পাওয়া যায়নি</h3>
+              <p class="text-xs text-slate-300 max-w-md mb-4 leading-relaxed">
+                মোবাইল অ্যাপে উপরের <span class="text-emerald-300 font-semibold">"📍 লোকেশন চালু"</span> বাটনে ট্যাপ করুন অথবা নিচের বাটনে ক্লিক করে কানেক্টেড ফোন থেকে লোকেশন আপডেট চাইতে পারেন।
+              </p>
+              <button type="button" onclick="requestAllDevicesLocationRefresh()" class="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95">
+                <i class="ph ph-navigation-arrow text-base"></i>
+                <span>ডিভাইস থেকে লোকেশন আপডেট চান</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Selected Device Details Bar -->
+          <div id="deviceMapSelectedBar" class="p-3.5 rounded-2xl bg-slate-950/90 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div class="text-xs text-slate-400">
+              ম্যাপের পিন অথবা ডানদিকের তালিকা থেকে একটি ডিভাইস সিলেক্ট করুন।
+            </div>
+          </div>
+        </div>
+
+        <!-- Connected Devices Directory Sidebar -->
+        <div class="lg:col-span-4 flex flex-col bg-slate-950/75 border border-slate-800 rounded-2xl p-3.5 min-w-0">
+          <div class="flex items-center justify-between gap-2 pb-2.5 mb-2.5 border-b border-slate-800/80">
+            <span class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+              <i class="ph ph-devices text-emerald-400 text-base"></i>
+              <span>ডিভাইস লোকেশন তালিকা</span>
+            </span>
+            <span id="deviceMapSidebarCount" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-900 text-emerald-300 border border-slate-800">0 টি</span>
+          </div>
+          <div id="deviceMapDirectoryList" class="space-y-2.5 max-h-[430px] overflow-y-auto custom-scrollbar pr-1">
+            <!-- Populated dynamically by renderDeviceLocationMapSection() -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Mobile File Manager Dashboard Section (Browse, Preview, Download, Upload, Folder Management) -->
+  <section id="file-manager" class="relative z-10 py-6 sm:py-10 px-4 max-w-6xl mx-auto scroll-mt-24">
+    <div class="bg-slate-900/90 border border-slate-800/90 rounded-3xl p-4 sm:p-6 shadow-2xl backdrop-blur-xl">
+      <!-- Top Header -->
+      <div class="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
+        <div class="flex items-center gap-3 min-w-0">
+          <div class="w-11 h-11 rounded-2xl bg-gradient-to-br from-violet-500/25 to-indigo-500/25 border border-violet-500/35 flex items-center justify-center text-violet-300 shrink-0 shadow-lg shadow-violet-500/10">
+            <i class="ph ph-folder-open text-2xl"></i>
+          </div>
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2">
+              <h2 class="text-base sm:text-lg font-extrabold text-white tracking-tight">মোবাইল ফাইল ম্যানেজার (ওয়েব ব্রিজ)</h2>
+              <span id="fileManagerStatusBadge" class="text-[10px] px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700 font-semibold flex items-center gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
+                <span>অপেক্ষমাণ</span>
+              </span>
+            </div>
+            <p class="text-xs text-slate-400 mt-0.5">ফোনের ফোল্ডার, ছবি, অডিও, কল রেকর্ডিং ও ডকুমেন্ট ব্রাউজ, প্রিভিউ, ডাউনলোড এবং ফোনে ফাইল পাঠান</p>
+          </div>
+        </div>
+
+        <!-- Toolbar Actions -->
+        <div class="flex flex-wrap items-center gap-2">
+          <button type="button" onclick="sendFileManagerCommand('REFRESH')" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95" title="মোবাইল থেকে সর্বশেষ ফাইল তালিকা আনুন">
+            <i class="ph ph-arrows-clockwise text-sm text-cyan-400"></i>
+            <span>রিফ্রেশ</span>
+          </button>
+          <button type="button" onclick="toggleNewRemoteFolderBox()" class="px-3 py-1.5 rounded-xl bg-violet-500/15 hover:bg-violet-500/25 text-violet-300 border border-violet-500/35 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95">
+            <i class="ph ph-folder-plus text-sm"></i>
+            <span>নতুন ফোল্ডার</span>
+          </button>
+          <button type="button" onclick="triggerWebToPhoneFileUpload()" class="px-3 py-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-violet-600/25 transition-all active:scale-95">
+            <i class="ph ph-upload-simple text-sm"></i>
+            <span>ফোনে পাঠান</span>
+          </button>
+          <input type="file" id="webToPhoneUploadInput" class="hidden" onchange="handleWebToPhoneFileSelected(event)" />
+
+          <div class="flex items-center bg-slate-950 border border-slate-800 rounded-xl p-0.5 ml-1">
+            <button type="button" id="btnFileViewGrid" onclick="setFileManagerViewMode('GRID')" class="px-2 py-1 rounded-lg bg-violet-600 text-white text-xs transition-all" title="গ্রিড ভিউ">
+              <i class="ph ph-squares-four"></i>
+            </button>
+            <button type="button" id="btnFileViewList" onclick="setFileManagerViewMode('LIST')" class="px-2 py-1 rounded-lg text-slate-400 hover:text-white text-xs transition-all" title="লিস্ট ভিউ">
+              <i class="ph ph-list-dashes"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Inline New Folder Input Strip (hidden by default) -->
+      <div id="fileManagerNewFolderBar" class="hidden mt-3 p-3 rounded-2xl bg-slate-950/90 border border-violet-500/30 flex flex-wrap items-center gap-2">
+        <i class="ph ph-folder-plus text-violet-400 text-lg shrink-0"></i>
+        <input type="text" id="newRemoteFolderNameInput" placeholder="নতুন ফোল্ডারের নাম লিখুন (যেমন: Important Docs)" class="flex-1 min-w-[200px] bg-slate-900 border border-slate-700 focus:border-violet-500 rounded-xl px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none" onkeydown="if(event.key==='Enter'){submitNewRemoteFolder();}" />
+        <button type="button" onclick="submitNewRemoteFolder()" class="px-3.5 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold flex items-center gap-1 transition-all">
+          <i class="ph ph-check"></i><span>তৈরি করুন</span>
+        </button>
+        <button type="button" onclick="toggleNewRemoteFolderBox(false)" class="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs">বাতিল</button>
+      </div>
+
+      <!-- Transfer / Download Status Banner -->
+      <div id="fileManagerTransferBanner" class="hidden mt-3 px-3.5 py-2.5 rounded-2xl bg-indigo-950/60 border border-indigo-500/35 text-xs text-indigo-200 flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="w-2 h-2 rounded-full bg-indigo-400 animate-ping shrink-0"></span>
+          <span id="fileManagerTransferBannerText" class="truncate">ফাইল প্রসেস হচ্ছে...</span>
+        </div>
+      </div>
+
+      <!-- Folder Permission Hint Banner (shown if custom SAF folder not yet granted) -->
+      <div id="fileManagerFolderHintBanner" class="hidden mt-3 px-3.5 py-2.5 rounded-2xl bg-amber-950/40 border border-amber-500/30 text-xs text-amber-200 flex flex-wrap items-center justify-between gap-2">
+        <div class="flex items-center gap-2 min-w-0">
+          <i class="ph ph-info text-amber-400 text-base shrink-0"></i>
+          <span>ফোনের Downloads, Documents বা স্টোরেজ ফোল্ডার দেখতে মোবাইল অ্যাপে <b>📁 মোবাইল ফাইল ম্যানেজার &gt; ফোল্ডার শেয়ার করুন</b> বাটনে ট্যাপ করুন।</span>
+        </div>
+        <button type="button" onclick="sendFileManagerCommand('LIST_ROOTS')" class="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/35 text-[11px] font-bold shrink-0">পুনরায় চেক</button>
+      </div>
+
+      <!-- Storage Roots Selector Tabs -->
+      <div class="mt-4 flex flex-wrap items-center gap-2" id="fileManagerRootsBar">
+        <!-- Populated dynamically -->
+      </div>
+
+      <!-- Breadcrumbs + Search + Category Filter Strip -->
+      <div class="mt-3 p-3 rounded-2xl bg-slate-950/75 border border-slate-800/90 space-y-2.5">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <!-- Breadcrumbs -->
+          <div id="fileManagerBreadcrumbsBar" class="flex flex-wrap items-center gap-1 text-xs min-w-0">
+            <!-- Populated dynamically -->
+          </div>
+          <!-- Search Box -->
+          <div class="relative w-full sm:w-64 shrink-0">
+            <i class="ph ph-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+            <input type="text" id="fileManagerSearchInput" oninput="onFileManagerSearchInput(this.value)" placeholder="ফাইল বা ফোল্ডার খুঁজুন..." class="w-full bg-slate-900 border border-slate-700/80 focus:border-violet-500 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none" />
+          </div>
+        </div>
+
+        <!-- Category Chips -->
+        <div class="flex flex-wrap items-center gap-1.5" id="fileManagerCategoryBar">
+          <button type="button" onclick="setFileManagerCategory('ALL')" data-cat="ALL" class="fm-cat-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-violet-600 text-white transition-all">সব ফাইল</button>
+          <button type="button" onclick="setFileManagerCategory('FOLDER')" data-cat="FOLDER" class="fm-cat-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-900 text-slate-300 border border-slate-800 hover:bg-slate-800 transition-all">📁 ফোল্ডার</button>
+          <button type="button" onclick="setFileManagerCategory('IMAGE')" data-cat="IMAGE" class="fm-cat-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-900 text-slate-300 border border-slate-800 hover:bg-slate-800 transition-all">🖼️ ছবি</button>
+          <button type="button" onclick="setFileManagerCategory('AUDIO')" data-cat="AUDIO" class="fm-cat-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-900 text-slate-300 border border-slate-800 hover:bg-slate-800 transition-all">🎵 অডিও</button>
+          <button type="button" onclick="setFileManagerCategory('VIDEO')" data-cat="VIDEO" class="fm-cat-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-900 text-slate-300 border border-slate-800 hover:bg-slate-800 transition-all">🎬 ভিডিও</button>
+          <button type="button" onclick="setFileManagerCategory('DOCUMENT')" data-cat="DOCUMENT" class="fm-cat-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-900 text-slate-300 border border-slate-800 hover:bg-slate-800 transition-all">📄 ডকুমেন্ট</button>
+        </div>
+      </div>
+
+      <!-- Main Directory Entries Grid / List -->
+      <div id="fileManagerEntriesContainer" class="mt-4 min-h-[220px]">
+        <!-- Populated dynamically by renderFileManagerSection() -->
+      </div>
+
+      <!-- Footer Stats Strip -->
+      <div id="fileManagerStatsBar" class="mt-4 pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+        <span>কোনো মোবাইল সেশন কানেক্টেড নেই</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Remote File Preview & Download Modal -->
+  <div id="filePreviewModal" class="fixed inset-0 z-[85] bg-slate-950/90 backdrop-blur-md hidden flex items-center justify-center p-3 sm:p-6">
+    <div class="bg-slate-900 border border-slate-800 w-full max-w-3xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div class="px-4 sm:px-5 py-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <div class="w-9 h-9 rounded-xl bg-violet-500/20 border border-violet-500/35 flex items-center justify-center text-violet-300 shrink-0">
+            <i class="ph ph-file-text text-lg"></i>
+          </div>
+          <div class="min-w-0">
+            <h3 id="filePreviewTitle" class="text-sm font-bold text-white truncate">ফাইল প্রিভিউ</h3>
+            <p id="filePreviewMeta" class="text-[11px] text-slate-400 font-mono truncate">--</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button type="button" id="btnDownloadActivePreviewFile" onclick="downloadActivePreviewFile()" class="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow transition-all active:scale-95">
+            <i class="ph ph-download-simple text-sm"></i>
+            <span>ডাউনলোড</span>
+          </button>
+          <button type="button" onclick="closeFilePreviewModal()" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center transition-all" aria-label="প্রিভিউ বন্ধ করুন">
+            <i class="ph ph-x text-base"></i>
+          </button>
+        </div>
+      </div>
+      <div id="filePreviewBody" class="p-4 sm:p-5 overflow-y-auto custom-scrollbar flex-1 flex items-center justify-center bg-slate-950/60 min-h-[260px]">
+        <!-- Preview content rendered dynamically -->
+      </div>
+    </div>
+  </div>
 
   <!-- Interactive Full Web Companion Modal (Hidden by default, opened on click) -->
   <div id="webMessengerModal" class="fixed inset-0 z-[70] bg-slate-950/90 backdrop-blur-md hidden flex items-start sm:items-center justify-center p-2 sm:p-6 overflow-y-auto">
@@ -1244,6 +1710,9 @@
           </button>
         </div>
       </div>
+
+      <!-- Modal Multi-Device Switcher Strip -->
+      <div id="modalMultiDeviceStrip" class="px-4 sm:px-6 py-2 bg-slate-900/90 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs"></div>
 
       <!-- Modal Main Area -->
       <div id="modalInboxView" class="flex-1 overflow-y-auto custom-scrollbar p-3 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
@@ -2017,15 +2486,19 @@ git push origin main</pre>
 
     const PAIRED_SESSION_STORAGE_KEY = "pulse_paired_session_id";
     const PAIRED_DEVICE_STORAGE_KEY = "pulse_paired_device_name";
+    const PAIRED_DEVICES_LIST_KEY = "pulse_paired_devices_v1";
 
     let firebaseApp = null;
     let firestoreDb = null;
     let currentCloudUser = null;
     let cloudMessagesUnsubscribe = null;
     let pairedMessagesUnsubscribe = null;
+    let hubDevicesUnsubscribe = null;
     let loadedCloudMessages = [];
     let pairedSessionMessages = [];
     let userCloudMessages = [];
+    let pairedDevicesList = [];
+    let hubDiscoveredDevices = [];
     let isUsingRealPairedInbox = false;
     let hasUserCloudSnapshot = false;
     let activePairedSessionId = null;
@@ -2033,6 +2506,11 @@ git push origin main</pre>
     try {
       activePairedSessionId = localStorage.getItem(PAIRED_SESSION_STORAGE_KEY) || null;
       activePairedDeviceName = localStorage.getItem(PAIRED_DEVICE_STORAGE_KEY) || null;
+      const rawDevices = localStorage.getItem(PAIRED_DEVICES_LIST_KEY);
+      if (rawDevices) {
+        const parsed = JSON.parse(rawDevices);
+        if (Array.isArray(parsed)) pairedDevicesList = parsed.filter(d => d && d.sessionId);
+      }
     } catch (_) {}
     let activeCategoryFilter = "ALL";
 
@@ -2509,6 +2987,7 @@ git push origin main</pre>
       selectedRecordingPhoneFilter = "ALL";
       selectedPinnedRecordingId = null;
       activeCallLogPermissionState = "UNKNOWN";
+      resetRemoteFileManagerState();
       hasInitializedMessages = true;
       activeSelectedSender = null;
       renderLiveMessenger();
@@ -2516,6 +2995,18 @@ git push origin main</pre>
       renderCallRecordingsSection();
 
       if (pairedSessionId) {
+        upsertPairedDeviceEntry({
+          sessionId: pairedSessionId,
+          deviceId: data.deviceId || "",
+          deviceName: deviceName,
+          batteryLevel: typeof data.batteryLevel === "number" ? data.batteryLevel : -1,
+          isCharging: Boolean(data.isCharging),
+          isOnline: true,
+          lastSeenMs: Date.now(),
+          pairedAtMs: Date.now()
+        });
+        renderMultiDeviceSwitcherBar();
+
         attachPairingSessionMessageListener(pairedSessionId);
         attachPairingSessionNotificationListener(pairedSessionId);
         attachPairingSessionCameraListener(pairedSessionId);
@@ -2523,12 +3014,361 @@ git push origin main</pre>
         attachPairingSessionCallLogListener(pairedSessionId);
         attachPairingSessionCallRecordingsListener(pairedSessionId);
         attachPairingSessionCallRecorderStateListener(pairedSessionId);
+        attachPairingSessionFileManagerListener(pairedSessionId);
+        attachPairingSessionFileTransferListener(pairedSessionId);
       }
 
       // Only attach per-user Firestore listener if browser Auth matches the phone's Firebase Auth UID
       const webAuthUid = window.PulseFirebase?.auth?.currentUser?.uid || null;
       if (data.userId && webAuthUid && webAuthUid === data.userId) {
         attachFirestoreMessageListener(data.userId);
+      }
+    }
+
+    // ==========================================
+    // 📱 MULTI-DEVICE HUB & SWITCHER ENGINE
+    // ==========================================
+    function loadSavedPairedDevices() {
+      try {
+        const raw = localStorage.getItem(PAIRED_DEVICES_LIST_KEY);
+        if (raw) {
+          const arr = JSON.parse(raw);
+          if (Array.isArray(arr)) {
+            pairedDevicesList = arr.filter(d => d && d.sessionId);
+          }
+        }
+      } catch (_) {}
+      if (activePairedSessionId && !pairedDevicesList.some(d => d.sessionId === activePairedSessionId)) {
+        upsertPairedDeviceEntry({
+          sessionId: activePairedSessionId,
+          deviceId: "",
+          deviceName: activePairedDeviceName || "Android Phone",
+          batteryLevel: -1,
+          isCharging: false,
+          isOnline: true,
+          lastSeenMs: Date.now(),
+          pairedAtMs: Date.now()
+        });
+      }
+    }
+
+    function savePairedDevicesList() {
+      try {
+        localStorage.setItem(PAIRED_DEVICES_LIST_KEY, JSON.stringify(pairedDevicesList));
+      } catch (_) {}
+    }
+
+    function upsertPairedDeviceEntry(entry) {
+      if (!entry || !entry.sessionId) return;
+      const idx = pairedDevicesList.findIndex(d => d.sessionId === entry.sessionId);
+      if (idx >= 0) {
+        const prev = pairedDevicesList[idx];
+        pairedDevicesList[idx] = {
+          ...prev,
+          ...entry,
+          deviceName: entry.deviceName || prev.deviceName || "Android Phone",
+          batteryLevel: typeof entry.batteryLevel === "number" && entry.batteryLevel >= 0 ? entry.batteryLevel : (prev.batteryLevel ?? -1),
+          latitude: typeof entry.latitude === "number" ? entry.latitude : (prev.latitude ?? null),
+          longitude: typeof entry.longitude === "number" ? entry.longitude : (prev.longitude ?? null),
+          locationLabel: entry.locationLabel || prev.locationLabel || "",
+          locationEnabled: typeof entry.locationEnabled === "boolean" ? entry.locationEnabled : Boolean(prev.locationEnabled),
+          locationAccuracyM: typeof entry.locationAccuracyM === "number" ? entry.locationAccuracyM : (prev.locationAccuracyM ?? null),
+          pairedAtMs: prev.pairedAtMs || entry.pairedAtMs || Date.now()
+        };
+      } else {
+        pairedDevicesList.unshift({
+          sessionId: entry.sessionId,
+          deviceId: entry.deviceId || "",
+          deviceName: entry.deviceName || "Android Phone",
+          batteryLevel: typeof entry.batteryLevel === "number" ? entry.batteryLevel : -1,
+          isCharging: Boolean(entry.isCharging),
+          isOnline: entry.isOnline !== false,
+          latitude: typeof entry.latitude === "number" ? entry.latitude : null,
+          longitude: typeof entry.longitude === "number" ? entry.longitude : null,
+          locationLabel: entry.locationLabel || "",
+          locationEnabled: Boolean(entry.locationEnabled),
+          locationAccuracyM: typeof entry.locationAccuracyM === "number" ? entry.locationAccuracyM : null,
+          lastSeenMs: entry.lastSeenMs || Date.now(),
+          pairedAtMs: entry.pairedAtMs || Date.now()
+        });
+      }
+      savePairedDevicesList();
+    }
+
+    function getMergedMultiDevices() {
+      const map = new Map();
+      pairedDevicesList.forEach((d) => {
+        map.set(d.sessionId, { ...d, isPinnedPaired: true });
+      });
+      hubDiscoveredDevices.forEach((hd) => {
+        if (!hd || !hd.sessionId) return;
+        const existing = map.get(hd.sessionId);
+        if (existing) {
+          map.set(hd.sessionId, {
+            ...existing,
+            deviceId: hd.deviceId || existing.deviceId,
+            deviceName: hd.deviceName || existing.deviceName,
+            batteryLevel: typeof hd.batteryLevel === "number" && hd.batteryLevel >= 0 ? hd.batteryLevel : existing.batteryLevel,
+            isCharging: Boolean(hd.isCharging),
+            isOnline: Boolean(hd.isOnline),
+            latitude: typeof hd.latitude === "number" ? hd.latitude : (existing.latitude ?? null),
+            longitude: typeof hd.longitude === "number" ? hd.longitude : (existing.longitude ?? null),
+            locationLabel: hd.locationLabel || existing.locationLabel || "",
+            locationEnabled: typeof hd.locationEnabled === "boolean" ? hd.locationEnabled : Boolean(existing.locationEnabled),
+            locationAccuracyM: typeof hd.locationAccuracyM === "number" ? hd.locationAccuracyM : (existing.locationAccuracyM ?? null),
+            lastSeenMs: Math.max(existing.lastSeenMs || 0, hd.lastSeenMs || 0),
+            isPinnedPaired: true,
+            isHubLive: true
+          });
+        } else {
+          map.set(hd.sessionId, {
+            ...hd,
+            isPinnedPaired: false,
+            isHubLive: true
+          });
+        }
+      });
+      const list = Array.from(map.values());
+      list.sort((a, b) => {
+        if (a.sessionId === activePairedSessionId) return -1;
+        if (b.sessionId === activePairedSessionId) return 1;
+        if (a.isOnline !== b.isOnline) return a.isOnline ? -1 : 1;
+        return (b.lastSeenMs || 0) - (a.lastSeenMs || 0);
+      });
+      return list;
+    }
+
+    function attachConnectedDevicesHubListener() {
+      if (hubDevicesUnsubscribe) {
+        try { hubDevicesUnsubscribe(); } catch (_) {}
+        hubDevicesUnsubscribe = null;
+      }
+      withPulseFirebase((fb) => {
+        try {
+          const { db, collection, onSnapshot } = fb;
+          hubDevicesUnsubscribe = onSnapshot(
+            collection(db, "pairing_sessions", "pulse_pair_instant_one_shot", "devices"),
+            (snapshot) => {
+              const found = [];
+              const now = Date.now();
+              snapshot.forEach((docSnap) => {
+                const d = docSnap.data() || {};
+                const sid = (d.sessionId || "").trim();
+                if (!sid) return;
+                const seenMs = Number(d.lastSeenMs) || getFirestoreTimeMillis(d.lastSeenAt) || 0;
+                const online = Boolean(d.isOnline) && (seenMs === 0 || (now - seenMs) < 360000);
+                const latNum = typeof d.latitude === "number" && Number.isFinite(d.latitude) ? d.latitude : null;
+                const lngNum = typeof d.longitude === "number" && Number.isFinite(d.longitude) ? d.longitude : null;
+                found.push({
+                  deviceId: d.deviceId || docSnap.id,
+                  sessionId: sid,
+                  deviceName: d.deviceName || "Android Phone",
+                  batteryLevel: typeof d.batteryLevel === "number" ? d.batteryLevel : -1,
+                  isCharging: Boolean(d.isCharging),
+                  isOnline: online,
+                  latitude: latNum,
+                  longitude: lngNum,
+                  locationLabel: typeof d.locationLabel === "string" ? d.locationLabel : "",
+                  locationEnabled: Boolean(d.locationEnabled) || (latNum !== null && lngNum !== null),
+                  locationAccuracyM: typeof d.locationAccuracyM === "number" && Number.isFinite(d.locationAccuracyM) ? d.locationAccuracyM : null,
+                  lastSeenMs: seenMs
+                });
+              });
+              hubDiscoveredDevices = found;
+              found.forEach((hd) => {
+                if (pairedDevicesList.some(p => p.sessionId === hd.sessionId)) {
+                  upsertPairedDeviceEntry(hd);
+                }
+              });
+              renderMultiDeviceSwitcherBar();
+              if (typeof renderDeviceLocationMapSection === "function") {
+                renderDeviceLocationMapSection();
+              }
+            },
+            (err) => {
+              console.warn("Hub connected devices listener notice:", err);
+            }
+          );
+        } catch (err) {
+          console.warn("Failed attaching hub devices listener:", err);
+        }
+      });
+    }
+
+    function cleanupActiveSessionFeatureListeners() {
+      [
+        pairedMessagesUnsubscribe,
+        pairedNotificationsUnsubscribe,
+        pairedCameraUnsubscribe,
+        pairedMicUnsubscribe,
+        pairedCallLogsUnsubscribe,
+        pairedCallSessionMetaUnsubscribe,
+        pairedCallRecordingsUnsubscribe,
+        pairedCallRecorderStateUnsubscribe,
+        pairedFileManagerUnsubscribe,
+        pairedFileTransferUnsubscribe
+      ].forEach((fn) => {
+        try { if (typeof fn === "function") fn(); } catch (_) {}
+      });
+      pairedMessagesUnsubscribe = null;
+      pairedNotificationsUnsubscribe = null;
+      pairedCameraUnsubscribe = null;
+      pairedMicUnsubscribe = null;
+      pairedCallLogsUnsubscribe = null;
+      pairedCallSessionMetaUnsubscribe = null;
+      pairedCallRecordingsUnsubscribe = null;
+      pairedCallRecorderStateUnsubscribe = null;
+      pairedFileManagerUnsubscribe = null;
+      pairedFileTransferUnsubscribe = null;
+    }
+
+    function switchActivePairedDevice(sessionId, explicitName) {
+      if (!sessionId) return;
+      const merged = getMergedMultiDevices();
+      const matched = merged.find(d => d.sessionId === sessionId);
+      const deviceName = explicitName || (matched && matched.deviceName) || "Android Phone";
+
+      cleanupActiveSessionFeatureListeners();
+      sessionMirroredNotifications = [];
+      activeSocialThreadKey = null;
+      renderSocialChatHub();
+      renderLiveNotificationFeed();
+      resetRemoteCameraUi();
+      resetRemoteMicUi();
+
+      handleSuccessfulScreenPairing({
+        sessionId: sessionId,
+        deviceId: matched?.deviceId || "",
+        deviceName: deviceName,
+        batteryLevel: matched?.batteryLevel ?? -1,
+        isCharging: Boolean(matched?.isCharging)
+      }, sessionId, { silent: false });
+    }
+
+    function disconnectPairedDevice(sessionId, ev) {
+      if (ev && typeof ev.stopPropagation === "function") ev.stopPropagation();
+      pairedDevicesList = pairedDevicesList.filter(d => d.sessionId !== sessionId);
+      savePairedDevicesList();
+
+      if (activePairedSessionId === sessionId) {
+        if (pairedDevicesList.length > 0) {
+          switchActivePairedDevice(pairedDevicesList[0].sessionId, pairedDevicesList[0].deviceName);
+        } else {
+          resetQrScanState();
+        }
+      } else {
+        renderMultiDeviceSwitcherBar();
+      }
+      showModalToast("ডিভাইস বিচ্ছিন্ন", "তালিকা থেকে ডিভাইসটি সরানো হয়েছে।");
+    }
+
+    function addAnotherDeviceQr() {
+      initQrCode();
+      const qrSection = document.getElementById("qr-connect");
+      const modal = document.getElementById("webMessengerModal");
+      if (modal && !modal.classList.contains("hidden")) {
+        // Modal is already open; QR is visible on left panel
+      } else if (qrSection) {
+        qrSection.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      showModalToast("নতুন QR কোড প্রস্তুত!", "আরেকটি Android ফোনের Pulse SMS দিয়ে QR কোড স্ক্যান করুন অথবা ১-ক্লিক কানেক্ট চাপুন।");
+    }
+
+    function toggleManualSessionPairInput(forceState) {
+      const bar = document.getElementById("manualWebPairInputBar");
+      if (!bar) return;
+      const shouldShow = typeof forceState === "boolean" ? forceState : bar.classList.contains("hidden");
+      bar.classList.toggle("hidden", !shouldShow);
+      if (shouldShow) {
+        const inp = document.getElementById("manualWebPairTokenInput");
+        if (inp) setTimeout(() => inp.focus(), 50);
+      }
+    }
+
+    async function pairManualTokenFromWeb() {
+      const inp = document.getElementById("manualWebPairTokenInput");
+      const token = (inp?.value || "").trim();
+      if (!token) {
+        showModalToast("টোকেন খালি", "অনুগ্রহ করে ফোনের পেয়ারিং টোকেন বা সেশন আইডি লিখুন।");
+        return;
+      }
+      let resolvedName = "Android (" + token.slice(-5) + ")";
+      try {
+        const fb = await waitForPulseFirebase(2000);
+        if (fb && fb.getDoc && fb.doc) {
+          const snap = await fb.getDoc(fb.doc(fb.db, "pairing_sessions", token));
+          if (snap.exists() && snap.data()?.deviceName) {
+            resolvedName = snap.data().deviceName;
+          }
+        }
+      } catch (_) {}
+      if (inp) inp.value = "";
+      toggleManualSessionPairInput(false);
+      switchActivePairedDevice(token, resolvedName);
+    }
+
+    function renderMultiDeviceSwitcherBar() {
+      const devices = getMergedMultiDevices();
+      const countEl = document.getElementById("multiDeviceTotalCount");
+      if (countEl) countEl.innerText = String(devices.length);
+
+      const container = document.getElementById("multiDevicePillsContainer");
+      const modalStrip = document.getElementById("modalMultiDeviceStrip");
+      const inlineList = document.getElementById("inlineMultiDeviceList");
+
+      const buildPillsHtml = (compact) => {
+        if (devices.length === 0) {
+          return '<span class="text-[11px] text-slate-400">এখনো কোনো ডিভাইস যুক্ত নেই — ফোনে ১-ক্লিক কানেক্ট বা QR স্ক্যান করুন</span>';
+        }
+        return devices.map((d) => {
+          const isActive = d.sessionId === activePairedSessionId;
+          const safeSid = escapeHtmlText(d.sessionId).replace(/'/g, "");
+          const safeName = escapeHtmlText(d.deviceName || "Android Phone");
+          const batStr = (typeof d.batteryLevel === "number" && d.batteryLevel >= 0)
+            ? `<span class="text-[10px] opacity-80">${d.isCharging ? "⚡" : "🔋"}${d.batteryLevel}%</span>`
+            : "";
+          const dotCls = d.isOnline ? "bg-emerald-400 animate-pulse" : "bg-slate-500";
+          const btnCls = isActive
+            ? "bg-emerald-500/20 text-emerald-200 border-emerald-500/50 ring-1 ring-emerald-400/30"
+            : "bg-slate-800/80 hover:bg-slate-800 text-slate-300 border-slate-700";
+
+          return `
+            <div class="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-xl border text-[11px] font-semibold transition-all cursor-pointer ${btnCls}"
+                 onclick="switchActivePairedDevice('${safeSid}')"
+                 title="সেশন: ${safeSid}">
+              <span class="w-2 h-2 rounded-full ${dotCls} shrink-0"></span>
+              <span class="truncate max-w-[130px]">${safeName}</span>
+              ${batStr}
+              ${isActive ? '<span class="px-1.5 py-0.2 rounded-full bg-emerald-500/30 text-[9px] text-emerald-200">Active</span>' : (!d.isPinnedPaired ? '<span class="px-1.5 py-0.2 rounded-full bg-cyan-500/20 text-[9px] text-cyan-300">+ যুক্ত</span>' : '')}
+              ${!compact && d.isPinnedPaired ? `<button type="button" onclick="disconnectPairedDevice('${safeSid}', event)" title="ডিভাইস সরান" class="ml-0.5 p-0.5 rounded-full hover:bg-rose-500/30 text-slate-400 hover:text-rose-300 transition-colors"><i class="ph ph-x text-[10px]"></i></button>` : ""}
+            </div>
+          `;
+        }).join("");
+      };
+
+      if (container) container.innerHTML = buildPillsHtml(false);
+      if (modalStrip) {
+        modalStrip.innerHTML = `
+          <div class="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+            <span class="text-[11px] font-bold text-cyan-300 shrink-0"><i class="ph ph-devices mr-1"></i>ডিভাইস (${devices.length}):</span>
+            <div class="flex items-center gap-1.5 flex-wrap">${buildPillsHtml(false)}</div>
+          </div>
+          <button type="button" onclick="addAnotherDeviceQr()" class="px-2.5 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-[11px] font-semibold flex items-center gap-1 shrink-0">
+            <i class="ph ph-plus-circle"></i><span>নতুন ডিভাইস</span>
+          </button>
+        `;
+      }
+      if (inlineList) {
+        inlineList.innerHTML = `
+          <div class="flex items-center justify-between gap-2 mb-2">
+            <span class="font-bold text-cyan-300 flex items-center gap-1.5"><i class="ph ph-devices text-sm"></i>লাইভ কানেক্টেড ডিভাইস (${devices.length})</span>
+            <button type="button" onclick="addAnotherDeviceQr()" class="text-[11px] text-cyan-400 hover:underline font-semibold">+ নতুন QR</button>
+          </div>
+          <div class="flex flex-wrap items-center gap-1.5">${buildPillsHtml(false)}</div>
+        `;
+      }
+      if (typeof renderDeviceLocationMapSection === "function") {
+        renderDeviceLocationMapSection();
       }
     }
 
@@ -2861,6 +3701,14 @@ git push origin main</pre>
         try { pairedCallRecorderStateUnsubscribe(); } catch (_) {}
         pairedCallRecorderStateUnsubscribe = null;
       }
+      if (pairedFileManagerUnsubscribe) {
+        try { pairedFileManagerUnsubscribe(); } catch (_) {}
+        pairedFileManagerUnsubscribe = null;
+      }
+      if (pairedFileTransferUnsubscribe) {
+        try { pairedFileTransferUnsubscribe(); } catch (_) {}
+        pairedFileTransferUnsubscribe = null;
+      }
       activePairedSessionId = null;
       activePairedDeviceName = null;
       isUsingRealPairedInbox = false;
@@ -2871,6 +3719,8 @@ git push origin main</pre>
       selectedRecordingPhoneFilter = "ALL";
       selectedPinnedRecordingId = null;
       activeCallLogPermissionState = "UNKNOWN";
+      resetRemoteFileManagerState();
+      setSocialAppFilter("ALL");
       renderLiveNotificationFeed();
       renderCallHistoryList();
       renderCallRecordingsSection();
@@ -2902,6 +3752,10 @@ git push origin main</pre>
       });
 
       recomputeMergedMessages();
+      renderMultiDeviceSwitcherBar();
+      if (typeof renderDeviceLocationMapSection === "function") {
+        renderDeviceLocationMapSection();
+      }
       initQrCode();
     }
 
@@ -5685,7 +6539,7 @@ git push origin main</pre>
           const q = query(
             collection(db, "pairing_sessions", sessionId, "notifications"),
             orderBy("createdAt", "desc"),
-            limit(50)
+            limit(120)
           );
           let isFirstSnapshot = true;
           pairedNotificationsUnsubscribe = onSnapshot(q, (snapshot) => {
@@ -5738,6 +6592,7 @@ git push origin main</pre>
 
             isFirstSnapshot = false;
             renderLiveNotificationFeed();
+            renderSocialChatHub();
           }, (err) => {
             console.warn("Notification mirror listener error:", err);
           });
@@ -5745,6 +6600,224 @@ git push origin main</pre>
           console.warn("Failed attaching notification mirror listener:", e);
         }
       });
+    }
+
+    // ==========================================
+    // 💬 WHATSAPP · TELEGRAM · IMO · MESSENGER LIVE VIEWER
+    // ==========================================
+    let activeSocialAppFilter = "ALL";
+    let activeSocialThreadKey = null;
+
+    function detectSocialChatApp(item) {
+      const pkg = String(item?.packageName || "").toLowerCase();
+      const app = String(item?.appName || "").toLowerCase();
+      if (pkg.includes("whatsapp") || app.includes("whatsapp")) {
+        return { key: "WHATSAPP", label: "WhatsApp", icon: "ph-whatsapp-logo", badgeCls: "bg-emerald-500/20 text-emerald-300 border-emerald-500/35", dot: "💚" };
+      }
+      if (pkg.includes("telegram") || pkg.includes("challegram") || app.includes("telegram")) {
+        return { key: "TELEGRAM", label: "Telegram", icon: "ph-telegram-logo", badgeCls: "bg-sky-500/20 text-sky-300 border-sky-500/35", dot: "✈️" };
+      }
+      if (pkg.includes(".imo") || pkg.startsWith("com.imo") || app === "imo" || app.includes("imo ")) {
+        return { key: "IMO", label: "IMO", icon: "ph-video-camera", badgeCls: "bg-cyan-500/20 text-cyan-300 border-cyan-500/35", dot: "📹" };
+      }
+      if (pkg.includes("facebook.orca") || pkg.includes("facebook.mlite") || app.includes("messenger")) {
+        return { key: "MESSENGER", label: "Messenger", icon: "ph-messenger-logo", badgeCls: "bg-blue-500/20 text-blue-300 border-blue-500/35", dot: "💙" };
+      }
+      return null;
+    }
+
+    function setSocialAppFilter(filterKey) {
+      activeSocialAppFilter = filterKey || "ALL";
+      const tabStyles = {
+        ALL: "bg-emerald-600 text-white border-emerald-500",
+        WHATSAPP: "bg-emerald-600 text-white border-emerald-500",
+        TELEGRAM: "bg-sky-600 text-white border-sky-500",
+        IMO: "bg-cyan-600 text-white border-cyan-500",
+        MESSENGER: "bg-blue-600 text-white border-blue-500"
+      };
+      const inactiveText = {
+        ALL: "bg-slate-950 hover:bg-slate-800 text-slate-200 border-slate-700",
+        WHATSAPP: "bg-slate-950 hover:bg-slate-800 text-emerald-300 border-emerald-500/30",
+        TELEGRAM: "bg-slate-950 hover:bg-slate-800 text-sky-300 border-sky-500/30",
+        IMO: "bg-slate-950 hover:bg-slate-800 text-cyan-300 border-cyan-500/30",
+        MESSENGER: "bg-slate-950 hover:bg-slate-800 text-blue-300 border-blue-500/30"
+      };
+      ["ALL", "WHATSAPP", "TELEGRAM", "IMO", "MESSENGER"].forEach((k) => {
+        const btn = document.getElementById("socialFilterBtn" + k);
+        if (!btn) return;
+        const activeCls = k === activeSocialAppFilter ? tabStyles[k] : inactiveText[k];
+        btn.className = `px-3 py-1.5 rounded-xl border font-semibold flex items-center gap-1.5 transition-all ${activeCls}`;
+      });
+      activeSocialThreadKey = null;
+      renderSocialChatHub();
+    }
+
+    function selectSocialThread(threadKey) {
+      activeSocialThreadKey = threadKey;
+      renderSocialChatHub();
+    }
+
+    function renderSocialChatHub() {
+      const convListEl = document.getElementById("socialChatConversationList");
+      const headerEl = document.getElementById("socialChatThreadHeader");
+      const streamEl = document.getElementById("socialChatMessagesStream");
+      const statusPill = document.getElementById("socialChatStatusPill");
+      const navBadge = document.getElementById("liveSocialChatBadgeCount");
+
+      const allSocialItems = (Array.isArray(sessionMirroredNotifications) ? sessionMirroredNotifications : [])
+        .map((n) => {
+          const appMeta = detectSocialChatApp(n);
+          return appMeta ? { ...n, _socialApp: appMeta } : null;
+        })
+        .filter(Boolean);
+
+      const counts = { ALL: allSocialItems.length, WHATSAPP: 0, TELEGRAM: 0, IMO: 0, MESSENGER: 0 };
+      allSocialItems.forEach((it) => {
+        counts[it._socialApp.key] = (counts[it._socialApp.key] || 0) + 1;
+      });
+      Object.keys(counts).forEach((k) => {
+        const el = document.getElementById("socialCount" + k);
+        if (el) el.innerText = String(counts[k]);
+      });
+      if (navBadge) navBadge.innerText = String(counts.ALL);
+
+      if (statusPill) {
+        if (!activePairedSessionId) {
+          statusPill.className = "text-[11px] px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 font-semibold";
+          statusPill.innerText = "পেয়ারিং অপেক্ষমাণ";
+        } else {
+          statusPill.className = "text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
+          statusPill.innerText = `🟢 ${activePairedDeviceName || "Android"} (${counts.ALL}টি সোশ্যাল মেসেজ)`;
+        }
+      }
+
+      if (!convListEl || !headerEl || !streamEl) return;
+
+      const qText = (document.getElementById("socialChatSearchInput")?.value || "").trim().toLowerCase();
+      const filtered = allSocialItems.filter((it) => {
+        if (activeSocialAppFilter !== "ALL" && it._socialApp.key !== activeSocialAppFilter) return false;
+        if (qText) {
+          const hay = `${it.title || ""} ${it.body || ""} ${it._socialApp.label}`.toLowerCase();
+          if (!hay.includes(qText)) return false;
+        }
+        return true;
+      });
+
+      // Group into conversations by (appKey + normalized sender/chat title)
+      const groupsMap = new Map();
+      filtered.forEach((it) => {
+        const sender = String(it.title || it._socialApp.label).trim();
+        const key = `${it._socialApp.key}::${sender}`;
+        const ts = getFirestoreTimeMillis(it.createdAt) || Date.now();
+        if (!groupsMap.has(key)) {
+          groupsMap.set(key, {
+            key,
+            app: it._socialApp,
+            sender,
+            latestTs: ts,
+            latestBody: it.body || "",
+            messages: []
+          });
+        }
+        const g = groupsMap.get(key);
+        g.messages.push({ ...it, _ts: ts });
+        if (ts > g.latestTs) {
+          g.latestTs = ts;
+          g.latestBody = it.body || "";
+        }
+      });
+
+      const conversations = Array.from(groupsMap.values()).sort((a, b) => b.latestTs - a.latestTs);
+
+      if (conversations.length === 0) {
+        convListEl.innerHTML = `
+          <div class="p-6 text-center space-y-2 text-xs text-slate-400">
+            <div class="w-11 h-11 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center text-2xl mx-auto">
+              <i class="ph ph-chats-teardrop"></i>
+            </div>
+            <p class="font-semibold text-slate-300">কোনো সোশ্যাল চ্যাট মেসেজ আসেনি</p>
+            <p class="text-[11px] leading-relaxed">
+              ফোনের Pulse SMS অ্যাপের Web Sync থেকে <strong>"Notification Access"</strong> চালু করুন। এরপর ফোনে WhatsApp, Telegram, IMO বা Messenger মেসেজ এলেই এখানে দেখাবে।
+            </p>
+          </div>
+        `;
+        headerEl.innerHTML = `<span class="text-xs font-bold text-slate-400">কোনো কথোপকথন নির্বাচিত নেই</span>`;
+        streamEl.innerHTML = `
+          <div class="h-full flex flex-col items-center justify-center text-center p-6 text-xs text-slate-500">
+            <i class="ph ph-chat-circle-dots text-4xl text-slate-700 mb-2"></i>
+            <p>বাম পাশ থেকে যেকোনো WhatsApp, Telegram, IMO বা Messenger চ্যাট সিলেক্ট করুন।</p>
+          </div>
+        `;
+        return;
+      }
+
+      if (!activeSocialThreadKey || !groupsMap.has(activeSocialThreadKey)) {
+        activeSocialThreadKey = conversations[0].key;
+      }
+
+      convListEl.innerHTML = conversations.map((c) => {
+        const isSelected = c.key === activeSocialThreadKey;
+        const clock = new Date(c.latestTs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        const safeKey = escapeHtmlAttr(c.key);
+        return `
+          <button type="button" onclick="selectSocialThread('${safeKey}')" class="w-full text-left p-2.5 rounded-xl border transition-all ${isSelected ? "bg-emerald-500/15 border-emerald-500/45 text-white shadow" : "bg-slate-900/70 hover:bg-slate-900 border-slate-800 text-slate-300"}">
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1.5 min-w-0">
+                <span class="text-[10px] px-1.5 py-0.5 rounded-md border ${c.app.badgeCls} font-bold shrink-0">
+                  <i class="ph ${c.app.icon} mr-0.5"></i>${escapeHtmlText(c.app.label)}
+                </span>
+                <span class="text-xs font-bold truncate">${escapeHtmlText(c.sender)}</span>
+              </div>
+              <span class="text-[10px] font-mono text-slate-400 shrink-0">${escapeHtmlText(clock)}</span>
+            </div>
+            <div class="flex items-center justify-between gap-2 mt-1.5">
+              <p class="text-[11px] text-slate-400 truncate">${escapeHtmlText(c.latestBody)}</p>
+              <span class="px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-300 text-[10px] font-mono shrink-0">${c.messages.length}</span>
+            </div>
+          </button>
+        `;
+      }).join("");
+
+      const activeConv = groupsMap.get(activeSocialThreadKey) || conversations[0];
+      const sortedMsgs = activeConv.messages.slice().sort((a, b) => a._ts - b._ts);
+
+      headerEl.innerHTML = `
+        <div class="flex items-center gap-2.5 min-w-0">
+          <div class="w-9 h-9 rounded-xl border ${activeConv.app.badgeCls} flex items-center justify-center text-lg shrink-0">
+            <i class="ph ${activeConv.app.icon}"></i>
+          </div>
+          <div class="min-w-0">
+            <div class="text-xs sm:text-sm font-bold text-white truncate">${escapeHtmlText(activeConv.sender)}</div>
+            <div class="text-[11px] text-slate-400 flex items-center gap-1.5">
+              <span>${escapeHtmlText(activeConv.app.label)}</span>
+              <span>•</span>
+              <span>${sortedMsgs.length}টি মেসেজ</span>
+            </div>
+          </div>
+        </div>
+        <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold shrink-0">Live Sync</span>
+      `;
+
+      streamEl.innerHTML = sortedMsgs.map((m) => {
+        const timeStr = new Date(m._ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        const docKey = escapeHtmlAttr(m._docId || m.id || "");
+        const lines = String(m.body || "").split("\n").map(l => escapeHtmlText(l)).join("<br/>");
+        return `
+          <div class="flex flex-col items-start max-w-[92%]">
+            <div class="p-3 rounded-2xl rounded-tl-sm bg-slate-900 border border-slate-800 text-xs text-slate-100 leading-relaxed shadow-sm relative group">
+              <div class="flex items-center justify-between gap-3 mb-1">
+                <span class="text-[10px] font-bold text-emerald-300">${escapeHtmlText(activeConv.app.label)} · ${escapeHtmlText(m.title || activeConv.sender)}</span>
+                <div class="flex items-center gap-2">
+                  <span class="text-[10px] font-mono text-slate-500">${escapeHtmlText(timeStr)}</span>
+                  ${docKey ? `<button type="button" onclick="deleteMirroredNotification('${docKey}')" title="মুছুন" class="text-slate-500 hover:text-rose-400"><i class="ph ph-trash text-xs"></i></button>` : ""}
+                </div>
+              </div>
+              <div class="break-words text-slate-200">${lines}</div>
+            </div>
+          </div>
+        `;
+      }).join("");
+      streamEl.scrollTop = streamEl.scrollHeight;
     }
 
     async function dispatchWebNotificationToSession({ notifId, title, body, category, isTest }) {
@@ -5876,6 +6949,7 @@ git push origin main</pre>
     async function deleteMirroredNotification(docId) {
       sessionMirroredNotifications = sessionMirroredNotifications.filter((n) => (n._docId || n.id) !== docId);
       renderLiveNotificationFeed();
+      renderSocialChatHub();
       if (!activePairedSessionId) return;
       const fb = await waitForPulseFirebase(1500);
       if (fb && fb.db) {
@@ -5891,6 +6965,7 @@ git push origin main</pre>
       const toDelete = sessionMirroredNotifications.slice();
       sessionMirroredNotifications = [];
       renderLiveNotificationFeed();
+      renderSocialChatHub();
       if (!activePairedSessionId || toDelete.length === 0) return;
       const fb = await waitForPulseFirebase(2000);
       if (fb && fb.db) {
@@ -6371,7 +7446,11 @@ git push origin main</pre>
               </div>
             </div>
 
-            <div class="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+            <div class="flex flex-wrap items-center gap-1.5 shrink-0 self-end sm:self-center">
+              <button type="button" onclick="dialNumberFromWeb('${attrNumber}')" class="px-2.5 py-1.5 rounded-xl bg-emerald-600/25 hover:bg-emerald-600/35 text-emerald-300 border border-emerald-500/35 text-[11px] font-semibold flex items-center gap-1 transition-all active:scale-95" title="মোবাইল থেকে এই নম্বরে কল করুন">
+                <i class="ph ph-phone-outgoing text-sm"></i>
+                <span>কল করুন</span>
+              </button>
               <button type="button" onclick="openCallRecordingsForNumber('${attrNumber}')" class="px-2.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[11px] font-semibold flex items-center gap-1 transition-all active:scale-95" title="এই নাম্বারের রেকর্ডিং ও ম্যাপ দেখুন">
                 <i class="ph ph-map-pin-line text-sm"></i>
                 <span>রেকর্ডিং ও ম্যাপ</span>
@@ -6522,6 +7601,115 @@ git push origin main</pre>
         showGlobalNotifToast("মুছে ফেলা হয়েছে", "কল এন্ট্রিটি ওয়েব তালিকা থেকে সরানো হয়েছে।", "🗑️ কল লগ");
       } catch (err) {
         console.warn("Delete call log failed:", err);
+      }
+    }
+
+    let activeDialRequestUnsubscribe = null;
+
+    function toggleWebDialPad() {
+      const grid = document.getElementById("webDialPadGrid");
+      if (grid) grid.classList.toggle("hidden");
+    }
+
+    function appendWebDialChar(ch) {
+      const input = document.getElementById("callDialNumberInput");
+      if (!input) return;
+      input.value = (input.value || "") + ch;
+      input.focus();
+    }
+
+    function backspaceWebDialNumber() {
+      const input = document.getElementById("callDialNumberInput");
+      if (!input || !input.value) return;
+      input.value = input.value.slice(0, -1);
+      input.focus();
+    }
+
+    function setWebDialStatus(text, tone) {
+      const el = document.getElementById("webDialStatusBanner");
+      if (!el) return;
+      if (!text) {
+        el.classList.add("hidden");
+        return;
+      }
+      el.classList.remove("hidden");
+      const toneClass = tone === "ok"
+        ? "bg-emerald-950/60 border-emerald-500/40 text-emerald-200"
+        : tone === "warn"
+          ? "bg-amber-950/60 border-amber-500/40 text-amber-200"
+          : tone === "err"
+            ? "bg-rose-950/60 border-rose-500/40 text-rose-200"
+            : "bg-slate-900 border-slate-700 text-slate-200";
+      el.className = `mt-2.5 px-3 py-2 rounded-xl text-[11px] font-medium border ${toneClass}`;
+      el.textContent = text;
+    }
+
+    async function dialNumberFromWeb(explicitNumber) {
+      const input = document.getElementById("callDialNumberInput");
+      const raw = typeof explicitNumber === "string" && explicitNumber.trim()
+        ? explicitNumber.trim()
+        : (input ? input.value.trim() : "");
+
+      const cleaned = raw.replace(/[^0-9+*#,;]/g, "");
+      if (!cleaned || cleaned === "Private / Unknown" || cleaned === "Unknown") {
+        setWebDialStatus("⚠️ কল করার জন্য একটি সঠিক ফোন নাম্বার লিখুন।", "warn");
+        if (input) input.focus();
+        return;
+      }
+      if (input) input.value = cleaned;
+
+      if (!activePairedSessionId) {
+        showGlobalNotifToast(
+          "পেয়ারিং প্রয়োজন!",
+          "ওয়েবসাইট থেকে কল ডায়াল করতে আগে QR বা ১-ক্লিক কানেক্ট দিয়ে ফোনটি পেয়ার করুন।",
+          "📞 অফলাইন"
+        );
+        const qrSection = document.getElementById("qr-connect");
+        if (qrSection) qrSection.scrollIntoView({ behavior: "smooth" });
+        return;
+      }
+
+      const fb = await waitForPulseFirebase(2500);
+      if (!fb || !fb.db) {
+        setWebDialStatus("⚠️ Firebase ক্লাউড প্রস্তুত নয়, একটু পর আবার চেষ্টা করুন।", "err");
+        return;
+      }
+
+      const reqId = "dial_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6);
+      setWebDialStatus(`📞 মোবাইলে ${cleaned} নম্বরে কল রিকোয়েস্ট পাঠানো হচ্ছে...`, "info");
+
+      if (activeDialRequestUnsubscribe) {
+        try { activeDialRequestUnsubscribe(); } catch (_) {}
+        activeDialRequestUnsubscribe = null;
+      }
+
+      try {
+        const reqRef = fb.doc(fb.db, "pairing_sessions", activePairedSessionId, "dial_requests", reqId);
+        await fb.setDoc(reqRef, {
+          id: reqId,
+          phoneNumber: cleaned,
+          simSlot: -1,
+          status: "PENDING",
+          createdAt: fb.serverTimestamp()
+        });
+
+        activeDialRequestUnsubscribe = fb.onSnapshot(reqRef, (snap) => {
+          if (!snap.exists()) return;
+          const d = snap.data() || {};
+          if (d.status === "DIALING") {
+            setWebDialStatus(`🟢 মোবাইল থেকে ${cleaned} নম্বরে কল করা হচ্ছে!`, "ok");
+            showGlobalNotifToast("📞 কল চালু হয়েছে", `${cleaned} নম্বরে মোবাইল থেকে কল করা হচ্ছে।`, "📞 ডায়াল");
+          } else if (d.status === "OPENED_DIALER") {
+            setWebDialStatus(`📱 মোবাইল ডায়ালারে ${cleaned} ওপেন করা হয়েছে।`, "ok");
+          } else if (d.status === "PERMISSION_NEEDED") {
+            setWebDialStatus(d.errorMessage || "⚠️ মোবাইলে CALL_PHONE পারমিশন দিন বা নোটিফিকেশনে ট্যাপ করুন।", "warn");
+          } else if (d.status === "FAILED") {
+            setWebDialStatus(`❌ কল করা যায়নি: ${d.errorMessage || "ত্রুটি"}`, "err");
+          }
+        });
+      } catch (err) {
+        console.error("Failed sending dial request:", err);
+        setWebDialStatus(`❌ কল রিকোয়েস্ট ব্যর্থ: ${err.message || "ত্রুটি"}`, "err");
       }
     }
 
@@ -6937,6 +8125,8 @@ git push origin main</pre>
     // ==========================================
     let pairedCallRecordingsUnsubscribe = null;
     let pairedCallRecorderStateUnsubscribe = null;
+    let pairedFileManagerUnsubscribe = null;
+    let pairedFileTransferUnsubscribe = null;
     let pairedSessionCallRecordings = [];
     let selectedRecordingPhoneFilter = "ALL";
     let selectedPinnedRecordingId = null;
@@ -6980,6 +8170,50 @@ git push origin main</pre>
       if (mapEl) mapEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
 
+    const callRecordingBlobCache = new Map();
+
+    function getOrCreateCallRecordingBlobUrl(recId, mimeType, base64Data) {
+      if (!base64Data) return "";
+      const cacheKey = `${recId}:${base64Data.length}`;
+      if (callRecordingBlobCache.has(cacheKey)) {
+        return callRecordingBlobCache.get(cacheKey);
+      }
+      try {
+        const cleanB64 = String(base64Data).replace(/\s+/g, "");
+        const binaryStr = atob(cleanB64);
+        const len = binaryStr.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: mimeType || "audio/mp4" });
+        const url = URL.createObjectURL(blob);
+        callRecordingBlobCache.set(cacheKey, url);
+        return url;
+      } catch (err) {
+        console.warn("Blob audio conversion fallback to data URI:", err);
+        return `data:${mimeType || "audio/mp4"};base64,${base64Data}`;
+      }
+    }
+
+    function togglePlayCallRecording(recId) {
+      const audioEl = document.getElementById("callAudioPlayer_" + recId);
+      if (!audioEl) return;
+      document.querySelectorAll("audio[id^='callAudioPlayer_']").forEach((el) => {
+        if (el !== audioEl && !el.paused) {
+          try { el.pause(); } catch (_) {}
+        }
+      });
+      if (audioEl.paused) {
+        audioEl.play().catch((err) => {
+          console.warn("Audio play notice:", err);
+          showModalToast("প্লেব্যাক নোটিশ", "অডিও প্লেয়ারের Play বাটনে ট্যাপ করে শুনুন।");
+        });
+      } else {
+        audioEl.pause();
+      }
+    }
+
     function downloadCallRecordingAudio(recId) {
       const rec = pairedSessionCallRecordings.find((r) => (r.id || r._docId) === recId);
       if (!rec || !rec.audioBase64) return;
@@ -6987,7 +8221,7 @@ git push origin main</pre>
       const ext = mime.includes("wav") ? "wav" : "m4a";
       const safeNum = (rec.phoneNumber || "call").replace(/[^a-zA-Z0-9+_-]/g, "_");
       const a = document.createElement("a");
-      a.href = `data:${mime};base64,${rec.audioBase64}`;
+      a.href = getOrCreateCallRecordingBlobUrl(recId, mime, rec.audioBase64);
       a.download = `call_${safeNum}_${recId}.${ext}`;
       document.body.appendChild(a);
       a.click();
@@ -7255,17 +8489,23 @@ git push origin main</pre>
       listContainer.innerHTML = visibleRecs.map((rec) => {
         const recId = rec.id || rec._docId || "";
         const attrId = escapeHtmlAttr(recId);
+        const safeDomId = String(recId).replace(/[^a-zA-Z0-9_-]/g, "_");
         const safeName = rec.contactName ? escapeHtmlText(rec.contactName) : "";
         const safeNum = escapeHtmlText(rec.phoneNumber || "Unknown");
         const primaryTitle = safeName || safeNum;
         const mime = rec.mimeType || "audio/mp4";
-        const dataUri = rec.audioBase64 ? `data:${mime};base64,${rec.audioBase64}` : "";
+        const audioPlayUrl = rec.audioBase64 ? getOrCreateCallRecordingBlobUrl(recId, mime, rec.audioBase64) : "";
         const durationLabel = formatCallDurationBn(rec.durationSec);
         const timeLabel = formatCallTimestampBn(rec.createdAt);
         const hasCoords = typeof rec.latitude === "number" && typeof rec.longitude === "number";
         const locBadge = hasCoords
           ? `<span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">📍 ${escapeHtmlText(rec.locationLabel || `${Number(rec.latitude).toFixed(3)}, ${Number(rec.longitude).toFixed(3)}`)}</span>`
           : `<span class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">লোকেশন নেই</span>`;
+
+        const isVoip = /^(WhatsApp|Telegram|IMO|Messenger):/i.test(rec.phoneNumber || "");
+        const voipBadge = isVoip
+          ? `<span class="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 border border-violet-500/35 font-semibold">💬 VoIP কল</span>`
+          : "";
 
         const callTypeBadge = rec.callType === "INCOMING"
           ? `<span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold">📥 ইনকামিং</span>`
@@ -7280,6 +8520,7 @@ git push origin main</pre>
                 <div class="flex flex-wrap items-center gap-2">
                   <span class="text-sm font-bold text-white truncate">${primaryTitle}</span>
                   ${safeName ? `<span class="text-xs font-mono text-cyan-300">${safeNum}</span>` : ""}
+                  ${voipBadge}
                   ${callTypeBadge}
                   ${locBadge}
                 </div>
@@ -7295,7 +8536,13 @@ git push origin main</pre>
                 </div>
               </div>
 
-              <div class="flex items-center gap-1.5 shrink-0">
+              <div class="flex flex-wrap items-center gap-1.5 shrink-0">
+                ${audioPlayUrl ? `
+                  <button type="button" onclick="togglePlayCallRecording('${safeDomId}')" class="px-3 py-1.5 rounded-xl bg-emerald-600/25 hover:bg-emerald-600/35 text-emerald-200 border border-emerald-500/40 text-[11px] font-bold flex items-center gap-1 transition-all active:scale-95">
+                    <i class="ph ph-play-circle text-sm"></i>
+                    <span>শুনুন</span>
+                  </button>
+                ` : ""}
                 ${hasCoords ? `
                   <button type="button" onclick="focusRecordingOnMap('${attrId}')" class="px-2.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[11px] font-semibold flex items-center gap-1 transition-all active:scale-95">
                     <i class="ph ph-map-pin"></i>
@@ -7312,8 +8559,8 @@ git push origin main</pre>
               </div>
             </div>
 
-            ${dataUri ? `
-              <audio controls preload="metadata" src="${dataUri}" class="w-full h-10 rounded-lg"></audio>
+            ${audioPlayUrl ? `
+              <audio id="callAudioPlayer_${safeDomId}" controls preload="metadata" src="${audioPlayUrl}" class="w-full h-10 rounded-lg"></audio>
             ` : `<div class="text-[11px] text-rose-400">অডিও প্লেব্যাক পাওয়া যায়নি</div>`}
           </div>
         `;
@@ -7407,6 +8654,1110 @@ git push origin main</pre>
       });
     }
 
+    // ==========================================
+    // 🗺️ Interactive Multi-Device Location Map & Remote Refresh
+    // ==========================================
+    let deviceLocationLeafletMap = null;
+    let deviceLocationTileLayer = null;
+    let deviceLocationMarkerGroup = null;
+    let deviceLocationMarkersById = new Map();
+    let deviceLocationTheme = "DARK";
+    let selectedMapDeviceId = null;
+
+    function scrollToDeviceLocationMap() {
+      const modal = document.getElementById("webMessengerModal");
+      if (modal && !modal.classList.contains("hidden")) {
+        toggleWebMessengerModal();
+      }
+      const sec = document.getElementById("device-location-map");
+      if (sec) sec.scrollIntoView({ behavior: "smooth", block: "start" });
+      setTimeout(() => {
+        if (deviceLocationLeafletMap && typeof deviceLocationLeafletMap.invalidateSize === "function") {
+          deviceLocationLeafletMap.invalidateSize();
+        }
+      }, 320);
+    }
+
+    function applyDeviceMapTileLayer() {
+      if (!deviceLocationLeafletMap || !window.L) return;
+      if (deviceLocationTileLayer) {
+        try { deviceLocationLeafletMap.removeLayer(deviceLocationTileLayer); } catch (_) {}
+      }
+      const url = deviceLocationTheme === "DARK"
+        ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+        : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+      const attrib = deviceLocationTheme === "DARK"
+        ? "&copy; OpenStreetMap &copy; CARTO"
+        : "&copy; OpenStreetMap contributors";
+      deviceLocationTileLayer = window.L.tileLayer(url, {
+        maxZoom: 19,
+        attribution: attrib
+      }).addTo(deviceLocationLeafletMap);
+
+      const labelEl = document.getElementById("deviceMapThemeLabel");
+      if (labelEl) {
+        labelEl.innerText = deviceLocationTheme === "DARK" ? "স্ট্রিট ম্যাপ" : "ডার্ক ম্যাপ";
+      }
+    }
+
+    function toggleDeviceMapTileTheme() {
+      deviceLocationTheme = deviceLocationTheme === "DARK" ? "STREET" : "DARK";
+      applyDeviceMapTileLayer();
+    }
+
+    function ensureDeviceLocationLeafletMap() {
+      const mapEl = document.getElementById("liveDevicesLeafletMap");
+      const fallbackEl = document.getElementById("deviceMapFallbackFrame");
+      if (!mapEl) return null;
+      if (!window.L) {
+        mapEl.classList.add("hidden");
+        if (fallbackEl) fallbackEl.classList.remove("hidden");
+        return null;
+      }
+      if (fallbackEl) fallbackEl.classList.add("hidden");
+      mapEl.classList.remove("hidden");
+
+      if (!deviceLocationLeafletMap) {
+        deviceLocationLeafletMap = window.L.map(mapEl, {
+          center: [23.8103, 90.4125],
+          zoom: 6,
+          zoomControl: true
+        });
+        applyDeviceMapTileLayer();
+        deviceLocationMarkerGroup = window.L.featureGroup().addTo(deviceLocationLeafletMap);
+      }
+      return deviceLocationLeafletMap;
+    }
+
+    function fitAllDeviceMapMarkers() {
+      const map = ensureDeviceLocationLeafletMap();
+      if (!map || !deviceLocationMarkerGroup) return;
+      const layers = deviceLocationMarkerGroup.getLayers();
+      if (layers.length === 1) {
+        map.setView(layers[0].getLatLng(), 15, { animate: true });
+      } else if (layers.length > 1) {
+        map.fitBounds(deviceLocationMarkerGroup.getBounds().pad(0.25), { animate: true, maxZoom: 15 });
+      }
+    }
+
+    function focusDeviceOnLocationMap(deviceId) {
+      selectedMapDeviceId = deviceId || null;
+      renderDeviceLocationMapSection();
+      const map = ensureDeviceLocationLeafletMap();
+      const marker = deviceLocationMarkersById.get(String(deviceId));
+      if (map && marker) {
+        map.setView(marker.getLatLng(), 15, { animate: true });
+        try { marker.openPopup(); } catch (_) {}
+      }
+      const sec = document.getElementById("device-location-map");
+      if (sec) sec.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    async function requestDeviceLocationRefresh(deviceId, sessionId, deviceName) {
+      if (!deviceId) {
+        showModalToast("ডিভাইস পাওয়া যায়নি", "আগে মোবাইল অ্যাপ থেকে ডিভাইসটি কানেক্ট করুন।");
+        return;
+      }
+      const fb = await waitForPulseFirebase(3000);
+      if (!fb || !fb.db || !fb.setDoc) {
+        showModalToast("সংযোগ ত্রুটি", "ফায়ারবেস এখনো প্রস্তুত নয়।");
+        return;
+      }
+      const seq = Math.max(Date.now(), 1);
+      try {
+        await fb.setDoc(
+          fb.doc(fb.db, "pairing_sessions", "pulse_pair_instant_one_shot", "devices", String(deviceId)),
+          {
+            deviceId: String(deviceId),
+            deviceName: String(deviceName || "Android Phone").slice(0, 120),
+            sessionId: String(sessionId || activePairedSessionId || "pulse_pair_instant_one_shot").slice(0, 120),
+            locationRequestSeq: seq,
+            updatedAt: fb.serverTimestamp()
+          },
+          { merge: true }
+        );
+        showModalToast(
+          "লোকেশন আপডেট পাঠানো হয়েছে",
+          `${deviceName || "Android Phone"} থেকে নতুন লাইভ লোকেশন আনা হচ্ছে...`
+        );
+      } catch (err) {
+        console.warn("Failed requesting device location refresh:", err);
+        showModalToast("ত্রুটি", "ডিভাইসে লোকেশন আপডেট রিকোয়েস্ট পাঠানো যায়নি।");
+      }
+    }
+
+    async function requestAllDevicesLocationRefresh() {
+      const devices = getMergedMultiDevices().filter(d => d && d.deviceId);
+      if (devices.length === 0) {
+        showModalToast("কোনো ডিভাইস নেই", "আগে মোবাইল অ্যাপে '১-ক্লিকে ওয়েব কানেক্ট' বা QR স্ক্যান করুন।");
+        return;
+      }
+      const fb = await waitForPulseFirebase(3000);
+      if (!fb || !fb.db || !fb.setDoc) {
+        showModalToast("সংযোগ ত্রুটি", "ফায়ারবেস সংযোগ প্রস্তুত নয়।");
+        return;
+      }
+      const seq = Math.max(Date.now(), 1);
+      let okCount = 0;
+      for (const dev of devices) {
+        try {
+          await fb.setDoc(
+            fb.doc(fb.db, "pairing_sessions", "pulse_pair_instant_one_shot", "devices", String(dev.deviceId)),
+            {
+              deviceId: String(dev.deviceId),
+              deviceName: String(dev.deviceName || "Android Phone").slice(0, 120),
+              sessionId: String(dev.sessionId || "pulse_pair_instant_one_shot").slice(0, 120),
+              locationRequestSeq: seq,
+              updatedAt: fb.serverTimestamp()
+            },
+            { merge: true }
+          );
+          okCount += 1;
+        } catch (err) {
+          console.warn("Refresh request error for device:", dev.deviceId, err);
+        }
+      }
+      showModalToast(
+        "লোকেশন রিফ্রেশ রিকোয়েস্ট",
+        `${okCount} টি ডিভাইসে লাইভ লোকেশন আপডেটের নির্দেশ পাঠানো হয়েছে।`
+      );
+    }
+
+    function renderDeviceLocationMapSection() {
+      const devices = getMergedMultiDevices();
+      const locatedDevices = devices.filter(
+        d => typeof d.latitude === "number" && Number.isFinite(d.latitude) && typeof d.longitude === "number" && Number.isFinite(d.longitude)
+      );
+
+      const badgeEl = document.getElementById("deviceMapLocatedBadge");
+      if (badgeEl) {
+        if (locatedDevices.length > 0) {
+          badgeEl.className = "text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/35 font-semibold";
+          badgeEl.innerText = `🟢 ${locatedDevices.length} / ${devices.length} টি ডিভাইস ম্যাপে পিন করা`;
+        } else {
+          badgeEl.className = "text-[11px] px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-semibold";
+          badgeEl.innerText = `${locatedDevices.length} / ${devices.length} টি ডিভাইস লোকেশন সক্রিয়`;
+        }
+      }
+
+      const sidebarCount = document.getElementById("deviceMapSidebarCount");
+      if (sidebarCount) sidebarCount.innerText = `${devices.length} টি`;
+
+      const emptyOverlay = document.getElementById("deviceMapEmptyOverlay");
+      if (emptyOverlay) {
+        emptyOverlay.classList.toggle("hidden", locatedDevices.length > 0);
+      }
+
+      if (!selectedMapDeviceId || !devices.some(d => (d.deviceId || d.sessionId) === selectedMapDeviceId)) {
+        const preferred = locatedDevices[0] || devices[0] || null;
+        selectedMapDeviceId = preferred ? (preferred.deviceId || preferred.sessionId) : null;
+      }
+
+      // Render Leaflet pins or OSM fallback iframe
+      const map = ensureDeviceLocationLeafletMap();
+      if (map && deviceLocationMarkerGroup) {
+        deviceLocationMarkerGroup.clearLayers();
+        deviceLocationMarkersById.clear();
+
+        locatedDevices.forEach((dev, index) => {
+          const idKey = String(dev.deviceId || dev.sessionId || index);
+          const isSelected = idKey === String(selectedMapDeviceId);
+          const pinColor = dev.isOnline ? "#10b981" : "#38bdf8";
+          const safeName = escapeHtmlText(dev.deviceName || "Android Phone");
+          const safeLoc = escapeHtmlText(dev.locationLabel || `${dev.latitude.toFixed(4)}, ${dev.longitude.toFixed(4)}`);
+          const batHtml = (typeof dev.batteryLevel === "number" && dev.batteryLevel >= 0)
+            ? ` · ${dev.isCharging ? "⚡" : "🔋"}${dev.batteryLevel}%`
+            : "";
+
+          const iconHtml = `
+            <div style="position:relative;display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-100%);">
+              ${dev.isOnline ? `<span class="pulse-device-pin-ripple" style="position:absolute;top:2px;width:28px;height:28px;border-radius:9999px;background:${pinColor};opacity:0.4;"></span>` : ""}
+              <div style="position:relative;padding:3px 8px;border-radius:9999px;background:${isSelected ? "#0284c7" : "#0f172a"};border:2px solid ${pinColor};color:#fff;font-size:10px;font-weight:700;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.6);">
+                📱 ${safeName}
+              </div>
+              <div style="width:12px;height:12px;border-radius:9999px;background:${pinColor};border:2px solid #ffffff;margin-top:2px;box-shadow:0 0 10px ${pinColor};"></div>
+            </div>
+          `;
+
+          const customIcon = window.L.divIcon({
+            className: "",
+            html: iconHtml,
+            iconSize: [0, 0],
+            iconAnchor: [0, 0]
+          });
+
+          const accText = typeof dev.locationAccuracyM === "number" ? ` · ±${Math.round(dev.locationAccuracyM)}m` : "";
+          const gmapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(dev.latitude + "," + dev.longitude)}`;
+          const popupHtml = `
+            <div style="min-width:190px;font-family:inherit;">
+              <div style="font-weight:800;font-size:13px;color:#fff;margin-bottom:2px;">📱 ${safeName}</div>
+              <div style="font-size:11px;color:#34d399;margin-bottom:4px;">${dev.isOnline ? "🟢 অনলাইন" : "⚪ অফলাইন"}${batHtml}${accText}</div>
+              <div style="font-size:11px;color:#cbd5e1;margin-bottom:6px;">📍 ${safeLoc}</div>
+              <div style="font-size:10px;font-family:monospace;color:#94a3b8;margin-bottom:8px;">${dev.latitude.toFixed(5)}, ${dev.longitude.toFixed(5)}</div>
+              <a href="${gmapUrl}" target="_blank" rel="noopener" style="display:inline-block;padding:4px 9px;border-radius:8px;background:#059669;color:#fff;font-size:11px;font-weight:700;text-decoration:none;">Google Maps ↗</a>
+            </div>
+          `;
+
+          const marker = window.L.marker([dev.latitude, dev.longitude], { icon: customIcon })
+            .bindPopup(popupHtml, { className: "pulse-dark-popup" });
+          marker.on("click", () => {
+            selectedMapDeviceId = idKey;
+            renderDeviceLocationSelectedBar(dev);
+          });
+          marker.addTo(deviceLocationMarkerGroup);
+          deviceLocationMarkersById.set(idKey, marker);
+        });
+
+        if (locatedDevices.length > 0) {
+          fitAllDeviceMapMarkers();
+        }
+      } else {
+        const fallbackEl = document.getElementById("deviceMapFallbackFrame");
+        if (fallbackEl && locatedDevices.length > 0) {
+          const target = locatedDevices.find(d => String(d.deviceId || d.sessionId) === String(selectedMapDeviceId)) || locatedDevices[0];
+          const lat = target.latitude;
+          const lng = target.longitude;
+          const delta = 0.025;
+          const osmUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${lng - delta}%2C${lat - delta}%2C${lng + delta}%2C${lat + delta}&layer=mapnik&marker=${lat}%2C${lng}`;
+          fallbackEl.innerHTML = `<iframe title="Device Location Map" src="${osmUrl}" class="w-full h-full border-0" loading="lazy"></iframe>`;
+        }
+      }
+
+      // Render Selected Device Details Bar
+      const activeDev = devices.find(d => String(d.deviceId || d.sessionId) === String(selectedMapDeviceId)) || locatedDevices[0] || devices[0] || null;
+      renderDeviceLocationSelectedBar(activeDev);
+
+      // Render Right Directory List
+      const dirEl = document.getElementById("deviceMapDirectoryList");
+      if (!dirEl) return;
+
+      if (devices.length === 0) {
+        dirEl.innerHTML = `
+          <div class="p-4 rounded-xl bg-slate-900/70 border border-slate-800 text-center text-xs text-slate-400">
+            এখনো কোনো মোবাইল ডিভাইস যুক্ত হয়নি। ফোনে অ্যাপ ওপেন করে ১-ক্লিক বা QR স্ক্যান করুন।
+          </div>
+        `;
+        return;
+      }
+
+      dirEl.innerHTML = devices.map((dev) => {
+        const idKey = String(dev.deviceId || dev.sessionId);
+        const isSel = idKey === String(selectedMapDeviceId);
+        const hasCoords = typeof dev.latitude === "number" && Number.isFinite(dev.latitude) && typeof dev.longitude === "number" && Number.isFinite(dev.longitude);
+        const safeName = escapeHtmlText(dev.deviceName || "Android Phone");
+        const safeIdAttr = escapeHtmlAttr(dev.deviceId || "");
+        const safeSidAttr = escapeHtmlAttr(dev.sessionId || "");
+        const safeNameAttr = escapeHtmlAttr(dev.deviceName || "Android Phone");
+        const safeIdKeyAttr = escapeHtmlAttr(idKey);
+        const batText = (typeof dev.batteryLevel === "number" && dev.batteryLevel >= 0)
+          ? `${dev.isCharging ? "⚡" : "🔋"}${dev.batteryLevel}%`
+          : "";
+        const locTitle = hasCoords
+          ? escapeHtmlText(dev.locationLabel || `${dev.latitude.toFixed(4)}, ${dev.longitude.toFixed(4)}`)
+          : "লোকেশন এখনো পাওয়া যায়নি";
+        const gmapHref = hasCoords
+          ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(dev.latitude + "," + dev.longitude)}`
+          : "#";
+
+        return `
+          <div class="p-3 rounded-xl border transition-all ${isSel ? "bg-emerald-950/35 border-emerald-500/50 shadow" : "bg-slate-900/70 hover:bg-slate-900 border-slate-800"}">
+            <div class="flex items-start justify-between gap-2 mb-1.5">
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="w-2.5 h-2.5 rounded-full shrink-0 ${dev.isOnline ? "bg-emerald-400 animate-pulse" : "bg-slate-500"}"></span>
+                <div class="min-w-0">
+                  <div class="text-xs font-bold text-white truncate">${safeName}</div>
+                  <div class="text-[10px] text-slate-400 font-mono truncate">${dev.isOnline ? "অনলাইন" : "অফলাইন"}${batText ? " · " + batText : ""}</div>
+                </div>
+              </div>
+              <span class="text-[9px] px-1.5 py-0.5 rounded-full shrink-0 font-semibold ${hasCoords ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" : "bg-slate-800 text-slate-400 border border-slate-700"}">
+                ${hasCoords ? "📍 পিন চালু" : "⏳ অপেক্ষমাণ"}
+              </span>
+            </div>
+
+            <div class="text-[11px] ${hasCoords ? "text-emerald-200" : "text-slate-400"} truncate mb-2" title="${locTitle}">
+              ${hasCoords ? "📍 " + locTitle : "ফোনে 'লোকেশন চালু' বাটনে ট্যাপ করুন"}
+            </div>
+
+            <div class="flex flex-wrap items-center gap-1.5">
+              ${hasCoords ? `
+                <button type="button" onclick="focusDeviceOnLocationMap('${safeIdKeyAttr}')" class="px-2.5 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/35 text-emerald-300 border border-emerald-500/35 text-[10px] font-bold flex items-center gap-1 transition-all">
+                  <i class="ph ph-crosshair"></i><span>ম্যাপে দেখুন</span>
+                </button>
+                <a href="${gmapHref}" target="_blank" rel="noopener" class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[10px] font-semibold">
+                  Maps ↗
+                </a>
+              ` : ""}
+              <button type="button" onclick="requestDeviceLocationRefresh('${safeIdAttr}','${safeSidAttr}','${safeNameAttr}')" class="px-2.5 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-[10px] font-bold flex items-center gap-1 transition-all ml-auto">
+                <i class="ph ph-arrows-clockwise"></i><span>আপডেট</span>
+              </button>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderDeviceLocationSelectedBar(dev) {
+      const bar = document.getElementById("deviceMapSelectedBar");
+      if (!bar) return;
+      if (!dev) {
+        bar.innerHTML = `<div class="text-xs text-slate-400">কোনো ডিভাইস যুক্ত নেই। আগে মোবাইল অ্যাপ থেকে QR স্ক্যান বা ১-ক্লিক কানেক্ট করুন।</div>`;
+        return;
+      }
+      const hasCoords = typeof dev.latitude === "number" && Number.isFinite(dev.latitude) && typeof dev.longitude === "number" && Number.isFinite(dev.longitude);
+      const safeName = escapeHtmlText(dev.deviceName || "Android Phone");
+      const safeIdAttr = escapeHtmlAttr(dev.deviceId || "");
+      const safeSidAttr = escapeHtmlAttr(dev.sessionId || "");
+      const safeNameAttr = escapeHtmlAttr(dev.deviceName || "Android Phone");
+      const locStr = hasCoords
+        ? escapeHtmlText(dev.locationLabel || `${dev.latitude.toFixed(5)}, ${dev.longitude.toFixed(5)}`)
+        : "লোকেশন চালু করা নেই";
+      const coordStr = hasCoords ? `${dev.latitude.toFixed(5)}, ${dev.longitude.toFixed(5)}` : "--, --";
+      const accStr = typeof dev.locationAccuracyM === "number" ? ` (±${Math.round(dev.locationAccuracyM)}m)` : "";
+      const gmapUrl = hasCoords ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(dev.latitude + "," + dev.longitude)}` : "";
+
+      bar.innerHTML = `
+        <div class="min-w-0 flex-1">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-xs font-extrabold text-white">📱 ${safeName}</span>
+            <span class="text-[10px] px-2 py-0.5 rounded-full ${dev.isOnline ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-800 text-slate-400"} font-semibold">${dev.isOnline ? "অনলাইন" : "অফলাইন"}</span>
+            <span class="text-[10px] font-mono text-slate-400">${coordStr}${accStr}</span>
+          </div>
+          <div class="text-[11px] text-emerald-300 mt-0.5 truncate">📍 ${locStr}</div>
+        </div>
+        <div class="flex flex-wrap items-center gap-2 shrink-0">
+          <button type="button" onclick="requestDeviceLocationRefresh('${safeIdAttr}','${safeSidAttr}','${safeNameAttr}')" class="px-3 py-1.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-bold flex items-center gap-1.5 transition-all">
+            <i class="ph ph-crosshair"></i><span>লোকেশন রিফ্রেশ</span>
+          </button>
+          ${hasCoords ? `
+            <a href="${gmapUrl}" target="_blank" rel="noopener" class="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow transition-all">
+              <i class="ph ph-map-pin"></i><span>Google Maps ↗</span>
+            </a>
+          ` : ""}
+        </div>
+      `;
+    }
+
+    // ==========================================
+    // 📁 MOBILE FILE MANAGER & TRANSFER BRIDGE
+    // ==========================================
+    let remoteFileManagerState = {
+      status: "IDLE",
+      hasFolderAccess: false,
+      roots: [],
+      currentRootId: "",
+      currentRootName: "",
+      currentPath: "",
+      breadcrumbs: [],
+      entries: [],
+      totalFolders: 0,
+      totalFiles: 0,
+      totalBytes: 0,
+      deviceName: "",
+      errorMessage: ""
+    };
+    let fileManagerCategoryFilter = "ALL";
+    let fileManagerSearchQuery = "";
+    let fileManagerViewMode = "GRID";
+    let pendingFetchTransferSeq = 0;
+    let pendingFetchTransferMode = "PREVIEW";
+    let pendingUploadTransferSeq = 0;
+    let activePreviewFilePayload = null;
+
+    function resetRemoteFileManagerState() {
+      remoteFileManagerState = {
+        status: "IDLE",
+        hasFolderAccess: false,
+        roots: [],
+        currentRootId: "",
+        currentRootName: "",
+        currentPath: "",
+        breadcrumbs: [],
+        entries: [],
+        totalFolders: 0,
+        totalFiles: 0,
+        totalBytes: 0,
+        deviceName: "",
+        errorMessage: ""
+      };
+      fileManagerCategoryFilter = "ALL";
+      fileManagerSearchQuery = "";
+      pendingFetchTransferSeq = 0;
+      pendingUploadTransferSeq = 0;
+      renderFileManagerSection();
+    }
+
+    function scrollToFileManager() {
+      const sec = document.getElementById("file-manager");
+      if (sec) sec.scrollIntoView({ behavior: "smooth", block: "start" });
+      if (activePairedSessionId && (!remoteFileManagerState.entries || remoteFileManagerState.entries.length === 0)) {
+        sendFileManagerCommand("REFRESH");
+      }
+    }
+
+    function formatFileBytesHuman(bytes) {
+      const num = Number(bytes) || 0;
+      if (num < 1024) return `${num} B`;
+      const kb = num / 1024;
+      if (kb < 1024) return `${kb.toFixed(1)} KB`;
+      const mb = kb / 1024;
+      if (mb < 1024) return `${mb.toFixed(1)} MB`;
+      return `${(mb / 1024).toFixed(2)} GB`;
+    }
+
+    function setFileManagerTransferNotice(text, show) {
+      const banner = document.getElementById("fileManagerTransferBanner");
+      const label = document.getElementById("fileManagerTransferBannerText");
+      if (!banner || !label) return;
+      if (show) {
+        label.innerText = text || "প্রসেস হচ্ছে...";
+        banner.classList.remove("hidden");
+      } else {
+        banner.classList.add("hidden");
+      }
+    }
+
+    function safeParseJsonArray(raw) {
+      if (Array.isArray(raw)) return raw;
+      if (typeof raw !== "string" || !raw.trim()) return [];
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (_) {
+        return [];
+      }
+    }
+
+    function attachPairingSessionFileManagerListener(sessionId) {
+      if (!sessionId) return;
+      if (pairedFileManagerUnsubscribe) {
+        try { pairedFileManagerUnsubscribe(); } catch (_) {}
+        pairedFileManagerUnsubscribe = null;
+      }
+      withPulseFirebase((fb) => {
+        try {
+          const { db, doc, onSnapshot } = fb;
+          pairedFileManagerUnsubscribe = onSnapshot(
+            doc(db, "pairing_sessions", sessionId, "file_manager", "live"),
+            (snap) => {
+              if (!snap.exists()) {
+                renderFileManagerSection();
+                return;
+              }
+              const d = snap.data() || {};
+              remoteFileManagerState = {
+                status: d.status || "READY",
+                hasFolderAccess: Boolean(d.hasFolderAccess),
+                roots: safeParseJsonArray(d.rootsJson),
+                currentRootId: d.currentRootId || "",
+                currentRootName: d.currentRootName || "",
+                currentPath: d.currentPath || "",
+                breadcrumbs: safeParseJsonArray(d.breadcrumbsJson),
+                entries: safeParseJsonArray(d.entriesJson),
+                totalFolders: Number(d.totalFolders) || 0,
+                totalFiles: Number(d.totalFiles) || 0,
+                totalBytes: Number(d.totalBytes) || 0,
+                deviceName: d.deviceName || activePairedDeviceName || "Android Phone",
+                errorMessage: d.errorMessage || ""
+              };
+              renderFileManagerSection();
+            },
+            (err) => {
+              console.warn("File manager listener error:", err);
+            }
+          );
+        } catch (err) {
+          console.warn("Failed attaching file_manager/live listener:", err);
+        }
+      });
+    }
+
+    function attachPairingSessionFileTransferListener(sessionId) {
+      if (!sessionId) return;
+      if (pairedFileTransferUnsubscribe) {
+        try { pairedFileTransferUnsubscribe(); } catch (_) {}
+        pairedFileTransferUnsubscribe = null;
+      }
+      withPulseFirebase((fb) => {
+        try {
+          const { db, doc, onSnapshot } = fb;
+          pairedFileTransferUnsubscribe = onSnapshot(
+            doc(db, "pairing_sessions", sessionId, "file_manager", "transfer"),
+            (snap) => {
+              if (!snap.exists()) return;
+              const d = snap.data() || {};
+              const seq = Number(d.transferSeq) || 0;
+              const direction = d.direction || "";
+              const status = d.status || "IDLE";
+
+              if (direction === "PHONE_TO_WEB" && pendingFetchTransferSeq > 0 && seq === pendingFetchTransferSeq) {
+                if (status === "READY" && d.base64Data) {
+                  pendingFetchTransferSeq = 0;
+                  setFileManagerTransferNotice("", false);
+                  const payload = {
+                    fileName: d.fileName || "file",
+                    mimeType: d.mimeType || "application/octet-stream",
+                    sizeBytes: Number(d.sizeBytes) || 0,
+                    base64Data: d.base64Data,
+                    isPreviewImage: Boolean(d.isPreviewImage)
+                  };
+                  if (pendingFetchTransferMode === "DOWNLOAD") {
+                    triggerBase64Download(payload.fileName, payload.mimeType, payload.base64Data);
+                    showModalToast("ডাউনলোড সম্পন্ন!", `${payload.fileName} ডাউনলোড হয়েছে।`);
+                  } else {
+                    openFilePreviewModal(payload);
+                  }
+                } else if (status === "TOO_LARGE" || status === "ERROR") {
+                  pendingFetchTransferSeq = 0;
+                  setFileManagerTransferNotice("", false);
+                  showModalToast(status === "TOO_LARGE" ? "ফাইল বেশ বড়" : "ফাইল ত্রুটি", d.errorMessage || "ফাইলটি ওয়েবে আনা যায়নি।");
+                }
+              }
+
+              if (direction === "WEB_TO_PHONE" && pendingUploadTransferSeq > 0 && seq === pendingUploadTransferSeq) {
+                if (status === "SAVED") {
+                  pendingUploadTransferSeq = 0;
+                  setFileManagerTransferNotice("", false);
+                  showModalToast("ফোনে সেভ হয়েছে!", `${d.fileName || "ফাইল"} সফলভাবে মোবাইলে পাঠানো হয়েছে।`);
+                } else if (status === "ERROR") {
+                  pendingUploadTransferSeq = 0;
+                  setFileManagerTransferNotice("", false);
+                  showModalToast("আপলোড ব্যর্থ", d.errorMessage || "মোবাইলে ফাইল সেভ করা যায়নি।");
+                }
+              }
+            },
+            (err) => {
+              console.warn("File transfer listener error:", err);
+            }
+          );
+        } catch (err) {
+          console.warn("Failed attaching file_manager/transfer listener:", err);
+        }
+      });
+    }
+
+    async function sendFileManagerCommand(command, opts) {
+      if (!activePairedSessionId) {
+        showModalToast("ডিভাইস কানেক্টেড নেই", "আগে মোবাইল অ্যাপ থেকে QR স্ক্যান বা ১-ক্লিক কানেক্ট করুন।");
+        return;
+      }
+      const fb = await waitForPulseFirebase(3000);
+      if (!fb) {
+        showModalToast("ফায়ারবেস সংযোগ নেই", "একটু পর আবার চেষ্টা করুন।");
+        return;
+      }
+      try {
+        const { db, doc, setDoc, serverTimestamp } = fb;
+        const seq = Date.now();
+        const o = opts || {};
+        const payload = {
+          id: "live",
+          command: command || "REFRESH",
+          commandSeq: seq,
+          targetRootId: o.rootId !== undefined ? String(o.rootId) : String(remoteFileManagerState.currentRootId || ""),
+          targetPath: o.path !== undefined ? String(o.path) : String(remoteFileManagerState.currentPath || ""),
+          status: "LOADING",
+          updatedAt: serverTimestamp()
+        };
+        if (o.fileId !== undefined && o.fileId !== null) payload.targetFileId = String(o.fileId);
+        if (o.name !== undefined && o.name !== null) payload.targetName = String(o.name);
+
+        const badge = document.getElementById("fileManagerStatusBadge");
+        if (badge) {
+          badge.className = "text-[10px] px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/35 font-semibold flex items-center gap-1.5";
+          badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping"></span><span>সিঙ্ক হচ্ছে...</span>`;
+        }
+
+        await setDoc(doc(db, "pairing_sessions", activePairedSessionId, "file_manager", "live"), payload, { merge: true });
+      } catch (err) {
+        console.warn("sendFileManagerCommand error:", err);
+        showModalToast("কমান্ড ব্যর্থ", "ফোনে রিকোয়েস্ট পাঠানো যায়নি।");
+      }
+    }
+
+    function openRemoteFileRoot(rootId) {
+      if (!rootId) return;
+      sendFileManagerCommand("OPEN_DIR", { rootId: rootId, path: "" });
+    }
+
+    function openRemoteDirectory(path) {
+      sendFileManagerCommand("OPEN_DIR", {
+        rootId: remoteFileManagerState.currentRootId || "",
+        path: path || ""
+      });
+    }
+
+    function setFileManagerCategory(cat) {
+      fileManagerCategoryFilter = cat || "ALL";
+      document.querySelectorAll(".fm-cat-btn").forEach((btn) => {
+        const active = btn.getAttribute("data-cat") === fileManagerCategoryFilter;
+        btn.className = active
+          ? "fm-cat-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-violet-600 text-white transition-all"
+          : "fm-cat-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-900 text-slate-300 border border-slate-800 hover:bg-slate-800 transition-all";
+      });
+      renderFileManagerSection();
+    }
+
+    function onFileManagerSearchInput(val) {
+      fileManagerSearchQuery = String(val || "").trim().toLowerCase();
+      renderFileManagerSection();
+    }
+
+    function setFileManagerViewMode(mode) {
+      fileManagerViewMode = mode === "LIST" ? "LIST" : "GRID";
+      const gBtn = document.getElementById("btnFileViewGrid");
+      const lBtn = document.getElementById("btnFileViewList");
+      if (gBtn && lBtn) {
+        if (fileManagerViewMode === "GRID") {
+          gBtn.className = "px-2 py-1 rounded-lg bg-violet-600 text-white text-xs transition-all";
+          lBtn.className = "px-2 py-1 rounded-lg text-slate-400 hover:text-white text-xs transition-all";
+        } else {
+          lBtn.className = "px-2 py-1 rounded-lg bg-violet-600 text-white text-xs transition-all";
+          gBtn.className = "px-2 py-1 rounded-lg text-slate-400 hover:text-white text-xs transition-all";
+        }
+      }
+      renderFileManagerSection();
+    }
+
+    function toggleNewRemoteFolderBox(forceState) {
+      const bar = document.getElementById("fileManagerNewFolderBar");
+      const inp = document.getElementById("newRemoteFolderNameInput");
+      if (!bar) return;
+      const shouldShow = typeof forceState === "boolean" ? forceState : bar.classList.contains("hidden");
+      if (shouldShow) {
+        bar.classList.remove("hidden");
+        if (inp) { inp.value = ""; inp.focus(); }
+      } else {
+        bar.classList.add("hidden");
+      }
+    }
+
+    function submitNewRemoteFolder() {
+      const inp = document.getElementById("newRemoteFolderNameInput");
+      const name = (inp ? inp.value : "").trim();
+      if (!name) {
+        showModalToast("নাম লিখুন", "নতুন ফোল্ডারের একটি নাম লিখুন।");
+        return;
+      }
+      toggleNewRemoteFolderBox(false);
+      sendFileManagerCommand("CREATE_FOLDER", {
+        rootId: remoteFileManagerState.currentRootId || "",
+        path: remoteFileManagerState.currentPath || "",
+        name: name
+      });
+      showModalToast("ফোল্ডার তৈরি হচ্ছে", `মোবাইলে "${name}" ফোল্ডার তৈরি করা হচ্ছে...`);
+    }
+
+    function deleteRemoteFileEntry(fileId, fileName, ev) {
+      if (ev && typeof ev.stopPropagation === "function") ev.stopPropagation();
+      if (!fileId) return;
+      if (!window.confirm(`আপনি কি নিশ্চিতভাবে "${fileName || "এই আইটেমটি"}" মুছে ফেলতে চান?`)) return;
+      sendFileManagerCommand("DELETE_FILE", {
+        rootId: remoteFileManagerState.currentRootId || "",
+        path: remoteFileManagerState.currentPath || "",
+        fileId: fileId
+      });
+      showModalToast("ডিলিট পাঠানো হয়েছে", `"${fileName || "ফাইল"}" ফোনের ফোল্ডার থেকে মুছে ফেলা হচ্ছে...`);
+    }
+
+    async function requestRemoteFileTransfer(fileId, fileName, mode, ev) {
+      if (ev && typeof ev.stopPropagation === "function") ev.stopPropagation();
+      if (!activePairedSessionId || !fileId) return;
+      const fb = await waitForPulseFirebase(3000);
+      if (!fb) {
+        showModalToast("সংযোগ ত্রুটি", "ফায়ারবেস পাওয়া যায়নি।");
+        return;
+      }
+      try {
+        const { db, doc, setDoc, serverTimestamp } = fb;
+        const seq = Date.now();
+        pendingFetchTransferSeq = seq;
+        pendingFetchTransferMode = mode === "DOWNLOAD" ? "DOWNLOAD" : "PREVIEW";
+        setFileManagerTransferNotice(`মোবাইল থেকে "${fileName || "ফাইল"}" আনা হচ্ছে...`, true);
+
+        await setDoc(doc(db, "pairing_sessions", activePairedSessionId, "file_manager", "transfer"), {
+          id: "transfer",
+          command: "FETCH_FILE",
+          commandSeq: seq,
+          direction: "PHONE_TO_WEB",
+          targetRootId: String(remoteFileManagerState.currentRootId || ""),
+          targetFileId: String(fileId),
+          fileName: String(fileName || "file").slice(0, 240),
+          status: "FETCHING",
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      } catch (err) {
+        pendingFetchTransferSeq = 0;
+        setFileManagerTransferNotice("", false);
+        showModalToast("ত্রুটি", "ফাইল আনার রিকোয়েস্ট পাঠানো যায়নি।");
+      }
+    }
+
+    function triggerWebToPhoneFileUpload() {
+      if (!activePairedSessionId) {
+        showModalToast("ডিভাইস কানেক্টেড নেই", "ফোনে ফাইল পাঠাতে আগে একটি মোবাইল পেয়ার করুন।");
+        return;
+      }
+      const inp = document.getElementById("webToPhoneUploadInput");
+      if (inp) {
+        inp.value = "";
+        inp.click();
+      }
+    }
+
+    async function handleWebToPhoneFileSelected(event) {
+      const file = event?.target?.files?.[0];
+      if (!file) return;
+      if (file.size > 480000) {
+        showModalToast("ফাইল সাইজ সীমা", "সরাসরি ওয়েব ট্রান্সফারের জন্য ফাইলটি সর্বোচ্চ ৪৮০ KB হতে পারবে।");
+        return;
+      }
+      const fb = await waitForPulseFirebase(3000);
+      if (!fb || !activePairedSessionId) return;
+
+      try {
+        setFileManagerTransferNotice(`"${file.name}" মোবাইলে পাঠানো হচ্ছে...`, true);
+        const base64Data = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const res = String(reader.result || "");
+            const idx = res.indexOf(",");
+            resolve(idx >= 0 ? res.slice(idx + 1) : res);
+          };
+          reader.onerror = () => reject(new Error("File read error"));
+          reader.readAsDataURL(file);
+        });
+        if (!base64Data || base64Data.length > 740000) {
+          setFileManagerTransferNotice("", false);
+          showModalToast("ফাইল বেশ বড়", "এনকোডেড সাইজ সীমার বেশি হয়েছে।");
+          return;
+        }
+        const { db, doc, setDoc, serverTimestamp } = fb;
+        const seq = Date.now();
+        pendingUploadTransferSeq = seq;
+        await setDoc(doc(db, "pairing_sessions", activePairedSessionId, "file_manager", "transfer"), {
+          id: "transfer",
+          command: "PUSH_FILE",
+          commandSeq: seq,
+          direction: "WEB_TO_PHONE",
+          targetRootId: String(remoteFileManagerState.currentRootId || ""),
+          targetPath: String(remoteFileManagerState.currentPath || ""),
+          fileName: String(file.name || "web_file").slice(0, 240),
+          mimeType: String(file.type || "application/octet-stream").slice(0, 100),
+          sizeBytes: Number(file.size) || 0,
+          base64Data: base64Data,
+          status: "UPLOADING",
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      } catch (err) {
+        pendingUploadTransferSeq = 0;
+        setFileManagerTransferNotice("", false);
+        showModalToast("আপলোড ত্রুটি", "ফাইলটি পড়া বা পাঠানো যায়নি।");
+      }
+    }
+
+    function triggerBase64Download(fileName, mimeType, base64Data) {
+      try {
+        const binStr = atob(base64Data);
+        const bytes = new Uint8Array(binStr.length);
+        for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
+        const blob = new Blob([bytes], { type: mimeType || "application/octet-stream" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = fileName || "download";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+      } catch (err) {
+        showModalToast("ডাউনলোড ত্রুটি", "ব্রাউজার ফাইল তৈরি করতে পারেনি।");
+      }
+    }
+
+    function openFilePreviewModal(payload) {
+      activePreviewFilePayload = payload;
+      const modal = document.getElementById("filePreviewModal");
+      const titleEl = document.getElementById("filePreviewTitle");
+      const metaEl = document.getElementById("filePreviewMeta");
+      const bodyEl = document.getElementById("filePreviewBody");
+      if (!modal || !bodyEl) return;
+
+      if (titleEl) titleEl.innerText = payload.fileName || "ফাইল প্রিভিউ";
+      if (metaEl) metaEl.innerText = `${payload.mimeType || "file"} · ${formatFileBytesHuman(payload.sizeBytes)}`;
+
+      const mime = String(payload.mimeType || "").toLowerCase();
+      const dataUrl = `data:${mime || "application/octet-stream"};base64,${payload.base64Data}`;
+
+      if (mime.startsWith("image/") || payload.isPreviewImage) {
+        bodyEl.innerHTML = `<img src="${dataUrl}" alt="${escapeHtmlAttr(payload.fileName)}" class="max-h-[65vh] max-w-full rounded-2xl border border-slate-800 shadow-2xl object-contain" />`;
+      } else if (mime.startsWith("audio/")) {
+        bodyEl.innerHTML = `
+          <div class="w-full max-w-md p-6 rounded-2xl bg-slate-900 border border-slate-800 text-center space-y-4">
+            <div class="w-16 h-16 mx-auto rounded-2xl bg-amber-500/20 text-amber-300 flex items-center justify-center"><i class="ph ph-music-notes text-3xl"></i></div>
+            <div class="text-sm font-bold text-white truncate">${escapeHtmlText(payload.fileName)}</div>
+            <audio controls autoplay class="w-full" src="${dataUrl}"></audio>
+          </div>
+        `;
+      } else if (mime.startsWith("video/")) {
+        bodyEl.innerHTML = `<video controls class="max-h-[65vh] max-w-full rounded-2xl border border-slate-800 bg-black" src="${dataUrl}"></video>`;
+      } else if (mime === "application/pdf") {
+        bodyEl.innerHTML = `<iframe src="${dataUrl}" class="w-full h-[65vh] rounded-xl bg-white border border-slate-800"></iframe>`;
+      } else if (mime.startsWith("text/") || mime === "application/json" || mime === "application/xml" || /\.(txt|json|csv|md|log|xml)$/i.test(payload.fileName || "")) {
+        let decodedText = "";
+        try {
+          const bin = atob(payload.base64Data);
+          const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+          decodedText = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+        } catch (_) {
+          decodedText = "[টেক্সট ডিকোড করা যায়নি]";
+        }
+        bodyEl.innerHTML = `<pre class="w-full max-h-[65vh] overflow-auto p-4 rounded-2xl bg-slate-900 border border-slate-800 text-xs text-slate-200 font-mono whitespace-pre-wrap text-left">${escapeHtmlText(decodedText)}</pre>`;
+      } else {
+        bodyEl.innerHTML = `
+          <div class="text-center space-y-3 p-6">
+            <div class="w-16 h-16 mx-auto rounded-2xl bg-slate-800 text-violet-300 flex items-center justify-center"><i class="ph ph-file-arrow-down text-3xl"></i></div>
+            <div class="text-sm font-bold text-white">${escapeHtmlText(payload.fileName)}</div>
+            <p class="text-xs text-slate-400">এই ফাইল ফরম্যাটটি প্রিভিউ করা যায় না — নিচের বাটন থেকে ডাউনলোড করুন।</p>
+          </div>
+        `;
+      }
+      modal.classList.remove("hidden");
+    }
+
+    function closeFilePreviewModal() {
+      const modal = document.getElementById("filePreviewModal");
+      const bodyEl = document.getElementById("filePreviewBody");
+      if (bodyEl) bodyEl.innerHTML = "";
+      if (modal) modal.classList.add("hidden");
+      activePreviewFilePayload = null;
+    }
+
+    function downloadActivePreviewFile() {
+      if (!activePreviewFilePayload) return;
+      triggerBase64Download(
+        activePreviewFilePayload.fileName,
+        activePreviewFilePayload.mimeType,
+        activePreviewFilePayload.base64Data
+      );
+    }
+
+    function getFileVisualMeta(entry) {
+      const cat = entry.category || (entry.isDir ? "FOLDER" : "OTHER");
+      if (cat === "FOLDER" || entry.isDir) {
+        return { icon: "ph-folder-fill", color: "text-amber-400", bg: "bg-amber-500/15 border-amber-500/30", label: "ফোল্ডার" };
+      }
+      if (cat === "IMAGE") {
+        return { icon: "ph-image", color: "text-pink-400", bg: "bg-pink-500/15 border-pink-500/30", label: "ছবি" };
+      }
+      if (cat === "AUDIO") {
+        return { icon: "ph-music-notes", color: "text-emerald-400", bg: "bg-emerald-500/15 border-emerald-500/30", label: "অডিও" };
+      }
+      if (cat === "VIDEO") {
+        return { icon: "ph-video-camera", color: "text-cyan-400", bg: "bg-cyan-500/15 border-cyan-500/30", label: "ভিডিও" };
+      }
+      if (cat === "ARCHIVE") {
+        return { icon: "ph-file-zip", color: "text-orange-400", bg: "bg-orange-500/15 border-orange-500/30", label: "আর্কাইভ" };
+      }
+      if (cat === "DOCUMENT") {
+        return { icon: "ph-file-text", color: "text-blue-400", bg: "bg-blue-500/15 border-blue-500/30", label: "ডকুমেন্ট" };
+      }
+      return { icon: "ph-file", color: "text-slate-300", bg: "bg-slate-800 border-slate-700", label: "ফাইল" };
+    }
+
+    function renderFileManagerSection() {
+      const badge = document.getElementById("fileManagerStatusBadge");
+      const hintBanner = document.getElementById("fileManagerFolderHintBanner");
+      const rootsBar = document.getElementById("fileManagerRootsBar");
+      const crumbsBar = document.getElementById("fileManagerBreadcrumbsBar");
+      const container = document.getElementById("fileManagerEntriesContainer");
+      const statsBar = document.getElementById("fileManagerStatsBar");
+      if (!container || !rootsBar || !crumbsBar) return;
+
+      if (!activePairedSessionId) {
+        if (badge) {
+          badge.className = "text-[10px] px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700 font-semibold flex items-center gap-1.5";
+          badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span><span>ডিভাইস যুক্ত নয়</span>`;
+        }
+        if (hintBanner) hintBanner.classList.add("hidden");
+        rootsBar.innerHTML = "";
+        crumbsBar.innerHTML = `<span class="text-slate-500">হোম / অপেক্ষমাণ</span>`;
+        container.innerHTML = `
+          <div class="rounded-2xl border border-dashed border-slate-800 bg-slate-950/60 p-8 text-center">
+            <div class="w-14 h-14 mx-auto rounded-2xl bg-violet-500/15 border border-violet-500/30 text-violet-300 flex items-center justify-center mb-3">
+              <i class="ph ph-folder-lock text-2xl"></i>
+            </div>
+            <h3 class="text-sm font-bold text-white">মোবাইল কানেক্ট করুন</h3>
+            <p class="text-xs text-slate-400 mt-1 max-w-md mx-auto">Android অ্যাপ থেকে QR কোড স্ক্যান বা ১-ক্লিক কানেক্ট করলেই এখানে ফোনের ফাইল ও ফোল্ডার লাইভ দেখা যাবে।</p>
+          </div>
+        `;
+        if (statsBar) statsBar.innerHTML = `<span>কোনো মোবাইল কানেক্টেড নেই</span>`;
+        return;
+      }
+
+      const st = remoteFileManagerState;
+      if (badge) {
+        if (st.status === "READY") {
+          badge.className = "text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/35 font-semibold flex items-center gap-1.5";
+          badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>📱 ${escapeHtmlText(st.deviceName || activePairedDeviceName || "লাইভ")}</span>`;
+        } else if (st.status === "ERROR") {
+          badge.className = "text-[10px] px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/35 font-semibold";
+          badge.innerText = "⚠️ সিঙ্ক ত্রুটি";
+        } else {
+          badge.className = "text-[10px] px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/35 font-semibold";
+          badge.innerText = "⏳ লোড হচ্ছে...";
+        }
+      }
+
+      if (hintBanner) {
+        if (!st.hasFolderAccess) hintBanner.classList.remove("hidden");
+        else hintBanner.classList.add("hidden");
+      }
+
+      // Render Storage Roots Tabs
+      const roots = Array.isArray(st.roots) ? st.roots : [];
+      if (roots.length === 0) {
+        rootsBar.innerHTML = `<span class="text-xs text-slate-400">মোবাইল থেকে ফোল্ডার তালিকা আসছে...</span>`;
+      } else {
+        rootsBar.innerHTML = roots.map((r) => {
+          const active = r.id === st.currentRootId;
+          const icon = r.rootType === "SAF_FOLDER" ? "📁" : (r.rootType === "SHARED_PINS" ? "🖼️" : "📱");
+          return `
+            <button type="button" onclick="openRemoteFileRoot('${escapeHtmlAttr(r.id)}')" class="px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 border transition-all ${active ? "bg-violet-600 text-white border-violet-500 shadow-md shadow-violet-600/25" : "bg-slate-950 text-slate-300 border-slate-800 hover:bg-slate-800"}">
+              <span>${icon}</span>
+              <span>${escapeHtmlText(r.name || r.id)}</span>
+            </button>
+          `;
+        }).join("");
+      }
+
+      // Render Breadcrumbs
+      const crumbs = Array.isArray(st.breadcrumbs) && st.breadcrumbs.length > 0
+        ? st.breadcrumbs
+        : [{ name: st.currentRootName || "রুট", path: "" }];
+      crumbsBar.innerHTML = crumbs.map((c, idx) => {
+        const isLast = idx === crumbs.length - 1;
+        return `
+          ${idx > 0 ? `<i class="ph ph-caret-right text-slate-600 text-[11px]"></i>` : `<i class="ph ph-hard-drives text-violet-400 text-sm mr-1"></i>`}
+          <button type="button" onclick="openRemoteDirectory('${escapeHtmlAttr(c.path || "")}')" class="px-2 py-0.5 rounded-lg transition-colors ${isLast ? "bg-violet-500/20 text-violet-200 font-bold" : "text-slate-400 hover:text-white hover:bg-slate-800"}">
+            ${escapeHtmlText(c.name || "হোম")}
+          </button>
+        `;
+      }).join("");
+
+      // Filter entries
+      const filtered = (Array.isArray(st.entries) ? st.entries : []).filter((item) => {
+        if (!item) return false;
+        if (fileManagerCategoryFilter !== "ALL") {
+          const itemCat = item.category || (item.isDir ? "FOLDER" : "OTHER");
+          if (itemCat !== fileManagerCategoryFilter) return false;
+        }
+        if (fileManagerSearchQuery) {
+          const nm = String(item.name || "").toLowerCase();
+          if (!nm.includes(fileManagerSearchQuery)) return false;
+        }
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        container.innerHTML = `
+          <div class="rounded-2xl border border-dashed border-slate-800 bg-slate-950/50 p-8 text-center">
+            <i class="ph ph-folder-dashed text-3xl text-slate-500 mb-2"></i>
+            <div class="text-xs font-bold text-slate-300">এই ফোল্ডারে কোনো ফাইল পাওয়া যায়নি</div>
+            <p class="text-[11px] text-slate-500 mt-1">নতুন ফোল্ডার তৈরি করুন, ফোনে ফাইল পাঠান বা অন্য ফোল্ডার বেছে নিন।</p>
+          </div>
+        `;
+      } else if (fileManagerViewMode === "LIST") {
+        container.innerHTML = `
+          <div class="divide-y divide-slate-800/80 rounded-2xl border border-slate-800 bg-slate-950/65 overflow-hidden">
+            ${filtered.map((item) => {
+              const vis = getFileVisualMeta(item);
+              const safeName = escapeHtmlText(item.name || "Unnamed");
+              const safeNameAttr = escapeHtmlAttr(item.name || "file");
+              const safeIdAttr = escapeHtmlAttr(item.id || "");
+              const safePathAttr = escapeHtmlAttr(item.path || "");
+              const dateStr = item.modifiedMs ? new Date(Number(item.modifiedMs)).toLocaleDateString("bn-BD", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+              const clickAction = item.isDir
+                ? `openRemoteDirectory('${safePathAttr}')`
+                : `requestRemoteFileTransfer('${safeIdAttr}','${safeNameAttr}','PREVIEW',event)`;
+
+              return `
+                <div onclick="${clickAction}" class="px-3.5 py-2.5 hover:bg-slate-900/90 flex items-center justify-between gap-3 cursor-pointer transition-colors">
+                  <div class="flex items-center gap-3 min-w-0 flex-1">
+                    <div class="w-9 h-9 rounded-xl ${vis.bg} border flex items-center justify-center ${vis.color} shrink-0">
+                      <i class="ph ${vis.icon} text-lg"></i>
+                    </div>
+                    <div class="min-w-0 flex-1">
+                      <div class="text-xs font-bold text-slate-100 truncate">${safeName}</div>
+                      <div class="text-[10px] text-slate-400 truncate">${item.isDir ? "ফোল্ডার" : formatFileBytesHuman(item.sizeBytes)}${dateStr ? " · " + escapeHtmlText(dateStr) : ""}</div>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-1.5 shrink-0">
+                    ${!item.isDir ? `
+                      <button type="button" onclick="requestRemoteFileTransfer('${safeIdAttr}','${safeNameAttr}','PREVIEW',event)" class="px-2 py-1 rounded-lg bg-violet-500/15 hover:bg-violet-500/25 text-violet-300 text-[10px] font-bold">দেখুন</button>
+                      <button type="button" onclick="requestRemoteFileTransfer('${safeIdAttr}','${safeNameAttr}','DOWNLOAD',event)" class="px-2 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 text-[10px] font-bold" title="ডাউনলোড"><i class="ph ph-download-simple"></i></button>
+                    ` : `<span class="text-[10px] text-slate-500 px-2">খুলুন →</span>`}
+                    ${item.isDeletable ? `
+                      <button type="button" onclick="deleteRemoteFileEntry('${safeIdAttr}','${safeNameAttr}',event)" class="p-1.5 rounded-lg hover:bg-rose-500/20 text-slate-500 hover:text-rose-400 transition-colors" title="ডিলিট"><i class="ph ph-trash"></i></button>
+                    ` : ""}
+                  </div>
+                </div>
+              `;
+            }).join("")}
+          </div>
+        `;
+      } else {
+        container.innerHTML = `
+          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            ${filtered.map((item) => {
+              const vis = getFileVisualMeta(item);
+              const safeName = escapeHtmlText(item.name || "Unnamed");
+              const safeNameAttr = escapeHtmlAttr(item.name || "file");
+              const safeIdAttr = escapeHtmlAttr(item.id || "");
+              const safePathAttr = escapeHtmlAttr(item.path || "");
+              const clickAction = item.isDir
+                ? `openRemoteDirectory('${safePathAttr}')`
+                : `requestRemoteFileTransfer('${safeIdAttr}','${safeNameAttr}','PREVIEW',event)`;
+
+              return `
+                <div onclick="${clickAction}" class="group p-3.5 rounded-2xl bg-slate-950/75 hover:bg-slate-900 border border-slate-800/90 hover:border-violet-500/40 cursor-pointer transition-all flex flex-col justify-between gap-3">
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="w-10 h-10 rounded-xl ${vis.bg} border flex items-center justify-center ${vis.color} shrink-0">
+                      <i class="ph ${vis.icon} text-xl"></i>
+                    </div>
+                    <span class="text-[10px] px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-slate-400 font-semibold">${item.isDir ? "ফোল্ডার" : formatFileBytesHuman(item.sizeBytes)}</span>
+                  </div>
+                  <div class="min-w-0">
+                    <div class="text-xs font-bold text-slate-100 truncate group-hover:text-violet-200" title="${safeName}">${safeName}</div>
+                    <div class="text-[10px] text-slate-500 mt-0.5">${vis.label}</div>
+                  </div>
+                  <div class="flex items-center justify-between gap-1.5 pt-2 border-t border-slate-800/60">
+                    ${item.isDir ? `
+                      <span class="text-[11px] text-amber-300 font-semibold flex items-center gap-1"><i class="ph ph-folder-open"></i><span>খুলুন</span></span>
+                    ` : `
+                      <div class="flex items-center gap-1.5">
+                        <button type="button" onclick="requestRemoteFileTransfer('${safeIdAttr}','${safeNameAttr}','PREVIEW',event)" class="px-2.5 py-1 rounded-lg bg-violet-500/15 hover:bg-violet-500/30 text-violet-300 text-[10px] font-bold flex items-center gap-1"><i class="ph ph-eye"></i><span>দেখুন</span></button>
+                        <button type="button" onclick="requestRemoteFileTransfer('${safeIdAttr}','${safeNameAttr}','DOWNLOAD',event)" class="px-2 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/30 text-emerald-300 text-[10px] font-bold" title="ডাউনলোড"><i class="ph ph-download-simple"></i></button>
+                      </div>
+                    `}
+                    ${item.isDeletable ? `
+                      <button type="button" onclick="deleteRemoteFileEntry('${safeIdAttr}','${safeNameAttr}',event)" class="p-1.5 rounded-lg hover:bg-rose-500/20 text-slate-500 hover:text-rose-400 transition-colors" title="ডিলিট"><i class="ph ph-trash"></i></button>
+                    ` : ""}
+                  </div>
+                </div>
+              `;
+            }).join("")}
+          </div>
+        `;
+      }
+
+      if (statsBar) {
+        statsBar.innerHTML = `
+          <span>📁 ফোল্ডার: <b class="text-slate-200">${st.totalFolders}</b>টি &nbsp;·&nbsp; 📄 ফাইল: <b class="text-slate-200">${st.totalFiles}</b>টি &nbsp;·&nbsp; 💾 মোট সাইজ: <b class="text-violet-300">${formatFileBytesHuman(st.totalBytes)}</b></span>
+          <span class="font-mono text-slate-500">রুট: ${escapeHtmlText(st.currentRootName || st.currentRootId || "--")}</span>
+        `;
+      }
+    }
+
     // Auto-render default hotels, live messenger, and resume paired session or inline QR connect on load
     let initialPageBootstrapped = false;
     function bootstrapPulseWebUi() {
@@ -7414,7 +9765,13 @@ git push origin main</pre>
       initialPageBootstrapped = true;
       renderBookingHotels("Cox's Bazar");
       updateBrowserNotifButtonState();
+      loadSavedPairedDevices();
+      renderMultiDeviceSwitcherBar();
+      attachConnectedDevicesHubListener();
+      renderDeviceLocationMapSection();
+      renderFileManagerSection();
       renderLiveNotificationFeed();
+      renderSocialChatHub();
       renderCallHistoryList();
       renderCallRecordingsSection();
       initRemoteMicVisualizerBars();

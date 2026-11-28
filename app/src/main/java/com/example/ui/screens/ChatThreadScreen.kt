@@ -112,7 +112,8 @@ fun ChatThreadScreen(
     onRequestSafetyCheck: (MessageEntity) -> Unit = {},
     onDismissSummary: () -> Unit = {},
     onDismissSafetyReport: () -> Unit = {},
-    onPolishDraft: (draft: String, tone: String, onResult: (String) -> Unit) -> Unit = { _, _, _ -> }
+    onPolishDraft: (draft: String, tone: String, onResult: (String) -> Unit) -> Unit = { _, _, _ -> },
+    onDialNumber: ((String) -> Unit)? = null
 ) {
     BackHandler {
         onBack()
@@ -186,13 +187,17 @@ fun ChatThreadScreen(
                     // Call button
                     IconButton(
                         onClick = {
-                            try {
-                                val callIntent = Intent(Intent.ACTION_DIAL).apply {
-                                    data = Uri.parse("tel:$threadAddress")
+                            if (onDialNumber != null) {
+                                onDialNumber(threadAddress)
+                            } else {
+                                try {
+                                    val callIntent = Intent(Intent.ACTION_DIAL).apply {
+                                        data = Uri.fromParts("tel", threadAddress, null)
+                                    }
+                                    context.startActivity(callIntent)
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Dialer unavailable", Toast.LENGTH_SHORT).show()
                                 }
-                                context.startActivity(callIntent)
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Dialer unavailable", Toast.LENGTH_SHORT).show()
                             }
                         },
                         modifier = Modifier.testTag("chat_call_button")

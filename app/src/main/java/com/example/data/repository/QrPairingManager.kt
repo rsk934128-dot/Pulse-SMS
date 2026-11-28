@@ -1,6 +1,9 @@
 package com.example.data.repository
 
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.BatteryManager
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -11,6 +14,7 @@ import com.example.data.local.AppDatabase
 import com.example.data.model.MessageEntity
 import com.example.data.remote.FirebaseSyncRepository
 import com.example.telephony.CallLogSyncHelper
+import com.example.telephony.CallRecorderManager
 import com.example.telephony.DeviceCallLogItem
 import com.google.firebase.FirebaseApp
 import com.google.firebase.Timestamp
@@ -32,11 +36,13 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -96,11 +102,71 @@ data class CallRecordingUploadItem(
     val timestampMs: Long
 )
 
+data class RemoteDialRequest(
+    val id: String,
+    val phoneNumber: String,
+    val simSlot: Int,
+    val status: String,
+    val createdAtMs: Long
+)
+
+data class PairedSessionRecord(
+    val sessionId: String,
+    val deviceName: String,
+    val connectedAtMs: Long,
+    val isPrimary: Boolean
+)
+
+data class ConnectedPeerDevice(
+    val deviceId: String,
+    val deviceName: String,
+    val sessionId: String,
+    val platform: String,
+    val batteryLevel: Int,
+    val isCharging: Boolean,
+    val isOnline: Boolean,
+    val appVersion: String,
+    val updatedAtMs: Long,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val locationLabel: String? = null,
+    val locationEnabled: Boolean = false,
+    val locationAccuracyM: Double? = null
+)
+
+data class RemoteFileManagerCommand(
+    val command: String,
+    val commandSeq: Long,
+    val targetRootId: String?,
+    val targetPath: String?,
+    val targetFileId: String?,
+    val targetName: String?,
+    val status: String,
+    val updatedAtMs: Long
+)
+
+data class RemoteFileTransferCommand(
+    val command: String,
+    val commandSeq: Long,
+    val direction: String,
+    val targetRootId: String?,
+    val targetFileId: String?,
+    val targetPath: String?,
+    val fileName: String,
+    val mimeType: String,
+    val base64Data: String?,
+    val status: String,
+    val updatedAtMs: Long
+)
+
 object QrPairingManager {
     private const val TAG = "QrPairingManager"
+    const val HUB_SESSION_ID = "pulse_pair_instant_one_shot"
     private const val PREFS_NAME = "pulse_pairing_prefs"
     private const val KEY_ACTIVE_SESSION_ID = "active_pairing_session_id"
     private const val KEY_ACTIVE_DEVICE_NAME = "active_device_name"
+    private const val KEY_DEVICE_ID = "persistent_device_id"
+    const val KEY_PAIRED_SESSIONS_JSON = "paired_sessions_json"
     private const val KEY_SEEN_NOTIF_IDS = "seen_web_notification_ids"
     private const val DEFAULT_PROJECT_ID = "gen-lang-client-0040983236"
     private const val DEFAULT_DATABASE_ID = "ai-studio-android-pulsesms-d91f8c0e-d0eb-454c-a3c4-23804c092a8d"
@@ -116,22 +182,183 @@ object QrPairingManager {
             .build()
     }
 
+    fun getOrCreateDeviceId(context: Context): String {
+        return try {
+            val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val existing = prefs.getString(KEY_DEVICE_ID, null)?.takeIf { it.isNotBlank() }
+            if (existing != null) return existing
+            val created = "dev_" + UUID.randomUUID().toString().replace("-", "").take(10)
+            prefs.edit().putString(KEY_DEVICE_ID, created).apply()
+            created
+        } catch (_: Throwable) {
+            "dev_${Build.ID.replace(Regex("[^a-zA-Z0-9_-]"), "").take(10).ifBlank { "android" }}"
+        }
+    }
+
+    fun getDeviceDisplayName(): String {
+        return "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL}".trim().take(100)
+    }
+
+    fun readBatteryStatus(context: Context): Pair<Int, Boolean> {
+        return try {
+            val intent = context.applicationContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+            val scale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
+            val pct = if (level >= 0 && scale > 0) ((level * 100) / scale).coerceIn(0, 100) else -1
+            val status = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+            val charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+            pct to charging
+        } catch (_: Throwable) {
+            -1 to false
+        }
+    }
+
     fun getActiveSessionId(context: Context): String? {
         return try {
             val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             prefs.getString(KEY_ACTIVE_SESSION_ID, null)?.takeIf { it.isNotBlank() }
+                ?: getPairedSessions(context).firstOrNull()?.sessionId
         } catch (_: Throwable) {
             null
         }
     }
 
-    fun saveActiveSession(context: Context, sessionId: String, deviceName: String) {
+    fun getPairedSessions(context: Context): List<PairedSessionRecord> {
+        return try {
+            val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val primaryId = prefs.getString(KEY_ACTIVE_SESSION_ID, null)?.takeIf { it.isNotBlank() }
+            val raw = prefs.getString(KEY_PAIRED_SESSIONS_JSON, null)
+            val list = mutableListOf<PairedSessionRecord>()
+            if (!raw.isNullOrBlank()) {
+                val arr = JSONArray(raw)
+                for (i in 0 until arr.length()) {
+                    val obj = arr.optJSONObject(i) ?: continue
+                    val sid = obj.optString("sessionId").trim()
+                    if (sid.isBlank()) continue
+                    val dName = obj.optString("deviceName").ifBlank { getDeviceDisplayName() }
+                    val ts = obj.optLong("connectedAtMs", System.currentTimeMillis())
+                    list.add(
+                        PairedSessionRecord(
+                            sessionId = sid,
+                            deviceName = dName,
+                            connectedAtMs = ts,
+                            isPrimary = (sid == primaryId) || (primaryId == null && i == 0)
+                        )
+                    )
+                }
+            }
+            if (primaryId != null && list.none { it.sessionId == primaryId }) {
+                val devName = prefs.getString(KEY_ACTIVE_DEVICE_NAME, null)?.takeIf { it.isNotBlank() } ?: getDeviceDisplayName()
+                list.add(0, PairedSessionRecord(primaryId, devName, System.currentTimeMillis(), true))
+            }
+            list.distinctBy { it.sessionId }.take(12)
+        } catch (_: Throwable) {
+            emptyList()
+        }
+    }
+
+    private fun persistPairedSessions(context: Context, sessions: List<PairedSessionRecord>) {
+        try {
+            val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val arr = JSONArray()
+            sessions.distinctBy { it.sessionId }.take(12).forEach { rec ->
+                arr.put(
+                    JSONObject().apply {
+                        put("sessionId", rec.sessionId)
+                        put("deviceName", rec.deviceName)
+                        put("connectedAtMs", rec.connectedAtMs)
+                    }
+                )
+            }
+            prefs.edit().putString(KEY_PAIRED_SESSIONS_JSON, arr.toString()).apply()
+        } catch (t: Throwable) {
+            Log.w(TAG, "Unable to persist multi-session list", t)
+        }
+    }
+
+    fun addOrUpdatePairedSession(
+        context: Context,
+        sessionId: String,
+        deviceName: String,
+        makePrimary: Boolean = true
+    ): List<PairedSessionRecord> {
+        val cleanId = sessionId.trim().take(128)
+        if (cleanId.isBlank()) return getPairedSessions(context)
+        val cleanName = deviceName.ifBlank { getDeviceDisplayName() }.take(100)
+        val current = getPairedSessions(context).filterNot { it.sessionId == cleanId }.toMutableList()
+        val entry = PairedSessionRecord(
+            sessionId = cleanId,
+            deviceName = cleanName,
+            connectedAtMs = System.currentTimeMillis(),
+            isPrimary = makePrimary || current.isEmpty()
+        )
+        if (makePrimary || current.isEmpty()) {
+            current.add(0, entry)
+        } else {
+            current.add(entry)
+        }
+        persistPairedSessions(context, current)
+        if (makePrimary || getActiveSessionId(context).isNullOrBlank()) {
+            try {
+                val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                prefs.edit()
+                    .putString(KEY_ACTIVE_SESSION_ID, cleanId)
+                    .putString(KEY_ACTIVE_DEVICE_NAME, cleanName)
+                    .apply()
+            } catch (_: Throwable) {}
+        }
+        return getPairedSessions(context)
+    }
+
+    fun setPrimaryActiveSession(context: Context, sessionId: String): List<PairedSessionRecord> {
+        val sessions = getPairedSessions(context)
+        val target = sessions.firstOrNull { it.sessionId == sessionId } ?: return sessions
         try {
             val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             prefs.edit()
-                .putString(KEY_ACTIVE_SESSION_ID, sessionId)
-                .putString(KEY_ACTIVE_DEVICE_NAME, deviceName)
+                .putString(KEY_ACTIVE_SESSION_ID, target.sessionId)
+                .putString(KEY_ACTIVE_DEVICE_NAME, target.deviceName)
                 .apply()
+        } catch (_: Throwable) {}
+        return getPairedSessions(context)
+    }
+
+    fun removePairedSession(context: Context, sessionId: String): List<PairedSessionRecord> {
+        val remaining = getPairedSessions(context).filterNot { it.sessionId == sessionId }
+        persistPairedSessions(context, remaining)
+        try {
+            val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val currentPrimary = prefs.getString(KEY_ACTIVE_SESSION_ID, null)
+            if (currentPrimary == sessionId) {
+                val next = remaining.firstOrNull()
+                if (next != null) {
+                    prefs.edit()
+                        .putString(KEY_ACTIVE_SESSION_ID, next.sessionId)
+                        .putString(KEY_ACTIVE_DEVICE_NAME, next.deviceName)
+                        .apply()
+                } else {
+                    prefs.edit().remove(KEY_ACTIVE_SESSION_ID).apply()
+                }
+            }
+        } catch (_: Throwable) {}
+        return getPairedSessions(context)
+    }
+
+    fun getAllTargetSessionIds(context: Context, overrideSessionId: String? = null): List<String> {
+        if (!overrideSessionId.isNullOrBlank()) {
+            return listOf(overrideSessionId.trim())
+        }
+        val ordered = mutableListOf<String>()
+        getActiveSessionId(context)?.let { ordered.add(it) }
+        getPairedSessions(context).forEach { rec ->
+            if (rec.sessionId !in ordered) ordered.add(rec.sessionId)
+        }
+        return ordered.take(8)
+    }
+
+    fun saveActiveSession(context: Context, sessionId: String, deviceName: String) {
+        try {
+            addOrUpdatePairedSession(context, sessionId, deviceName, makePrimary = true)
         } catch (t: Throwable) {
             Log.w(TAG, "Unable to persist active pairing session", t)
         }
@@ -140,7 +367,10 @@ object QrPairingManager {
     fun clearActiveSession(context: Context) {
         try {
             val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            prefs.edit().remove(KEY_ACTIVE_SESSION_ID).apply()
+            prefs.edit()
+                .remove(KEY_ACTIVE_SESSION_ID)
+                .remove(KEY_PAIRED_SESSIONS_JSON)
+                .apply()
         } catch (_: Throwable) {}
     }
 
@@ -218,13 +448,17 @@ object QrPairingManager {
         context: Context,
         rawQrText: String
     ): PairingResult {
-        val sessionId = extractSessionId(rawQrText)
-        if (sessionId.isBlank()) {
-            return PairingResult(false, "", "", "অবৈধ QR কোড ডাটা।")
+        val parsedToken = extractSessionId(rawQrText)
+        if (parsedToken.isBlank()) {
+            return PairingResult(false, "", "", "অবৈধ QR কোড বা সেশন আইডি।")
         }
 
         val appContext = context.applicationContext ?: context
-        val deviceName = "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL}"
+        val deviceId = getOrCreateDeviceId(appContext)
+        val deviceName = getDeviceDisplayName()
+        val isInstantOneShot = parsedToken == HUB_SESSION_ID || parsedToken == "pulse_pair_simulation_instant"
+        // Give each phone its own dedicated session when using 1-Click Connect so 2+ phones never overwrite each other
+        val sessionId = if (isInstantOneShot) "pulse_pair_${deviceId}" else parsedToken
 
         val hasFirebase = ensureFirebaseAvailable(appContext)
         val currentUser = if (hasFirebase) {
@@ -264,11 +498,12 @@ object QrPairingManager {
                         .await()
                     anyWriteSucceeded = true
 
-                    if (sessionId.contains("instant")) {
-                        val instantPayload1 = payload.toMutableMap().apply { put("sessionId", "pulse_pair_instant_one_shot") }
-                        val instantPayload2 = payload.toMutableMap().apply { put("sessionId", "pulse_pair_simulation_instant") }
-                        fs.collection("pairing_sessions").document("pulse_pair_instant_one_shot").set(instantPayload1, SetOptions.merge())
-                        fs.collection("pairing_sessions").document("pulse_pair_simulation_instant").set(instantPayload2, SetOptions.merge())
+                    if (isInstantOneShot) {
+                        val hubAnnouncement = payload.toMutableMap().apply {
+                            put("sessionId", sessionId)
+                        }
+                        fs.collection("pairing_sessions").document(HUB_SESSION_ID).set(hubAnnouncement, SetOptions.merge())
+                        fs.collection("pairing_sessions").document("pulse_pair_simulation_instant").set(hubAnnouncement, SetOptions.merge())
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Write to named Firestore returned error: ${e.message}")
@@ -282,19 +517,21 @@ object QrPairingManager {
             anyWriteSucceeded = writePairingSessionViaRest(
                 projectId = projectId,
                 databaseId = dbId,
+                docId = sessionId,
                 sessionId = sessionId,
                 deviceName = deviceName,
                 userId = userId,
                 userEmail = userEmail
             )
-            if (anyWriteSucceeded && sessionId.contains("instant")) {
-                writePairingSessionViaRest(projectId, dbId, "pulse_pair_instant_one_shot", deviceName, userId, userEmail)
-                writePairingSessionViaRest(projectId, dbId, "pulse_pair_simulation_instant", deviceName, userId, userEmail)
+            if (anyWriteSucceeded && isInstantOneShot) {
+                writePairingSessionViaRest(projectId, dbId, HUB_SESSION_ID, sessionId, deviceName, userId, userEmail)
+                writePairingSessionViaRest(projectId, dbId, "pulse_pair_simulation_instant", sessionId, deviceName, userId, userEmail)
             }
         }
 
-        // Save active session so future incoming/outgoing SMS sync immediately in real time
+        // Save into multi-session store so future incoming/outgoing SMS & multi-screen sync work seamlessly
         saveActiveSession(appContext, sessionId, deviceName)
+        registerDevicePresence(appContext, overrideSessionId = sessionId, isOnline = true)
 
         // Immediately import device SMS inbox (if permission granted) and push real messages to the paired web session
         val syncedCount = syncInitialDeviceInboxForPairing(appContext, sessionId, currentUser != null)
@@ -356,13 +593,14 @@ object QrPairingManager {
      * Safe to call from BroadcastReceivers (SmsReceiver / SmsFallbackReceiver) or Repositories.
      */
     suspend fun syncSingleMessageToPairedSession(context: Context, message: MessageEntity): Boolean {
-        val activeSessionId = getActiveSessionId(context) ?: return false
-        return syncMessagesToPairedSession(context, listOf(message), activeSessionId) > 0
+        val targets = getAllTargetSessionIds(context)
+        if (targets.isEmpty()) return false
+        return syncMessagesToPairedSession(context, listOf(message), overrideSessionId = null) > 0
     }
 
     /**
-     * Batch-pushes SMS messages into `/pairing_sessions/{sessionId}/messages` on the named
-     * Firestore database, falling back to Firestore REST API if Firebase SDK is unavailable.
+     * Batch-pushes SMS messages into `/pairing_sessions/{sessionId}/messages` across all
+     * paired sessions on the named Firestore database, falling back to Firestore REST API.
      */
     suspend fun syncMessagesToPairedSession(
         context: Context,
@@ -371,21 +609,18 @@ object QrPairingManager {
     ): Int = withContext(Dispatchers.IO) {
         if (messages.isEmpty()) return@withContext 0
         val appContext = context.applicationContext ?: context
-        val sessionId = overrideSessionId?.takeIf { it.isNotBlank() } ?: getActiveSessionId(appContext) ?: return@withContext 0
+        val targetSessions = getAllTargetSessionIds(appContext, overrideSessionId)
+        if (targetSessions.isEmpty()) return@withContext 0
         val dbId = resolveDatabaseId(appContext)
-
-        val targetSessions = if (sessionId.contains("instant")) {
-            listOf(sessionId).distinct()
-        } else {
-            listOf(sessionId)
-        }
 
         val hasFirebase = ensureFirebaseAvailable(appContext)
         val fs = if (hasFirebase) getNamedFirestore(appContext, dbId) else null
+        val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
 
-        var syncedCount = 0
-        if (fs != null) {
-            for (targetSession in targetSessions) {
+        var maxSyncedCount = 0
+        for (targetSession in targetSessions) {
+            var sessionCount = 0
+            if (fs != null) {
                 try {
                     messages.chunked(400).forEach { chunk ->
                         val batch = fs.batch()
@@ -399,24 +634,26 @@ object QrPairingManager {
                         }
                         batch.commit().await()
                     }
-                    syncedCount = messages.size
+                    sessionCount = messages.size
                 } catch (e: Exception) {
                     Log.w(TAG, "Batch sync to pairing_sessions/$targetSession failed: ${e.message}")
                 }
             }
-        }
 
-        if (syncedCount == 0) {
-            val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
-            for (msg in messages.take(60)) {
-                val docId = buildStableCloudMessageId(msg)
-                if (writeMessageViaRest(projectId, dbId, sessionId, docId, msg)) {
-                    syncedCount++
+            if (sessionCount == 0) {
+                for (msg in messages.take(60)) {
+                    val docId = buildStableCloudMessageId(msg)
+                    if (writeMessageViaRest(projectId, dbId, targetSession, docId, msg)) {
+                        sessionCount++
+                    }
                 }
+            }
+            if (sessionCount > maxSyncedCount) {
+                maxSyncedCount = sessionCount
             }
         }
 
-        syncedCount
+        maxSyncedCount
     }
 
     /**
@@ -474,6 +711,113 @@ object QrPairingManager {
     }
 
     /**
+     * Listens for remote phone call dial requests issued from the paired Website
+     * on `/pairing_sessions/{sessionId}/dial_requests`.
+     */
+    fun listenToDialRequests(
+        context: Context,
+        sessionId: String,
+        onNewRequest: (RemoteDialRequest) -> Unit
+    ): ListenerRegistration? {
+        val appContext = context.applicationContext ?: context
+        val dbId = resolveDatabaseId(appContext)
+        val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
+
+        if (ensureFirebaseAvailable(appContext)) {
+            val fs = getNamedFirestore(appContext, dbId)
+            if (fs != null) {
+                var restFallback: ListenerRegistration? = null
+                val sdkListener = try {
+                    fs.collection("pairing_sessions")
+                        .document(sessionId)
+                        .collection("dial_requests")
+                        .whereEqualTo("status", "PENDING")
+                        .addSnapshotListener { snapshot, error ->
+                            if (error != null) {
+                                Log.w(TAG, "Dial requests Firestore listener error (${error.message}), switching to REST polling")
+                                if (restFallback == null) {
+                                    restFallback = startDialRequestsRestPolling(projectId, dbId, sessionId, onNewRequest)
+                                }
+                                return@addSnapshotListener
+                            }
+                            if (snapshot == null) return@addSnapshotListener
+                            for (doc in snapshot.documents) {
+                                val number = doc.getString("phoneNumber")?.trim().orEmpty()
+                                val simSlot = (doc.getLong("simSlot") ?: -1L).toInt()
+                                val status = doc.getString("status")?.trim().orEmpty().ifBlank { "PENDING" }
+                                val createdAtMs = doc.getTimestamp("createdAt")?.toDate()?.time ?: System.currentTimeMillis()
+                                if (number.isNotEmpty() && status == "PENDING") {
+                                    onNewRequest(
+                                        RemoteDialRequest(
+                                            id = doc.id,
+                                            phoneNumber = number,
+                                            simSlot = simSlot,
+                                            status = status,
+                                            createdAtMs = createdAtMs
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Could not attach dial request listener: ${t.message}")
+                    null
+                }
+                if (sdkListener != null) {
+                    return ListenerRegistration {
+                        try { sdkListener.remove() } catch (_: Throwable) {}
+                        try { restFallback?.remove() } catch (_: Throwable) {}
+                    }
+                }
+            }
+        }
+
+        return startDialRequestsRestPolling(projectId, dbId, sessionId, onNewRequest)
+    }
+
+    suspend fun markDialRequestStatus(
+        context: Context,
+        sessionId: String,
+        requestId: String,
+        status: String,
+        errorMessage: String? = null
+    ) = withContext(Dispatchers.IO) {
+        val appContext = context.applicationContext ?: context
+        val dbId = resolveDatabaseId(appContext)
+        val safeStatus = status.take(32)
+        val safeError = errorMessage?.take(300)
+
+        var ok = false
+        if (ensureFirebaseAvailable(appContext)) {
+            val fs = getNamedFirestore(appContext, dbId)
+            if (fs != null) {
+                try {
+                    val updates = hashMapOf<String, Any>(
+                        "status" to safeStatus
+                    )
+                    if (safeError != null) {
+                        updates["errorMessage"] = safeError
+                    }
+                    fs.collection("pairing_sessions")
+                        .document(sessionId)
+                        .collection("dial_requests")
+                        .document(requestId)
+                        .update(updates)
+                        .await()
+                    ok = true
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Failed updating dial request $requestId status: ${t.message}")
+                }
+            }
+        }
+
+        if (!ok) {
+            val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
+            writeDialRequestStatusViaRest(projectId, dbId, sessionId, requestId, safeStatus, safeError)
+        }
+    }
+
+    /**
      * Pushes a mobile or simultaneous-test notification into `/pairing_sessions/{sessionId}/notifications`
      * so the paired Website displays it in real time (with Firestore REST API fallback).
      */
@@ -491,7 +835,8 @@ object QrPairingManager {
         overrideSessionId: String? = null
     ): Boolean = withContext(Dispatchers.IO) {
         val appContext = context.applicationContext ?: context
-        val sessionId = overrideSessionId?.takeIf { it.isNotBlank() } ?: getActiveSessionId(appContext) ?: return@withContext false
+        val targetSessions = getAllTargetSessionIds(appContext, overrideSessionId)
+        if (targetSessions.isEmpty()) return@withContext false
         val dbId = resolveDatabaseId(appContext)
         val safeId = notifId.replace(Regex("[^a-zA-Z0-9_\\-+]"), "_").take(120).ifBlank { "notif_$timestampMs" }
         val safeTitle = title.ifBlank { appName.ifBlank { "Notification" } }.take(200)
@@ -514,9 +859,12 @@ object QrPairingManager {
             "createdAt" to Timestamp(Date(safeTs))
         )
 
-        var ok = false
-        if (ensureFirebaseAvailable(appContext)) {
-            val fs = getNamedFirestore(appContext, dbId)
+        val fs = if (ensureFirebaseAvailable(appContext)) getNamedFirestore(appContext, dbId) else null
+        val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
+
+        var anyOk = false
+        for (sessionId in targetSessions) {
+            var ok = false
             if (fs != null) {
                 try {
                     fs.collection("pairing_sessions")
@@ -527,29 +875,29 @@ object QrPairingManager {
                         .await()
                     ok = true
                 } catch (e: Exception) {
-                    Log.w(TAG, "Firestore notification write error: ${e.message}")
+                    Log.w(TAG, "Firestore notification write error ($sessionId): ${e.message}")
                 }
             }
-        }
 
-        if (!ok) {
-            val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
-            ok = writeNotificationViaRest(
-                projectId = projectId,
-                databaseId = dbId,
-                sessionId = sessionId,
-                docId = safeId,
-                title = safeTitle,
-                body = safeBody,
-                appName = safeAppName,
-                packageName = safePkg,
-                sourceDevice = safeSource,
-                category = safeCat,
-                isTest = isTest,
-                timestampMs = safeTs
-            )
+            if (!ok) {
+                ok = writeNotificationViaRest(
+                    projectId = projectId,
+                    databaseId = dbId,
+                    sessionId = sessionId,
+                    docId = safeId,
+                    title = safeTitle,
+                    body = safeBody,
+                    appName = safeAppName,
+                    packageName = safePkg,
+                    sourceDevice = safeSource,
+                    category = safeCat,
+                    isTest = isTest,
+                    timestampMs = safeTs
+                )
+            }
+            if (ok) anyOk = true
         }
-        ok
+        anyOk
     }
 
     /**
@@ -683,12 +1031,15 @@ object QrPairingManager {
     ): Int = withContext(Dispatchers.IO) {
         if (callLogs.isEmpty()) return@withContext 0
         val appContext = context.applicationContext ?: context
-        val sessionId = overrideSessionId?.takeIf { it.isNotBlank() } ?: getActiveSessionId(appContext) ?: return@withContext 0
+        val targetSessions = getAllTargetSessionIds(appContext, overrideSessionId)
+        if (targetSessions.isEmpty()) return@withContext 0
         val dbId = resolveDatabaseId(appContext)
+        val fs = if (ensureFirebaseAvailable(appContext)) getNamedFirestore(appContext, dbId) else null
+        val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
 
-        var syncedCount = 0
-        if (ensureFirebaseAvailable(appContext)) {
-            val fs = getNamedFirestore(appContext, dbId)
+        var maxSynced = 0
+        for (sessionId in targetSessions) {
+            var syncedCount = 0
             if (fs != null) {
                 try {
                     callLogs.chunked(250).forEach { chunk ->
@@ -718,20 +1069,20 @@ object QrPairingManager {
                     }
                     syncedCount = callLogs.size
                 } catch (e: Exception) {
-                    Log.w(TAG, "Batch sync call_logs failed: ${e.message}")
+                    Log.w(TAG, "Batch sync call_logs failed ($sessionId): ${e.message}")
                 }
             }
-        }
 
-        if (syncedCount == 0) {
-            val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
-            for (call in callLogs.take(40)) {
-                if (writeCallLogViaRest(projectId, dbId, sessionId, call)) {
-                    syncedCount++
+            if (syncedCount == 0) {
+                for (call in callLogs.take(40)) {
+                    if (writeCallLogViaRest(projectId, dbId, sessionId, call)) {
+                        syncedCount++
+                    }
                 }
             }
+            if (syncedCount > maxSynced) maxSynced = syncedCount
         }
-        syncedCount
+        maxSynced
     }
 
     suspend fun publishCallLogPermissionStatus(
@@ -1002,9 +1353,10 @@ object QrPairingManager {
         overrideSessionId: String? = null
     ): Boolean = withContext(Dispatchers.IO) {
         val appContext = context.applicationContext ?: context
-        val sessionId = overrideSessionId?.takeIf { it.isNotBlank() } ?: getActiveSessionId(appContext) ?: return@withContext false
+        val targetSessions = getAllTargetSessionIds(appContext, overrideSessionId)
+        if (targetSessions.isEmpty()) return@withContext false
         val dbId = resolveDatabaseId(appContext)
-        val deviceName = "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL}".take(100)
+        val deviceName = getDeviceDisplayName()
         val safeCallType = when (recording.callType.uppercase(Locale.US)) {
             "INCOMING", "OUTGOING", "MANUAL", "UNKNOWN" -> recording.callType.uppercase(Locale.US)
             else -> "UNKNOWN"
@@ -1037,9 +1389,12 @@ object QrPairingManager {
             payload["locationLabel"] = it.take(200)
         }
 
-        var ok = false
-        if (ensureFirebaseAvailable(appContext)) {
-            val fs = getNamedFirestore(appContext, dbId)
+        val fs = if (ensureFirebaseAvailable(appContext)) getNamedFirestore(appContext, dbId) else null
+        val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
+
+        var anyOk = false
+        for (sessionId in targetSessions) {
+            var ok = false
             if (fs != null) {
                 try {
                     fs.collection("pairing_sessions")
@@ -1050,28 +1405,28 @@ object QrPairingManager {
                         .await()
                     ok = true
                 } catch (e: Exception) {
-                    Log.w(TAG, "Firestore call_recording write error: ${e.message}")
+                    Log.w(TAG, "Firestore call_recording write error ($sessionId): ${e.message}")
                 }
             }
-        }
 
-        if (!ok) {
-            val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
-            ok = writeCallRecordingViaRest(
-                projectId = projectId,
-                databaseId = dbId,
-                sessionId = sessionId,
-                recording = recording.copy(
-                    phoneNumber = safeNumber,
-                    callType = safeCallType,
-                    audioBase64 = safeAudio,
-                    mimeType = safeMime,
-                    timestampMs = safeTs
-                ),
-                deviceName = deviceName
-            )
+            if (!ok) {
+                ok = writeCallRecordingViaRest(
+                    projectId = projectId,
+                    databaseId = dbId,
+                    sessionId = sessionId,
+                    recording = recording.copy(
+                        phoneNumber = safeNumber,
+                        callType = safeCallType,
+                        audioBase64 = safeAudio,
+                        mimeType = safeMime,
+                        timestampMs = safeTs
+                    ),
+                    deviceName = deviceName
+                )
+            }
+            if (ok) anyOk = true
         }
-        ok
+        anyOk
     }
 
     /**
@@ -1140,52 +1495,62 @@ object QrPairingManager {
         errorMessage: String? = null
     ): Boolean = withContext(Dispatchers.IO) {
         val appContext = context.applicationContext ?: context
-        val targetSession = sessionId?.takeIf { it.isNotBlank() } ?: getActiveSessionId(appContext) ?: return@withContext false
+        val targets = if (!sessionId.isNullOrBlank()) {
+            listOf(sessionId)
+        } else {
+            getAllTargetSessionIds(appContext)
+        }
+        if (targets.isEmpty()) return@withContext false
+
         val dbId = resolveDatabaseId(appContext)
         val deviceName = "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL}".take(100)
+        val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
 
-        val payload = hashMapOf<String, Any>(
-            "id" to "live",
-            "deviceName" to deviceName,
-            "updatedAt" to FieldValue.serverTimestamp()
-        )
-        status?.let { payload["status"] = it }
-        targetNumber?.let { payload["targetNumber"] = it.take(100) }
-        durationSec?.let { payload["durationSec"] = it.coerceIn(0L, 86400L) }
-        errorMessage?.let { payload["errorMessage"] = it.take(300) }
+        var anyOk = false
+        for (targetSession in targets) {
+            val payload = hashMapOf<String, Any>(
+                "id" to "live",
+                "deviceName" to deviceName,
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+            status?.let { payload["status"] = it }
+            targetNumber?.let { payload["targetNumber"] = it.take(100) }
+            durationSec?.let { payload["durationSec"] = it.coerceIn(0L, 86400L) }
+            errorMessage?.let { payload["errorMessage"] = it.take(300) }
 
-        var ok = false
-        if (ensureFirebaseAvailable(appContext)) {
-            val fs = getNamedFirestore(appContext, dbId)
-            if (fs != null) {
-                try {
-                    fs.collection("pairing_sessions")
-                        .document(targetSession)
-                        .collection("call_recorder")
-                        .document("live")
-                        .set(payload, SetOptions.merge())
-                        .await()
-                    ok = true
-                } catch (e: Exception) {
-                    Log.w(TAG, "Firestore call_recorder state write error: ${e.message}")
+            var ok = false
+            if (ensureFirebaseAvailable(appContext)) {
+                val fs = getNamedFirestore(appContext, dbId)
+                if (fs != null) {
+                    try {
+                        fs.collection("pairing_sessions")
+                            .document(targetSession)
+                            .collection("call_recorder")
+                            .document("live")
+                            .set(payload, SetOptions.merge())
+                            .await()
+                        ok = true
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Firestore call_recorder state write error ($targetSession): ${e.message}")
+                    }
                 }
             }
-        }
 
-        if (!ok) {
-            val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
-            ok = writeCallRecorderStateViaRest(
-                projectId = projectId,
-                databaseId = dbId,
-                sessionId = targetSession,
-                deviceName = deviceName,
-                status = status,
-                targetNumber = targetNumber?.take(100),
-                durationSec = durationSec,
-                errorMessage = errorMessage
-            )
+            if (!ok) {
+                ok = writeCallRecorderStateViaRest(
+                    projectId = projectId,
+                    databaseId = dbId,
+                    sessionId = targetSession,
+                    deviceName = deviceName,
+                    status = status,
+                    targetNumber = targetNumber?.take(100),
+                    durationSec = durationSec,
+                    errorMessage = errorMessage
+                )
+            }
+            if (ok) anyOk = true
         }
-        ok
+        anyOk
     }
 
     private fun getNamedFirestore(context: Context, databaseId: String): FirebaseFirestore? {
@@ -1224,6 +1589,7 @@ object QrPairingManager {
     private suspend fun writePairingSessionViaRest(
         projectId: String,
         databaseId: String,
+        docId: String,
         sessionId: String,
         deviceName: String,
         userId: String,
@@ -1246,7 +1612,7 @@ object QrPairingManager {
             }
             val bodyJson = JSONObject().put("fields", fields).toString()
 
-            val url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/$databaseId/documents/pairing_sessions/$sessionId" +
+            val url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/$databaseId/documents/pairing_sessions/$docId" +
                 "?updateMask.fieldPaths=sessionId&updateMask.fieldPaths=status&updateMask.fieldPaths=deviceName&updateMask.fieldPaths=userId&updateMask.fieldPaths=userEmail&updateMask.fieldPaths=connectedAt&updateMask.fieldPaths=createdAt"
 
             val request = Request.Builder()
@@ -1799,6 +2165,97 @@ object QrPairingManager {
         }
     }
 
+    private fun startDialRequestsRestPolling(
+        projectId: String,
+        databaseId: String,
+        sessionId: String,
+        onNewRequest: (RemoteDialRequest) -> Unit
+    ): ListenerRegistration {
+        val cancelled = AtomicBoolean(false)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val job: Job = scope.launch {
+            while (isActive && !cancelled.get()) {
+                try {
+                    val url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/$databaseId/documents/pairing_sessions/$sessionId/dial_requests?pageSize=20"
+                    val request = Request.Builder().url(url).get().build()
+                    httpClient.newCall(request).execute().use { response ->
+                        if (response.isSuccessful) {
+                            val body = response.body?.string()
+                            if (!body.isNullOrBlank()) {
+                                val docs = JSONObject(body).optJSONArray("documents")
+                                if (docs != null) {
+                                    for (i in 0 until docs.length()) {
+                                        val docObj = docs.optJSONObject(i) ?: continue
+                                        val namePath = docObj.optString("name")
+                                        val docId = namePath.substringAfterLast('/')
+                                        val fields = docObj.optJSONObject("fields") ?: continue
+                                        val status = fields.optJSONObject("status")?.optString("stringValue")?.trim().orEmpty()
+                                        val number = fields.optJSONObject("phoneNumber")?.optString("stringValue")?.trim().orEmpty()
+                                        val simSlot = fields.optJSONObject("simSlot")?.optString("integerValue")?.toIntOrNull() ?: -1
+                                        val createdAtMs = parseRestTimestampMs(fields.optJSONObject("createdAt")?.optString("timestampValue"))
+                                        if (docId.isNotBlank() && number.isNotBlank() && status == "PENDING") {
+                                            withContext(Dispatchers.Main) {
+                                                if (!cancelled.get()) {
+                                                    onNewRequest(
+                                                        RemoteDialRequest(
+                                                            id = docId,
+                                                            phoneNumber = number,
+                                                            simSlot = simSlot,
+                                                            status = status,
+                                                            createdAtMs = if (createdAtMs > 0L) createdAtMs else System.currentTimeMillis()
+                                                        )
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Dial requests REST poll error: ${t.message}")
+                }
+                delay(1500)
+            }
+        }
+        return ListenerRegistration {
+            cancelled.set(true)
+            job.cancel()
+        }
+    }
+
+    private fun writeDialRequestStatusViaRest(
+        projectId: String,
+        databaseId: String,
+        sessionId: String,
+        requestId: String,
+        status: String,
+        errorMessage: String?
+    ): Boolean {
+        return try {
+            val fields = JSONObject().apply {
+                put("status", JSONObject().put("stringValue", status))
+                errorMessage?.let { put("errorMessage", JSONObject().put("stringValue", it)) }
+            }
+            val maskFields = mutableListOf("status")
+            if (errorMessage != null) maskFields.add("errorMessage")
+            val queryMask = maskFields.joinToString("&") { "updateMask.fieldPaths=$it" }
+            val bodyJson = JSONObject().put("fields", fields).toString()
+            val url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/$databaseId/documents/pairing_sessions/$sessionId/dial_requests/$requestId?$queryMask"
+            val request = Request.Builder()
+                .url(url)
+                .patch(bodyJson.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+            httpClient.newCall(request).execute().use { response ->
+                response.isSuccessful
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Firestore REST dial_requests status update failed: ${t.message}")
+            false
+        }
+    }
+
     private fun fetchFirestoreDocFieldsViaRest(url: String): JSONObject? {
         return try {
             val request = Request.Builder().url(url).get().build()
@@ -1829,6 +2286,962 @@ object QrPairingManager {
             } catch (_: Throwable) {}
         }
         return 0L
+    }
+
+    // =====================================================
+    // 🖥️ MULTI-DEVICE HUB & PEER DEVICE REMOTE DISPATCH
+    // =====================================================
+
+    suspend fun registerDevicePresence(
+        context: Context,
+        overrideSessionId: String? = null,
+        isOnline: Boolean = true,
+        includeFreshLocation: Boolean = false
+    ): Boolean = withContext(Dispatchers.IO) {
+        val appContext = context.applicationContext ?: context
+        val deviceId = getOrCreateDeviceId(appContext)
+        val deviceName = getDeviceDisplayName().ifBlank { "Android Device" }
+        val boundSessionId = (overrideSessionId?.takeIf { it.isNotBlank() }
+            ?: getActiveSessionId(appContext)
+            ?: "pulse_pair_${deviceId}").take(128)
+        val (batteryLevel, isCharging) = readBatteryStatus(appContext)
+        val dbId = resolveDatabaseId(appContext)
+
+        val locationSharingActive = CallRecorderManager.isLocationSharingActive(appContext)
+        val capturedLoc = if (locationSharingActive) {
+            if (includeFreshLocation) {
+                CallRecorderManager.captureFreshDeviceLocation(appContext)
+            } else {
+                CallRecorderManager.captureDeviceLocation(appContext)
+            }
+        } else {
+            null
+        }
+
+        val payload = hashMapOf<String, Any>(
+            "deviceId" to deviceId,
+            "deviceName" to deviceName,
+            "sessionId" to boundSessionId,
+            "platform" to "ANDROID",
+            "batteryLevel" to batteryLevel,
+            "isCharging" to isCharging,
+            "isOnline" to isOnline,
+            "locationEnabled" to locationSharingActive,
+            "appVersion" to "1.0.5",
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+        if (capturedLoc != null) {
+            payload["latitude"] = capturedLoc.latitude
+            payload["longitude"] = capturedLoc.longitude
+            capturedLoc.label?.takeIf { it.isNotBlank() }?.let { payload["locationLabel"] = it.take(200) }
+            capturedLoc.accuracyMeters?.let { acc ->
+                payload["locationAccuracyM"] = acc.toDouble().coerceIn(0.0, 100000.0)
+            }
+        }
+
+        var ok = false
+        if (ensureFirebaseAvailable(appContext)) {
+            val fs = getNamedFirestore(appContext, dbId)
+            if (fs != null) {
+                try {
+                    fs.collection("pairing_sessions")
+                        .document(HUB_SESSION_ID)
+                        .collection("devices")
+                        .document(deviceId)
+                        .set(payload, SetOptions.merge())
+                        .await()
+                    ok = true
+                } catch (e: Exception) {
+                    Log.w(TAG, "Device presence Firestore write error: ${e.message}")
+                }
+            }
+        }
+
+        if (!ok) {
+            val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
+            ok = writeDevicePresenceViaRest(
+                projectId = projectId,
+                databaseId = dbId,
+                deviceId = deviceId,
+                deviceName = deviceName,
+                sessionId = boundSessionId,
+                batteryLevel = batteryLevel,
+                isCharging = isCharging,
+                isOnline = isOnline,
+                locationEnabled = locationSharingActive,
+                latitude = capturedLoc?.latitude,
+                longitude = capturedLoc?.longitude,
+                locationLabel = capturedLoc?.label,
+                locationAccuracyM = capturedLoc?.accuracyMeters?.toDouble()?.coerceIn(0.0, 100000.0)
+            )
+        }
+        ok
+    }
+
+    fun listenToConnectedDevices(
+        context: Context,
+        onUpdated: (List<ConnectedPeerDevice>) -> Unit
+    ): ListenerRegistration? {
+        val appContext = context.applicationContext ?: context
+        val dbId = resolveDatabaseId(appContext)
+        val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
+
+        if (ensureFirebaseAvailable(appContext)) {
+            val fs = getNamedFirestore(appContext, dbId)
+            if (fs != null) {
+                var restFallback: ListenerRegistration? = null
+                val sdkListener = try {
+                    fs.collection("pairing_sessions")
+                        .document(HUB_SESSION_ID)
+                        .collection("devices")
+                        .addSnapshotListener { snapshot, error ->
+                            if (error != null) {
+                                Log.w(TAG, "Connected devices listener error (${error.message}), switching to REST polling")
+                                if (restFallback == null) {
+                                    restFallback = startConnectedDevicesRestPolling(projectId, dbId, onUpdated)
+                                }
+                                return@addSnapshotListener
+                            }
+                            if (snapshot == null) return@addSnapshotListener
+                            val parsed = snapshot.documents.mapNotNull { doc ->
+                                val dId = doc.getString("deviceId")?.takeIf { it.isNotBlank() } ?: doc.id
+                                val dName = doc.getString("deviceName")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                                val sId = doc.getString("sessionId")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                                val platform = doc.getString("platform") ?: "ANDROID"
+                                val battery = (doc.getLong("batteryLevel") ?: -1L).toInt().coerceIn(-1, 100)
+                                val charging = doc.getBoolean("isCharging") ?: false
+                                val onlineFlag = doc.getBoolean("isOnline") ?: false
+                                val updatedMs = doc.getTimestamp("updatedAt")?.toDate()?.time ?: 0L
+                                val isRecentlySeen = onlineFlag && (updatedMs == 0L || (System.currentTimeMillis() - updatedMs) <= 180_000L)
+                                val lat = doc.getDouble("latitude")?.takeIf { it in -90.0..90.0 }
+                                val lng = doc.getDouble("longitude")?.takeIf { it in -180.0..180.0 }
+                                val locLabel = doc.getString("locationLabel")?.takeIf { it.isNotBlank() }
+                                val locEnabled = doc.getBoolean("locationEnabled") ?: (lat != null && lng != null)
+                                val locAcc = doc.getDouble("locationAccuracyM")
+                                ConnectedPeerDevice(
+                                    deviceId = dId,
+                                    deviceName = dName,
+                                    sessionId = sId,
+                                    platform = platform,
+                                    batteryLevel = battery,
+                                    isCharging = charging,
+                                    isOnline = isRecentlySeen,
+                                    appVersion = doc.getString("appVersion") ?: "1.0.5",
+                                    updatedAtMs = updatedMs,
+                                    latitude = lat,
+                                    longitude = lng,
+                                    locationLabel = locLabel,
+                                    locationEnabled = locEnabled,
+                                    locationAccuracyM = locAcc
+                                )
+                            }.sortedWith(compareByDescending<ConnectedPeerDevice> { it.isOnline }.thenByDescending { it.updatedAtMs })
+                            onUpdated(parsed)
+                        }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Could not attach connected devices listener: ${t.message}")
+                    null
+                }
+                if (sdkListener != null) {
+                    return ListenerRegistration {
+                        try { sdkListener.remove() } catch (_: Throwable) {}
+                        try { restFallback?.remove() } catch (_: Throwable) {}
+                    }
+                }
+            }
+        }
+        return startConnectedDevicesRestPolling(projectId, dbId, onUpdated)
+    }
+
+    fun listenToOwnDeviceLocationRequests(
+        context: Context,
+        onLocationRequested: (Long) -> Unit
+    ): ListenerRegistration? {
+        val appContext = context.applicationContext ?: context
+        val deviceId = getOrCreateDeviceId(appContext)
+        val dbId = resolveDatabaseId(appContext)
+        if (!ensureFirebaseAvailable(appContext)) return null
+        val fs = getNamedFirestore(appContext, dbId) ?: return null
+        var lastSeq = -1L
+        return try {
+            fs.collection("pairing_sessions")
+                .document(HUB_SESSION_ID)
+                .collection("devices")
+                .document(deviceId)
+                .addSnapshotListener { snap, err ->
+                    if (err != null || snap == null || !snap.exists()) return@addSnapshotListener
+                    val seq = snap.getLong("locationRequestSeq") ?: 0L
+                    if (lastSeq < 0L) {
+                        lastSeq = seq
+                    } else if (seq > lastSeq) {
+                        lastSeq = seq
+                        onLocationRequested(seq)
+                    }
+                }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    suspend fun dispatchDialRequestToSession(
+        context: Context,
+        targetSessionId: String,
+        phoneNumber: String,
+        simSlot: Int = -1
+    ): Boolean = withContext(Dispatchers.IO) {
+        val cleanSession = targetSessionId.trim().take(128)
+        val cleanNumber = phoneNumber.trim().take(100)
+        if (cleanSession.isBlank() || cleanNumber.isBlank()) return@withContext false
+
+        val appContext = context.applicationContext ?: context
+        val dbId = resolveDatabaseId(appContext)
+        val reqId = "mobdial_${System.currentTimeMillis()}_${(100..999).random()}"
+        val safeSim = simSlot.coerceIn(-1, 4)
+
+        var ok = false
+        if (ensureFirebaseAvailable(appContext)) {
+            val fs = getNamedFirestore(appContext, dbId)
+            if (fs != null) {
+                try {
+                    val payload = hashMapOf<String, Any>(
+                        "id" to reqId,
+                        "phoneNumber" to cleanNumber,
+                        "simSlot" to safeSim,
+                        "status" to "PENDING",
+                        "createdAt" to FieldValue.serverTimestamp()
+                    )
+                    fs.collection("pairing_sessions")
+                        .document(cleanSession)
+                        .collection("dial_requests")
+                        .document(reqId)
+                        .set(payload)
+                        .await()
+                    ok = true
+                } catch (e: Exception) {
+                    Log.w(TAG, "Peer dial dispatch Firestore error: ${e.message}")
+                }
+            }
+        }
+        if (!ok) {
+            val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
+            ok = writeDialRequestViaRest(projectId, dbId, cleanSession, reqId, cleanNumber, safeSim)
+        }
+        ok
+    }
+
+    suspend fun dispatchSmsRequestToSession(
+        context: Context,
+        targetSessionId: String,
+        recipient: String,
+        body: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        val cleanSession = targetSessionId.trim().take(128)
+        val cleanRecipient = recipient.trim().take(100)
+        val cleanBody = body.trim().take(2000)
+        if (cleanSession.isBlank() || cleanRecipient.isBlank() || cleanBody.isBlank()) return@withContext false
+
+        val appContext = context.applicationContext ?: context
+        val dbId = resolveDatabaseId(appContext)
+        val reqId = "mobsms_${System.currentTimeMillis()}_${(100..999).random()}"
+
+        var ok = false
+        if (ensureFirebaseAvailable(appContext)) {
+            val fs = getNamedFirestore(appContext, dbId)
+            if (fs != null) {
+                try {
+                    val payload = hashMapOf<String, Any>(
+                        "id" to reqId,
+                        "recipient" to cleanRecipient,
+                        "body" to cleanBody,
+                        "status" to "PENDING",
+                        "createdAt" to FieldValue.serverTimestamp()
+                    )
+                    fs.collection("pairing_sessions")
+                        .document(cleanSession)
+                        .collection("outgoing_requests")
+                        .document(reqId)
+                        .set(payload)
+                        .await()
+                    ok = true
+                } catch (e: Exception) {
+                    Log.w(TAG, "Peer SMS dispatch Firestore error: ${e.message}")
+                }
+            }
+        }
+        if (!ok) {
+            val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
+            ok = writeOutgoingRequestViaRest(projectId, dbId, cleanSession, reqId, cleanRecipient, cleanBody)
+        }
+        ok
+    }
+
+    private fun writeDevicePresenceViaRest(
+        projectId: String,
+        databaseId: String,
+        deviceId: String,
+        deviceName: String,
+        sessionId: String,
+        batteryLevel: Int,
+        isCharging: Boolean,
+        isOnline: Boolean,
+        locationEnabled: Boolean = false,
+        latitude: Double? = null,
+        longitude: Double? = null,
+        locationLabel: String? = null,
+        locationAccuracyM: Double? = null
+    ): Boolean {
+        return try {
+            val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val nowIso = isoFormat.format(Date())
+            val maskPaths = mutableListOf(
+                "deviceId", "deviceName", "sessionId", "platform",
+                "batteryLevel", "isCharging", "isOnline", "locationEnabled",
+                "appVersion", "updatedAt"
+            )
+            val fields = JSONObject().apply {
+                put("deviceId", JSONObject().put("stringValue", deviceId))
+                put("deviceName", JSONObject().put("stringValue", deviceName))
+                put("sessionId", JSONObject().put("stringValue", sessionId))
+                put("platform", JSONObject().put("stringValue", "ANDROID"))
+                put("batteryLevel", JSONObject().put("integerValue", batteryLevel.toString()))
+                put("isCharging", JSONObject().put("booleanValue", isCharging))
+                put("isOnline", JSONObject().put("booleanValue", isOnline))
+                put("locationEnabled", JSONObject().put("booleanValue", locationEnabled))
+                put("appVersion", JSONObject().put("stringValue", "1.0.5"))
+                put("updatedAt", JSONObject().put("timestampValue", nowIso))
+                if (latitude != null && longitude != null) {
+                    put("latitude", JSONObject().put("doubleValue", latitude))
+                    put("longitude", JSONObject().put("doubleValue", longitude))
+                    maskPaths.add("latitude")
+                    maskPaths.add("longitude")
+                }
+                if (!locationLabel.isNullOrBlank()) {
+                    put("locationLabel", JSONObject().put("stringValue", locationLabel.take(200)))
+                    maskPaths.add("locationLabel")
+                }
+                if (locationAccuracyM != null) {
+                    put("locationAccuracyM", JSONObject().put("doubleValue", locationAccuracyM))
+                    maskPaths.add("locationAccuracyM")
+                }
+            }
+            val mask = maskPaths.joinToString("&") { "updateMask.fieldPaths=$it" }
+            val bodyJson = JSONObject().put("fields", fields).toString()
+            val url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/$databaseId/documents/pairing_sessions/$HUB_SESSION_ID/devices/$deviceId?$mask"
+            val request = Request.Builder()
+                .url(url)
+                .patch(bodyJson.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+            httpClient.newCall(request).execute().use { it.isSuccessful }
+        } catch (t: Throwable) {
+            Log.w(TAG, "REST device presence failed: ${t.message}")
+            false
+        }
+    }
+
+    private fun writeDialRequestViaRest(
+        projectId: String,
+        databaseId: String,
+        sessionId: String,
+        requestId: String,
+        phoneNumber: String,
+        simSlot: Int
+    ): Boolean {
+        return try {
+            val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val nowIso = isoFormat.format(Date())
+            val fields = JSONObject().apply {
+                put("id", JSONObject().put("stringValue", requestId))
+                put("phoneNumber", JSONObject().put("stringValue", phoneNumber))
+                put("simSlot", JSONObject().put("integerValue", simSlot.toString()))
+                put("status", JSONObject().put("stringValue", "PENDING"))
+                put("createdAt", JSONObject().put("timestampValue", nowIso))
+            }
+            val bodyJson = JSONObject().put("fields", fields).toString()
+            val url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/$databaseId/documents/pairing_sessions/$sessionId/dial_requests?documentId=$requestId"
+            val request = Request.Builder()
+                .url(url)
+                .post(bodyJson.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+            httpClient.newCall(request).execute().use { it.isSuccessful }
+        } catch (t: Throwable) {
+            Log.w(TAG, "REST peer dial failed: ${t.message}")
+            false
+        }
+    }
+
+    private fun writeOutgoingRequestViaRest(
+        projectId: String,
+        databaseId: String,
+        sessionId: String,
+        requestId: String,
+        recipient: String,
+        body: String
+    ): Boolean {
+        return try {
+            val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val nowIso = isoFormat.format(Date())
+            val fields = JSONObject().apply {
+                put("id", JSONObject().put("stringValue", requestId))
+                put("recipient", JSONObject().put("stringValue", recipient))
+                put("body", JSONObject().put("stringValue", body))
+                put("status", JSONObject().put("stringValue", "PENDING"))
+                put("createdAt", JSONObject().put("timestampValue", nowIso))
+            }
+            val bodyJson = JSONObject().put("fields", fields).toString()
+            val url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/$databaseId/documents/pairing_sessions/$sessionId/outgoing_requests?documentId=$requestId"
+            val request = Request.Builder()
+                .url(url)
+                .post(bodyJson.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+            httpClient.newCall(request).execute().use { it.isSuccessful }
+        } catch (t: Throwable) {
+            Log.w(TAG, "REST peer SMS failed: ${t.message}")
+            false
+        }
+    }
+
+    private fun startConnectedDevicesRestPolling(
+        projectId: String,
+        databaseId: String,
+        onUpdated: (List<ConnectedPeerDevice>) -> Unit
+    ): ListenerRegistration {
+        val cancelled = AtomicBoolean(false)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val job: Job = scope.launch {
+            while (isActive && !cancelled.get()) {
+                try {
+                    val url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/$databaseId/documents/pairing_sessions/$HUB_SESSION_ID/devices?pageSize=30"
+                    val request = Request.Builder().url(url).get().build()
+                    httpClient.newCall(request).execute().use { response ->
+                        if (response.isSuccessful) {
+                            val body = response.body?.string()
+                            if (!body.isNullOrBlank()) {
+                                val docs = JSONObject(body).optJSONArray("documents")
+                                val items = mutableListOf<ConnectedPeerDevice>()
+                                if (docs != null) {
+                                    for (i in 0 until docs.length()) {
+                                        val docObj = docs.optJSONObject(i) ?: continue
+                                        val docId = docObj.optString("name").substringAfterLast('/')
+                                        val fields = docObj.optJSONObject("fields") ?: continue
+                                        val dId = fields.optJSONObject("deviceId")?.optString("stringValue")?.takeIf { it.isNotBlank() } ?: docId
+                                        val dName = fields.optJSONObject("deviceName")?.optString("stringValue")?.takeIf { it.isNotBlank() } ?: continue
+                                        val sId = fields.optJSONObject("sessionId")?.optString("stringValue")?.takeIf { it.isNotBlank() } ?: continue
+                                        val platform = fields.optJSONObject("platform")?.optString("stringValue") ?: "ANDROID"
+                                        val battery = fields.optJSONObject("batteryLevel")?.optString("integerValue")?.toIntOrNull()?.coerceIn(-1, 100) ?: -1
+                                        val charging = fields.optJSONObject("isCharging")?.optBoolean("booleanValue") ?: false
+                                        val onlineFlag = fields.optJSONObject("isOnline")?.optBoolean("booleanValue") ?: false
+                                        val appVersion = fields.optJSONObject("appVersion")?.optString("stringValue") ?: "1.0.5"
+                                        val updatedMs = parseRestTimestampMs(fields.optJSONObject("updatedAt")?.optString("timestampValue"))
+                                        val isRecentlySeen = onlineFlag && (updatedMs == 0L || (System.currentTimeMillis() - updatedMs) <= 180_000L)
+                                        val latObj = fields.optJSONObject("latitude")
+                                        val lat = (latObj?.opt("doubleValue") as? Number)?.toDouble()
+                                            ?: latObj?.optString("integerValue")?.toDoubleOrNull()
+                                        val lngObj = fields.optJSONObject("longitude")
+                                        val lng = (lngObj?.opt("doubleValue") as? Number)?.toDouble()
+                                            ?: lngObj?.optString("integerValue")?.toDoubleOrNull()
+                                        val locLabel = fields.optJSONObject("locationLabel")?.optString("stringValue")?.takeIf { it.isNotBlank() }
+                                        val locEnabled = fields.optJSONObject("locationEnabled")?.optBoolean("booleanValue") ?: (lat != null && lng != null)
+                                        val accObj = fields.optJSONObject("locationAccuracyM")
+                                        val locAcc = (accObj?.opt("doubleValue") as? Number)?.toDouble()
+                                            ?: accObj?.optString("integerValue")?.toDoubleOrNull()
+                                        items.add(
+                                            ConnectedPeerDevice(
+                                                deviceId = dId,
+                                                deviceName = dName,
+                                                sessionId = sId,
+                                                platform = platform,
+                                                batteryLevel = battery,
+                                                isCharging = charging,
+                                                isOnline = isRecentlySeen,
+                                                appVersion = appVersion,
+                                                updatedAtMs = updatedMs,
+                                                latitude = lat?.takeIf { it in -90.0..90.0 },
+                                                longitude = lng?.takeIf { it in -180.0..180.0 },
+                                                locationLabel = locLabel,
+                                                locationEnabled = locEnabled,
+                                                locationAccuracyM = locAcc
+                                            )
+                                        )
+                                    }
+                                }
+                                val sorted = items.sortedWith(compareByDescending<ConnectedPeerDevice> { it.isOnline }.thenByDescending { it.updatedAtMs })
+                                withContext(Dispatchers.Main) {
+                                    if (!cancelled.get()) onUpdated(sorted)
+                                }
+                            }
+                        }
+                    }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Connected devices REST poll error: ${t.message}")
+                }
+                delay(4000)
+            }
+        }
+        return ListenerRegistration {
+            cancelled.set(true)
+            job.cancel()
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Remote Mobile File Manager Bridge (`file_manager/live` & `file_manager/transfer`)
+    // -------------------------------------------------------------------------
+
+    fun listenToFileManagerCommands(
+        context: Context,
+        sessionId: String,
+        onCommand: (RemoteFileManagerCommand) -> Unit
+    ): ListenerRegistration? {
+        val appContext = context.applicationContext ?: context
+        val dbId = resolveDatabaseId(appContext)
+        val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
+
+        if (ensureFirebaseAvailable(appContext)) {
+            val fs = getNamedFirestore(appContext, dbId)
+            if (fs != null) {
+                var restFallback: ListenerRegistration? = null
+                val sdkListener = try {
+                    fs.collection("pairing_sessions")
+                        .document(sessionId)
+                        .collection("file_manager")
+                        .document("live")
+                        .addSnapshotListener { snapshot, error ->
+                            if (error != null) {
+                                Log.w(TAG, "File manager listener error (${error.message}), switching to REST polling")
+                                if (restFallback == null) {
+                                    restFallback = startFileManagerRestPolling(projectId, dbId, sessionId, onCommand)
+                                }
+                                return@addSnapshotListener
+                            }
+                            if (snapshot == null || !snapshot.exists()) return@addSnapshotListener
+                            val cmd = snapshot.getString("command")?.trim() ?: "NONE"
+                            val cmdSeq = snapshot.getLong("commandSeq") ?: 0L
+                            val targetRootId = snapshot.getString("targetRootId")
+                            val targetPath = snapshot.getString("targetPath")
+                            val targetFileId = snapshot.getString("targetFileId")
+                            val targetName = snapshot.getString("targetName")
+                            val status = snapshot.getString("status")?.trim() ?: "IDLE"
+                            val updatedAtMs = snapshot.getTimestamp("updatedAt")?.toDate()?.time ?: 0L
+                            onCommand(
+                                RemoteFileManagerCommand(
+                                    command = cmd,
+                                    commandSeq = cmdSeq,
+                                    targetRootId = targetRootId,
+                                    targetPath = targetPath,
+                                    targetFileId = targetFileId,
+                                    targetName = targetName,
+                                    status = status,
+                                    updatedAtMs = updatedAtMs
+                                )
+                            )
+                        }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Could not attach file manager listener: ${t.message}")
+                    null
+                }
+                if (sdkListener != null) {
+                    return ListenerRegistration {
+                        try { sdkListener.remove() } catch (_: Throwable) {}
+                        try { restFallback?.remove() } catch (_: Throwable) {}
+                    }
+                }
+            }
+        }
+        return startFileManagerRestPolling(projectId, dbId, sessionId, onCommand)
+    }
+
+    suspend fun publishFileManagerSnapshot(
+        context: Context,
+        sessionId: String? = null,
+        snapshot: com.example.telephony.DirectoryBrowseResult
+    ): Boolean = withContext(Dispatchers.IO) {
+        val appContext = context.applicationContext ?: context
+        val targetSession = sessionId?.takeIf { it.isNotBlank() } ?: getActiveSessionId(appContext) ?: return@withContext false
+        val dbId = resolveDatabaseId(appContext)
+        val deviceName = getDeviceDisplayName().take(120)
+
+        val payload = hashMapOf<String, Any>(
+            "id" to "live",
+            "status" to snapshot.status,
+            "hasFolderAccess" to snapshot.hasFolderAccess,
+            "rootsJson" to snapshot.rootsJson.take(49_500),
+            "currentRootId" to snapshot.currentRootId.take(160),
+            "currentRootName" to snapshot.currentRootName.take(200),
+            "currentPath" to snapshot.currentPath.take(1000),
+            "breadcrumbsJson" to snapshot.breadcrumbsJson.take(19_500),
+            "entriesJson" to snapshot.entriesJson.take(295_000),
+            "totalFolders" to snapshot.totalFolders.coerceIn(0, 100_000),
+            "totalFiles" to snapshot.totalFiles.coerceIn(0, 100_000),
+            "totalBytes" to snapshot.totalBytes.coerceAtLeast(0L),
+            "deviceName" to deviceName,
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+        if (!snapshot.errorMessage.isNullOrBlank()) {
+            payload["errorMessage"] = snapshot.errorMessage.take(380)
+        }
+
+        var ok = false
+        if (ensureFirebaseAvailable(appContext)) {
+            val fs = getNamedFirestore(appContext, dbId)
+            if (fs != null) {
+                try {
+                    fs.collection("pairing_sessions")
+                        .document(targetSession)
+                        .collection("file_manager")
+                        .document("live")
+                        .set(payload, SetOptions.merge())
+                        .await()
+                    ok = true
+                } catch (e: Exception) {
+                    Log.w(TAG, "Firestore file_manager snapshot write error: ${e.message}")
+                }
+            }
+        }
+        if (!ok) {
+            val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
+            ok = writeFileManagerSnapshotViaRest(projectId, dbId, targetSession, deviceName, snapshot)
+        }
+        ok
+    }
+
+    fun listenToFileTransferCommands(
+        context: Context,
+        sessionId: String,
+        onCommand: (RemoteFileTransferCommand) -> Unit
+    ): ListenerRegistration? {
+        val appContext = context.applicationContext ?: context
+        val dbId = resolveDatabaseId(appContext)
+        val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
+
+        if (ensureFirebaseAvailable(appContext)) {
+            val fs = getNamedFirestore(appContext, dbId)
+            if (fs != null) {
+                var restFallback: ListenerRegistration? = null
+                val sdkListener = try {
+                    fs.collection("pairing_sessions")
+                        .document(sessionId)
+                        .collection("file_manager")
+                        .document("transfer")
+                        .addSnapshotListener { snapshot, error ->
+                            if (error != null) {
+                                if (restFallback == null) {
+                                    restFallback = startFileTransferRestPolling(projectId, dbId, sessionId, onCommand)
+                                }
+                                return@addSnapshotListener
+                            }
+                            if (snapshot == null || !snapshot.exists()) return@addSnapshotListener
+                            val cmd = snapshot.getString("command")?.trim() ?: "NONE"
+                            val cmdSeq = snapshot.getLong("commandSeq") ?: 0L
+                            val direction = snapshot.getString("direction")?.trim() ?: "PHONE_TO_WEB"
+                            val targetRootId = snapshot.getString("targetRootId")
+                            val targetFileId = snapshot.getString("targetFileId")
+                            val targetPath = snapshot.getString("targetPath")
+                            val fileName = snapshot.getString("fileName") ?: "file"
+                            val mimeType = snapshot.getString("mimeType") ?: "application/octet-stream"
+                            val base64Data = snapshot.getString("base64Data")
+                            val status = snapshot.getString("status")?.trim() ?: "IDLE"
+                            val updatedAtMs = snapshot.getTimestamp("updatedAt")?.toDate()?.time ?: 0L
+                            onCommand(
+                                RemoteFileTransferCommand(
+                                    command = cmd,
+                                    commandSeq = cmdSeq,
+                                    direction = direction,
+                                    targetRootId = targetRootId,
+                                    targetFileId = targetFileId,
+                                    targetPath = targetPath,
+                                    fileName = fileName,
+                                    mimeType = mimeType,
+                                    base64Data = base64Data,
+                                    status = status,
+                                    updatedAtMs = updatedAtMs
+                                )
+                            )
+                        }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Could not attach file transfer listener: ${t.message}")
+                    null
+                }
+                if (sdkListener != null) {
+                    return ListenerRegistration {
+                        try { sdkListener.remove() } catch (_: Throwable) {}
+                        try { restFallback?.remove() } catch (_: Throwable) {}
+                    }
+                }
+            }
+        }
+        return startFileTransferRestPolling(projectId, dbId, sessionId, onCommand)
+    }
+
+    suspend fun publishFileTransferResult(
+        context: Context,
+        sessionId: String? = null,
+        status: String,
+        direction: String = "PHONE_TO_WEB",
+        fileName: String,
+        mimeType: String = "application/octet-stream",
+        sizeBytes: Long = 0L,
+        base64Data: String? = null,
+        transferSeq: Long = System.currentTimeMillis(),
+        isPreviewImage: Boolean = false,
+        errorMessage: String? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        val appContext = context.applicationContext ?: context
+        val targetSession = sessionId?.takeIf { it.isNotBlank() } ?: getActiveSessionId(appContext) ?: return@withContext false
+        val dbId = resolveDatabaseId(appContext)
+        val deviceName = getDeviceDisplayName().take(120)
+
+        val payload = hashMapOf<String, Any>(
+            "id" to "transfer",
+            "command" to "NONE",
+            "direction" to direction,
+            "fileName" to fileName.take(250),
+            "mimeType" to mimeType.take(120),
+            "sizeBytes" to sizeBytes.coerceAtLeast(0L),
+            "transferSeq" to transferSeq.coerceAtLeast(0L),
+            "status" to status,
+            "isPreviewImage" to isPreviewImage,
+            "deviceName" to deviceName,
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+        if (base64Data != null && base64Data.length <= 740_000) {
+            payload["base64Data"] = base64Data
+        }
+        if (!errorMessage.isNullOrBlank()) {
+            payload["errorMessage"] = errorMessage.take(380)
+        }
+
+        var ok = false
+        if (ensureFirebaseAvailable(appContext)) {
+            val fs = getNamedFirestore(appContext, dbId)
+            if (fs != null) {
+                try {
+                    fs.collection("pairing_sessions")
+                        .document(targetSession)
+                        .collection("file_manager")
+                        .document("transfer")
+                        .set(payload, SetOptions.merge())
+                        .await()
+                    ok = true
+                } catch (e: Exception) {
+                    Log.w(TAG, "Firestore file_manager transfer write error: ${e.message}")
+                }
+            }
+        }
+        if (!ok) {
+            val projectId = resolveStringResource(appContext, "project_id") ?: DEFAULT_PROJECT_ID
+            ok = writeFileTransferResultViaRest(
+                projectId, dbId, targetSession, deviceName,
+                status, direction, fileName, mimeType, sizeBytes,
+                base64Data?.takeIf { it.length <= 740_000 }, transferSeq, isPreviewImage, errorMessage
+            )
+        }
+        ok
+    }
+
+    private fun startFileManagerRestPolling(
+        projectId: String,
+        databaseId: String,
+        sessionId: String,
+        onCommand: (RemoteFileManagerCommand) -> Unit
+    ): ListenerRegistration {
+        val cancelled = AtomicBoolean(false)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val job = scope.launch {
+            while (isActive && !cancelled.get()) {
+                try {
+                    val url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/$databaseId/documents/pairing_sessions/$sessionId/file_manager/live"
+                    httpClient.newCall(Request.Builder().url(url).get().build()).execute().use { resp ->
+                        if (resp.isSuccessful) {
+                            val body = resp.body?.string()
+                            if (!body.isNullOrBlank()) {
+                                val fields = JSONObject(body).optJSONObject("fields")
+                                if (fields != null) {
+                                    val cmd = RemoteFileManagerCommand(
+                                        command = fields.optJSONObject("command")?.optString("stringValue") ?: "NONE",
+                                        commandSeq = fields.optJSONObject("commandSeq")?.optString("integerValue")?.toLongOrNull() ?: 0L,
+                                        targetRootId = fields.optJSONObject("targetRootId")?.optString("stringValue"),
+                                        targetPath = fields.optJSONObject("targetPath")?.optString("stringValue"),
+                                        targetFileId = fields.optJSONObject("targetFileId")?.optString("stringValue"),
+                                        targetName = fields.optJSONObject("targetName")?.optString("stringValue"),
+                                        status = fields.optJSONObject("status")?.optString("stringValue") ?: "IDLE",
+                                        updatedAtMs = parseRestTimestampMs(fields.optJSONObject("updatedAt")?.optString("timestampValue"))
+                                    )
+                                    withContext(Dispatchers.Main) {
+                                        if (!cancelled.get()) onCommand(cmd)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (_: Throwable) {}
+                delay(2000)
+            }
+        }
+        return ListenerRegistration {
+            cancelled.set(true)
+            job.cancel()
+        }
+    }
+
+    private fun startFileTransferRestPolling(
+        projectId: String,
+        databaseId: String,
+        sessionId: String,
+        onCommand: (RemoteFileTransferCommand) -> Unit
+    ): ListenerRegistration {
+        val cancelled = AtomicBoolean(false)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val job = scope.launch {
+            while (isActive && !cancelled.get()) {
+                try {
+                    val url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/$databaseId/documents/pairing_sessions/$sessionId/file_manager/transfer"
+                    httpClient.newCall(Request.Builder().url(url).get().build()).execute().use { resp ->
+                        if (resp.isSuccessful) {
+                            val body = resp.body?.string()
+                            if (!body.isNullOrBlank()) {
+                                val fields = JSONObject(body).optJSONObject("fields")
+                                if (fields != null) {
+                                    val cmd = RemoteFileTransferCommand(
+                                        command = fields.optJSONObject("command")?.optString("stringValue") ?: "NONE",
+                                        commandSeq = fields.optJSONObject("commandSeq")?.optString("integerValue")?.toLongOrNull() ?: 0L,
+                                        direction = fields.optJSONObject("direction")?.optString("stringValue") ?: "PHONE_TO_WEB",
+                                        targetRootId = fields.optJSONObject("targetRootId")?.optString("stringValue"),
+                                        targetFileId = fields.optJSONObject("targetFileId")?.optString("stringValue"),
+                                        targetPath = fields.optJSONObject("targetPath")?.optString("stringValue"),
+                                        fileName = fields.optJSONObject("fileName")?.optString("stringValue") ?: "file",
+                                        mimeType = fields.optJSONObject("mimeType")?.optString("stringValue") ?: "application/octet-stream",
+                                        base64Data = fields.optJSONObject("base64Data")?.optString("stringValue"),
+                                        status = fields.optJSONObject("status")?.optString("stringValue") ?: "IDLE",
+                                        updatedAtMs = parseRestTimestampMs(fields.optJSONObject("updatedAt")?.optString("timestampValue"))
+                                    )
+                                    withContext(Dispatchers.Main) {
+                                        if (!cancelled.get()) onCommand(cmd)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (_: Throwable) {}
+                delay(2000)
+            }
+        }
+        return ListenerRegistration {
+            cancelled.set(true)
+            job.cancel()
+        }
+    }
+
+    private fun writeFileManagerSnapshotViaRest(
+        projectId: String,
+        databaseId: String,
+        sessionId: String,
+        deviceName: String,
+        snapshot: com.example.telephony.DirectoryBrowseResult
+    ): Boolean {
+        return try {
+            val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val maskPaths = mutableListOf(
+                "id", "status", "hasFolderAccess", "rootsJson",
+                "currentRootId", "currentRootName", "currentPath",
+                "breadcrumbsJson", "entriesJson", "totalFolders",
+                "totalFiles", "totalBytes", "deviceName", "updatedAt"
+            )
+            val fields = JSONObject().apply {
+                put("id", JSONObject().put("stringValue", "live"))
+                put("status", JSONObject().put("stringValue", snapshot.status))
+                put("hasFolderAccess", JSONObject().put("booleanValue", snapshot.hasFolderAccess))
+                put("rootsJson", JSONObject().put("stringValue", snapshot.rootsJson.take(49_500)))
+                put("currentRootId", JSONObject().put("stringValue", snapshot.currentRootId.take(160)))
+                put("currentRootName", JSONObject().put("stringValue", snapshot.currentRootName.take(200)))
+                put("currentPath", JSONObject().put("stringValue", snapshot.currentPath.take(1000)))
+                put("breadcrumbsJson", JSONObject().put("stringValue", snapshot.breadcrumbsJson.take(19_500)))
+                put("entriesJson", JSONObject().put("stringValue", snapshot.entriesJson.take(295_000)))
+                put("totalFolders", JSONObject().put("integerValue", snapshot.totalFolders.toString()))
+                put("totalFiles", JSONObject().put("integerValue", snapshot.totalFiles.toString()))
+                put("totalBytes", JSONObject().put("integerValue", snapshot.totalBytes.toString()))
+                put("deviceName", JSONObject().put("stringValue", deviceName))
+                put("updatedAt", JSONObject().put("timestampValue", isoFormat.format(Date())))
+                if (!snapshot.errorMessage.isNullOrBlank()) {
+                    put("errorMessage", JSONObject().put("stringValue", snapshot.errorMessage.take(380)))
+                    maskPaths.add("errorMessage")
+                }
+            }
+            val mask = maskPaths.joinToString("&") { "updateMask.fieldPaths=$it" }
+            val url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/$databaseId/documents/pairing_sessions/$sessionId/file_manager/live?$mask"
+            val req = Request.Builder()
+                .url(url)
+                .patch(JSONObject().put("fields", fields).toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+            httpClient.newCall(req).execute().use { it.isSuccessful }
+        } catch (t: Throwable) {
+            Log.w(TAG, "REST file_manager snapshot failed: ${t.message}")
+            false
+        }
+    }
+
+    private fun writeFileTransferResultViaRest(
+        projectId: String,
+        databaseId: String,
+        sessionId: String,
+        deviceName: String,
+        status: String,
+        direction: String,
+        fileName: String,
+        mimeType: String,
+        sizeBytes: Long,
+        base64Data: String?,
+        transferSeq: Long,
+        isPreviewImage: Boolean,
+        errorMessage: String?
+    ): Boolean {
+        return try {
+            val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val maskPaths = mutableListOf(
+                "id", "command", "direction", "fileName", "mimeType",
+                "sizeBytes", "transferSeq", "status", "isPreviewImage",
+                "deviceName", "updatedAt"
+            )
+            val fields = JSONObject().apply {
+                put("id", JSONObject().put("stringValue", "transfer"))
+                put("command", JSONObject().put("stringValue", "NONE"))
+                put("direction", JSONObject().put("stringValue", direction))
+                put("fileName", JSONObject().put("stringValue", fileName.take(250)))
+                put("mimeType", JSONObject().put("stringValue", mimeType.take(120)))
+                put("sizeBytes", JSONObject().put("integerValue", sizeBytes.coerceAtLeast(0L).toString()))
+                put("transferSeq", JSONObject().put("integerValue", transferSeq.coerceAtLeast(0L).toString()))
+                put("status", JSONObject().put("stringValue", status))
+                put("isPreviewImage", JSONObject().put("booleanValue", isPreviewImage))
+                put("deviceName", JSONObject().put("stringValue", deviceName))
+                put("updatedAt", JSONObject().put("timestampValue", isoFormat.format(Date())))
+                if (base64Data != null) {
+                    put("base64Data", JSONObject().put("stringValue", base64Data))
+                    maskPaths.add("base64Data")
+                }
+                if (!errorMessage.isNullOrBlank()) {
+                    put("errorMessage", JSONObject().put("stringValue", errorMessage.take(380)))
+                    maskPaths.add("errorMessage")
+                }
+            }
+            val mask = maskPaths.joinToString("&") { "updateMask.fieldPaths=$it" }
+            val url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/$databaseId/documents/pairing_sessions/$sessionId/file_manager/transfer?$mask"
+            val req = Request.Builder()
+                .url(url)
+                .patch(JSONObject().put("fields", fields).toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+            httpClient.newCall(req).execute().use { it.isSuccessful }
+        } catch (t: Throwable) {
+            Log.w(TAG, "REST file_manager transfer failed: ${t.message}")
+            false
+        }
     }
 
     private fun triggerHapticFeedback(context: Context) {

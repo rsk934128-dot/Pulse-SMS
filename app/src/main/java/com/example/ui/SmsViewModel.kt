@@ -12,18 +12,29 @@ import com.example.data.model.ConversationEntity
 import com.example.data.model.MessageEntity
 import com.example.data.remote.CloudMessage
 import com.example.data.remote.FirebaseSyncRepository
+import com.example.data.repository.ConnectedPeerDevice
 import com.example.data.repository.MirroredNotificationItem
+import com.example.data.repository.PairedSessionRecord
 import com.example.data.repository.ProfileAvatarManager
 import com.example.data.repository.ProfileAvatarSelection
 import com.example.data.repository.QrPairingManager
 import com.example.data.repository.SmsRepository
 import com.example.data.repository.WebSyncEvent
 import android.content.Intent
+import com.example.telephony.CallDialOutcome
+import com.example.telephony.CallDialerHelper
 import com.example.telephony.CallLogSyncHelper
 import com.example.telephony.CallRecorderManager
 import com.example.telephony.CallRecorderService
+import com.example.telephony.DeviceCallLogItem
+import com.example.telephony.DeviceFileEntry
+import com.example.telephony.DeviceFileManagerHelper
+import com.example.telephony.DialerContactItem
+import com.example.telephony.FileBreadcrumbItem
+import com.example.telephony.FileRootInfo
 import com.example.telephony.PulseKeepAliveService
 import com.example.telephony.PulseNotificationListenerService
+import com.example.telephony.SimAccountInfo
 import com.example.telephony.SmsNotificationManager
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseUser
@@ -41,6 +52,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import com.example.auth.FirebaseAuthenticator
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SmsViewModel(
@@ -92,6 +104,21 @@ class SmsViewModel(
         QrPairingManager.getActiveSessionId(application)
     )
     val activePairingSessionId: StateFlow<String?> = _activePairingSessionId.asStateFlow()
+
+    val currentDeviceId: String = QrPairingManager.getOrCreateDeviceId(application)
+
+    private val _pairedSessions = MutableStateFlow(
+        QrPairingManager.getPairedSessions(application)
+    )
+    val pairedSessions: StateFlow<List<PairedSessionRecord>> = _pairedSessions.asStateFlow()
+
+    private val _connectedPeerDevices = MutableStateFlow<List<ConnectedPeerDevice>>(emptyList())
+    val connectedPeerDevices: StateFlow<List<ConnectedPeerDevice>> = _connectedPeerDevices.asStateFlow()
+
+    private val _currentBatteryStatus = MutableStateFlow(
+        QrPairingManager.readBatteryStatus(application)
+    )
+    val currentBatteryStatus: StateFlow<Pair<Int, Boolean>> = _currentBatteryStatus.asStateFlow()
 
     private val _mirroredNotifications = MutableStateFlow<List<MirroredNotificationItem>>(emptyList())
     val mirroredNotifications: StateFlow<List<MirroredNotificationItem>> = _mirroredNotifications.asStateFlow()
@@ -185,11 +212,47 @@ class SmsViewModel(
     )
     val hasLocationPermission: StateFlow<Boolean> = _hasLocationPermission.asStateFlow()
 
+    private val _isSystemLocationEnabled = MutableStateFlow(
+        CallRecorderManager.isSystemLocationEnabled(application)
+    )
+    val isSystemLocationEnabled: StateFlow<Boolean> = _isSystemLocationEnabled.asStateFlow()
+
+    private val _isLiveLocationSharingEnabled = MutableStateFlow(
+        CallRecorderManager.isLiveLocationSharingEnabled(application)
+    )
+    val isLiveLocationSharingEnabled: StateFlow<Boolean> = _isLiveLocationSharingEnabled.asStateFlow()
+
+    private val _currentDeviceLocation = MutableStateFlow<com.example.telephony.CapturedDeviceLocation?>(null)
+    val currentDeviceLocation: StateFlow<com.example.telephony.CapturedDeviceLocation?> = _currentDeviceLocation.asStateFlow()
+
+    private val _isRefreshingLocation = MutableStateFlow(false)
+    val isRefreshingLocation: StateFlow<Boolean> = _isRefreshingLocation.asStateFlow()
+
     private val _callRecorderPermissionNeeded = MutableStateFlow(false)
     val callRecorderPermissionNeeded: StateFlow<Boolean> = _callRecorderPermissionNeeded.asStateFlow()
 
     private val _recentCallNumbers = MutableStateFlow<List<String>>(emptyList())
     val recentCallNumbers: StateFlow<List<String>> = _recentCallNumbers.asStateFlow()
+
+    // Phone Call Dialer States
+    private val _hasCallPhonePermission = MutableStateFlow(
+        CallDialerHelper.hasCallPhonePermission(application)
+    )
+    val hasCallPhonePermission: StateFlow<Boolean> = _hasCallPhonePermission.asStateFlow()
+
+    private val _callPhonePermissionNeeded = MutableStateFlow(false)
+    val callPhonePermissionNeeded: StateFlow<Boolean> = _callPhonePermissionNeeded.asStateFlow()
+
+    private val _dialerContacts = MutableStateFlow<List<DialerContactItem>>(emptyList())
+    val dialerContacts: StateFlow<List<DialerContactItem>> = _dialerContacts.asStateFlow()
+
+    private val _dialerRecentCalls = MutableStateFlow<List<DeviceCallLogItem>>(emptyList())
+    val dialerRecentCalls: StateFlow<List<DeviceCallLogItem>> = _dialerRecentCalls.asStateFlow()
+
+    private val _dialerSimAccounts = MutableStateFlow<List<SimAccountInfo>>(emptyList())
+    val dialerSimAccounts: StateFlow<List<SimAccountInfo>> = _dialerSimAccounts.asStateFlow()
+
+    private var pendingDialRequest: Pair<String, Int>? = null
 
     // Always-On Background Keep-Alive States
     private val _isAlwaysActiveEnabled = MutableStateFlow(
@@ -204,6 +267,35 @@ class SmsViewModel(
     val isBackgroundCameraStreaming: StateFlow<Boolean> = PulseKeepAliveService.isBackgroundCameraStreaming
     val backgroundCameraPreviewJpeg: StateFlow<ByteArray?> = PulseKeepAliveService.backgroundCameraPreviewJpeg
 
+    // Play-Policy Compliant Mobile File Manager States
+    private val _fileManagerRoots = MutableStateFlow(
+        DeviceFileManagerHelper.getConfiguredRoots(application)
+    )
+    val fileManagerRoots: StateFlow<List<FileRootInfo>> = _fileManagerRoots.asStateFlow()
+
+    private val _hasCustomFolderAccess = MutableStateFlow(
+        DeviceFileManagerHelper.hasCustomFolderAccess(application)
+    )
+    val hasCustomFolderAccess: StateFlow<Boolean> = _hasCustomFolderAccess.asStateFlow()
+
+    private val _currentFileRootId = MutableStateFlow("")
+    val currentFileRootId: StateFlow<String> = _currentFileRootId.asStateFlow()
+
+    private val _currentFileRootName = MutableStateFlow("")
+    val currentFileRootName: StateFlow<String> = _currentFileRootName.asStateFlow()
+
+    private val _currentFilePath = MutableStateFlow("")
+    val currentFilePath: StateFlow<String> = _currentFilePath.asStateFlow()
+
+    private val _fileBreadcrumbs = MutableStateFlow<List<FileBreadcrumbItem>>(emptyList())
+    val fileBreadcrumbs: StateFlow<List<FileBreadcrumbItem>> = _fileBreadcrumbs.asStateFlow()
+
+    private val _fileEntries = MutableStateFlow<List<DeviceFileEntry>>(emptyList())
+    val fileEntries: StateFlow<List<DeviceFileEntry>> = _fileEntries.asStateFlow()
+
+    private val _isLoadingFiles = MutableStateFlow(false)
+    val isLoadingFiles: StateFlow<Boolean> = _isLoadingFiles.asStateFlow()
+
     private val _isBatteryOptimizationIgnored = MutableStateFlow(
         PulseKeepAliveService.isIgnoringBatteryOptimizations(application)
     )
@@ -215,6 +307,8 @@ class SmsViewModel(
     private var remoteMicListener: com.google.firebase.firestore.ListenerRegistration? = null
     private var remoteCallRecorderListener: com.google.firebase.firestore.ListenerRegistration? = null
     private var callLogSyncRequestListener: com.google.firebase.firestore.ListenerRegistration? = null
+    private var dialRequestListener: com.google.firebase.firestore.ListenerRegistration? = null
+    private var connectedDevicesListener: com.google.firebase.firestore.ListenerRegistration? = null
     private var callLogObserver: ContentObserver? = null
     private var fallbackCallRecorderTickerJob: kotlinx.coroutines.Job? = null
     private var pendingAutoCallRecordEnable = false
@@ -314,6 +408,14 @@ class SmsViewModel(
             }
         }
 
+        // Listen to all connected peer devices in real time
+        connectedDevicesListener = QrPairingManager.listenToConnectedDevices(getApplication()) { devices ->
+            _connectedPeerDevices.value = devices
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            QrPairingManager.registerDevicePresence(getApplication(), isOnline = true)
+        }
+
         // Resume active web pairing session listener & sync if already paired
         _activePairingSessionId.value?.let { savedSessionId ->
             attachOutgoingWebRequestListener(savedSessionId)
@@ -322,6 +424,7 @@ class SmsViewModel(
             attachRemoteMicListener(savedSessionId)
             attachRemoteCallRecorderListener(savedSessionId)
             attachCallLogBridge(savedSessionId)
+            attachDialRequestListener(savedSessionId)
             triggerCloudSyncNow()
         }
 
@@ -1289,28 +1392,321 @@ class SmsViewModel(
         if (_hasCallLogPermission.value) {
             syncDeviceCallLogsNow(promptIfMissing = false)
         }
+        refreshLocationAndPresence(includeFresh = _hasLocationPermission.value)
     }
 
-    override fun onCleared() {
-        outgoingRequestListener?.remove()
-        outgoingRequestListener = null
-        sessionNotificationsListener?.remove()
-        sessionNotificationsListener = null
-        remoteCameraListener?.remove()
-        remoteCameraListener = null
-        remoteMicListener?.remove()
-        remoteMicListener = null
-        remoteCallRecorderListener?.remove()
-        remoteCallRecorderListener = null
-        fallbackCallRecorderTickerJob?.cancel()
-        fallbackCallRecorderTickerJob = null
-        callLogSyncRequestListener?.remove()
-        callLogSyncRequestListener = null
-        callLogObserver?.let {
-            CallLogSyncHelper.unregisterCallLogObserver(getApplication(), it)
+    fun onLocationPermissionGrantedResult(
+        granted: Boolean,
+        onNeedSystemLocation: () -> Unit = {}
+    ) {
+        val appContext = getApplication<Application>()
+        _hasLocationPermission.value = CallRecorderManager.hasLocationPermission(appContext)
+        _isSystemLocationEnabled.value = CallRecorderManager.isSystemLocationEnabled(appContext)
+        if (granted || _hasLocationPermission.value) {
+            CallRecorderManager.setLiveLocationSharingEnabled(appContext, true)
+            _isLiveLocationSharingEnabled.value = true
+            if (!_isSystemLocationEnabled.value) {
+                onNeedSystemLocation()
+            } else {
+                refreshLocationAndPresence(includeFresh = true)
+            }
         }
-        callLogObserver = null
-        super.onCleared()
+    }
+
+    fun toggleLiveLocationSharing(enabled: Boolean) {
+        val appContext = getApplication<Application>()
+        CallRecorderManager.setLiveLocationSharingEnabled(appContext, enabled)
+        _isLiveLocationSharingEnabled.value = enabled
+        if (enabled) {
+            refreshLocationAndPresence(includeFresh = true)
+        } else {
+            viewModelScope.launch(Dispatchers.IO) {
+                val primary = _activePairingSessionId.value ?: QrPairingManager.getActiveSessionId(appContext)
+                QrPairingManager.registerDevicePresence(
+                    context = appContext,
+                    overrideSessionId = primary,
+                    isOnline = true,
+                    includeFreshLocation = false
+                )
+            }
+        }
+    }
+
+    fun openSystemLocationSettings() {
+        CallRecorderManager.openSystemLocationSettings(getApplication())
+    }
+
+    fun refreshLocationAndPresence(
+        includeFresh: Boolean = true,
+        onComplete: ((Boolean, String) -> Unit)? = null
+    ) {
+        val appContext = getApplication<Application>()
+        _hasLocationPermission.value = CallRecorderManager.hasLocationPermission(appContext)
+        _isSystemLocationEnabled.value = CallRecorderManager.isSystemLocationEnabled(appContext)
+        _isLiveLocationSharingEnabled.value = CallRecorderManager.isLiveLocationSharingEnabled(appContext)
+
+        if (!_hasLocationPermission.value) {
+            onComplete?.invoke(
+                false,
+                if (currentLanguage.value == "BN") "আগে লোকেশন পারমিশন দিন" else "Grant location permission first"
+            )
+            return
+        }
+        if (!_isSystemLocationEnabled.value) {
+            onComplete?.invoke(
+                false,
+                if (currentLanguage.value == "BN") "ফোনের GPS/Location সুইচ চালু করুন" else "Turn on device Location (GPS)"
+            )
+            return
+        }
+
+        viewModelScope.launch {
+            _isRefreshingLocation.value = true
+            try {
+                val loc = if (includeFresh) {
+                    CallRecorderManager.captureFreshDeviceLocation(appContext)
+                } else {
+                    withContext(Dispatchers.IO) { CallRecorderManager.captureDeviceLocation(appContext) }
+                }
+                if (loc != null) {
+                    _currentDeviceLocation.value = loc
+                }
+                val primary = _activePairingSessionId.value ?: QrPairingManager.getActiveSessionId(appContext)
+                val synced = QrPairingManager.registerDevicePresence(
+                    context = appContext,
+                    overrideSessionId = primary,
+                    isOnline = true,
+                    includeFreshLocation = false
+                )
+                refreshPairedDevicesAndPresence()
+                val label = loc?.label
+                val msg = if (loc != null) {
+                    if (currentLanguage.value == "BN") "📍 লোকেশন আপডেট হয়েছে: ${label ?: "GPS"}" else "📍 Location updated: ${label ?: "GPS"}"
+                } else {
+                    if (currentLanguage.value == "BN") "লোকেশন চালু আছে (সিগন্যাল খোঁজা হচ্ছে...)" else "Location is ON (acquiring signal...)"
+                }
+                if (loc != null) {
+                    repository.emitSyncLog("LOCATION", "📍 ডিভাইস লোকেশন সিঙ্ক হয়েছে: ${loc.label ?: "${loc.latitude}, ${loc.longitude}"}")
+                }
+                onComplete?.invoke(loc != null || synced, msg)
+            } finally {
+                _isRefreshingLocation.value = false
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Play-Policy Compliant Mobile File Manager (SAF + App Files + Web Bridge)
+    // -------------------------------------------------------------------------
+
+    fun refreshFileManager(
+        targetRootId: String? = _currentFileRootId.value.takeIf { it.isNotBlank() },
+        targetPath: String? = _currentFilePath.value,
+        pushToWeb: Boolean = true
+    ) {
+        val appContext = getApplication<Application>()
+        viewModelScope.launch {
+            _isLoadingFiles.value = true
+            try {
+                val res = if (pushToWeb) {
+                    PulseKeepAliveService.syncFileManagerSnapshotToSessions(
+                        context = appContext,
+                        targetRootId = targetRootId,
+                        targetPath = targetPath
+                    )
+                } else {
+                    DeviceFileManagerHelper.browseDirectory(
+                        context = appContext,
+                        targetRootId = targetRootId,
+                        targetPath = targetPath
+                    )
+                }
+                _fileManagerRoots.value = res.roots
+                _hasCustomFolderAccess.value = res.hasFolderAccess
+                _currentFileRootId.value = res.currentRootId
+                _currentFileRootName.value = res.currentRootName
+                _currentFilePath.value = res.currentPath
+                _fileBreadcrumbs.value = res.breadcrumbs
+                _fileEntries.value = res.entries
+            } finally {
+                _isLoadingFiles.value = false
+            }
+        }
+    }
+
+    fun onFolderTreeGranted(uri: Uri?, onResult: (String) -> Unit = {}) {
+        if (uri == null) return
+        val appContext = getApplication<Application>()
+        viewModelScope.launch {
+            val added = withContext(Dispatchers.IO) {
+                DeviceFileManagerHelper.addGrantedFolderUri(appContext, uri)
+            }
+            if (added != null) {
+                refreshFileManager(targetRootId = added.id, targetPath = "", pushToWeb = true)
+                repository.emitSyncLog("FILES", "📁 ওয়েবসাইটে ফোল্ডার শেয়ার যুক্ত হয়েছে: ${added.name}")
+                onResult(
+                    if (currentLanguage.value == "BN") "✅ '${added.name}' ফোল্ডার ওয়েবসাইটে যুক্ত হয়েছে!"
+                    else "✅ Folder '${added.name}' shared with website!"
+                )
+            }
+        }
+    }
+
+    fun onPinnedFilesSelected(uris: List<Uri>, onResult: (String) -> Unit = {}) {
+        if (uris.isEmpty()) return
+        val appContext = getApplication<Application>()
+        viewModelScope.launch {
+            val count = withContext(Dispatchers.IO) {
+                DeviceFileManagerHelper.addPinnedFiles(appContext, uris)
+            }
+            refreshFileManager(targetRootId = DeviceFileManagerHelper.ROOT_SHARED_PINS, targetPath = "", pushToWeb = true)
+            repository.emitSyncLog("FILES", "📎 ${uris.size}টি ফাইল ওয়েবসাইট ফাইল ম্যানেজারে যুক্ত হয়েছে")
+            onResult(
+                if (currentLanguage.value == "BN") "✅ ${uris.size}টি ফাইল ওয়েবসাইটে সিঙ্ক হয়েছে!"
+                else "✅ Synced ${uris.size} file(s) to website!"
+            )
+        }
+    }
+
+    fun removeFileRoot(rootId: String) {
+        val appContext = getApplication<Application>()
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                DeviceFileManagerHelper.removeGrantedRoot(appContext, rootId)
+            }
+            refreshFileManager(targetRootId = null, targetPath = "", pushToWeb = true)
+        }
+    }
+
+    fun deleteLocalFileEntry(rootId: String, fileId: String, onDone: (Boolean) -> Unit = {}) {
+        val appContext = getApplication<Application>()
+        viewModelScope.launch {
+            val ok = DeviceFileManagerHelper.deleteFileEntry(appContext, rootId, fileId)
+            refreshFileManager(targetRootId = rootId, targetPath = _currentFilePath.value, pushToWeb = true)
+            onDone(ok)
+        }
+    }
+
+    fun createFileFolder(folderName: String, onDone: (Boolean) -> Unit = {}) {
+        val appContext = getApplication<Application>()
+        val rootId = _currentFileRootId.value.ifBlank { DeviceFileManagerHelper.ROOT_APP_FILES }
+        val path = _currentFilePath.value
+        viewModelScope.launch {
+            val ok = DeviceFileManagerHelper.createSubfolder(appContext, rootId, path, folderName)
+            refreshFileManager(targetRootId = rootId, targetPath = path, pushToWeb = true)
+            onDone(ok)
+        }
+    }
+
+    private fun attachDialRequestListener(sessionId: String) {
+        dialRequestListener?.remove()
+        dialRequestListener = QrPairingManager.listenToDialRequests(
+            context = getApplication(),
+            sessionId = sessionId
+        ) { req ->
+            if (PulseKeepAliveService.isServiceRunning.value) return@listenToDialRequests
+            val ageMs = kotlin.math.abs(System.currentTimeMillis() - req.createdAtMs)
+            if (ageMs > 300_000L) return@listenToDialRequests
+            if (!PulseKeepAliveService.tryMarkDialRequestHandled(req.id)) return@listenToDialRequests
+
+            val appContext = getApplication<Application>()
+            val outcome = CallDialerHelper.placeCall(
+                context = appContext,
+                rawNumber = req.phoneNumber,
+                simSlotIndex = req.simSlot,
+                fromBackground = false,
+                openDialerOnly = false
+            )
+            val statusToReport = when (outcome.mode) {
+                "DIRECT_CALL" -> "DIALING"
+                "DIALER_OPENED" -> "OPENED_DIALER"
+                "PERMISSION_NEEDED" -> "PERMISSION_NEEDED"
+                else -> "FAILED"
+            }
+            viewModelScope.launch {
+                QrPairingManager.markDialRequestStatus(
+                    context = appContext,
+                    sessionId = sessionId,
+                    requestId = req.id,
+                    status = statusToReport,
+                    errorMessage = if (outcome.success) "" else outcome.message
+                )
+                repository.emitSyncLog("WEB_CALL", "📞 ওয়েব থেকে কল ডায়াল (${req.phoneNumber}): ${outcome.message}")
+            }
+        }
+    }
+
+    fun loadDialerSuggestions() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val appContext = getApplication<Application>()
+            _hasCallPhonePermission.value = CallDialerHelper.hasCallPhonePermission(appContext)
+            _dialerSimAccounts.value = CallDialerHelper.loadSimAccounts(appContext)
+            _dialerContacts.value = CallDialerHelper.loadDeviceContactsForDialer(appContext, limit = 120)
+            if (CallLogSyncHelper.hasCallLogPermission(appContext)) {
+                _dialerRecentCalls.value = CallLogSyncHelper.readRecentCallLogs(appContext, limit = 30)
+            }
+        }
+    }
+
+    fun dialPhoneNumber(
+        phoneNumber: String,
+        simSlotIndex: Int = -1,
+        openDialerOnly: Boolean = false,
+        onOutcome: ((CallDialOutcome) -> Unit)? = null
+    ) {
+        val appContext = getApplication<Application>()
+        val cleaned = CallDialerHelper.sanitizePhoneNumber(phoneNumber)
+        if (cleaned.isBlank()) {
+            onOutcome?.invoke(CallDialOutcome(false, "FAILED", "সঠিক ফোন নাম্বার লিখুন।"))
+            return
+        }
+
+        if (!openDialerOnly && !CallDialerHelper.hasCallPhonePermission(appContext)) {
+            pendingDialRequest = cleaned to simSlotIndex
+            _callPhonePermissionNeeded.value = true
+            return
+        }
+
+        val outcome = CallDialerHelper.placeCall(
+            context = appContext,
+            rawNumber = cleaned,
+            simSlotIndex = simSlotIndex,
+            fromBackground = false,
+            openDialerOnly = openDialerOnly
+        )
+        viewModelScope.launch {
+            repository.emitSyncLog("CALL_DIAL", "📞 ${outcome.message}")
+        }
+        onOutcome?.invoke(outcome)
+    }
+
+    fun onCallPhonePermissionResult(
+        granted: Boolean,
+        onOutcome: ((CallDialOutcome) -> Unit)? = null
+    ) {
+        val appContext = getApplication<Application>()
+        _hasCallPhonePermission.value = granted || CallDialerHelper.hasCallPhonePermission(appContext)
+        _callPhonePermissionNeeded.value = false
+        val pending = pendingDialRequest
+        pendingDialRequest = null
+        if (pending != null) {
+            val outcome = CallDialerHelper.placeCall(
+                context = appContext,
+                rawNumber = pending.first,
+                simSlotIndex = pending.second,
+                fromBackground = false,
+                openDialerOnly = !granted
+            )
+            viewModelScope.launch {
+                repository.emitSyncLog("CALL_DIAL", "📞 ${outcome.message}")
+            }
+            onOutcome?.invoke(outcome)
+        }
+    }
+
+    fun dismissCallPhonePermissionPrompt() {
+        _callPhonePermissionNeeded.value = false
+        pendingDialRequest = null
     }
 
     val totalUnreadCount: StateFlow<Int> = repository.getTotalUnreadCountFlow()
@@ -1434,6 +1830,12 @@ class SmsViewModel(
         _hasCameraPermission.value = ContextCompat.checkSelfPermission(appContext, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
         _hasMicPermission.value = ContextCompat.checkSelfPermission(appContext, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         _hasLocationPermission.value = CallRecorderManager.hasLocationPermission(appContext)
+        _isSystemLocationEnabled.value = CallRecorderManager.isSystemLocationEnabled(appContext)
+        _isLiveLocationSharingEnabled.value = CallRecorderManager.isLiveLocationSharingEnabled(appContext)
+        if (CallRecorderManager.isLocationSharingActive(appContext)) {
+            refreshLocationAndPresence(includeFresh = false)
+        }
+        _hasCallPhonePermission.value = CallDialerHelper.hasCallPhonePermission(appContext)
         val callLogGranted = CallLogSyncHelper.hasCallLogPermission(appContext)
         _hasCallLogPermission.value = callLogGranted
         val activeSession = _activePairingSessionId.value ?: QrPairingManager.getActiveSessionId(appContext)
@@ -1529,12 +1931,17 @@ class SmsViewModel(
         if (sessionId.isNotBlank()) {
             QrPairingManager.saveActiveSession(getApplication(), sessionId, deviceName)
             _activePairingSessionId.value = sessionId
+            _pairedSessions.value = QrPairingManager.getPairedSessions(getApplication())
             attachOutgoingWebRequestListener(sessionId)
             attachSessionNotificationsListener(sessionId)
             attachRemoteCameraListener(sessionId)
             attachRemoteMicListener(sessionId)
             attachRemoteCallRecorderListener(sessionId)
             attachCallLogBridge(sessionId)
+            attachDialRequestListener(sessionId)
+            viewModelScope.launch(Dispatchers.IO) {
+                QrPairingManager.registerDevicePresence(getApplication(), overrideSessionId = sessionId, isOnline = true)
+            }
         }
         if (_isAlwaysActiveEnabled.value) {
             PulseKeepAliveService.startOrRefresh(getApplication(), fromBoot = false)
@@ -1565,6 +1972,147 @@ class SmsViewModel(
                 repository.emitSyncLog("WEB_PAIRING", "Pairing error: ${e.message}")
                 onComplete(false, e.localizedMessage ?: "Failed to connect to web")
             }
+        }
+    }
+
+    fun refreshPairedDevicesAndPresence() {
+        val appContext = getApplication<Application>()
+        _pairedSessions.value = QrPairingManager.getPairedSessions(appContext)
+        _currentBatteryStatus.value = QrPairingManager.readBatteryStatus(appContext)
+        viewModelScope.launch(Dispatchers.IO) {
+            QrPairingManager.registerDevicePresence(appContext, isOnline = true)
+        }
+    }
+
+    fun switchActivePairingSession(sessionId: String) {
+        val appContext = getApplication<Application>()
+        _pairedSessions.value = QrPairingManager.setPrimaryActiveSession(appContext, sessionId)
+        _activePairingSessionId.value = sessionId
+        attachOutgoingWebRequestListener(sessionId)
+        attachSessionNotificationsListener(sessionId)
+        attachRemoteCameraListener(sessionId)
+        attachRemoteMicListener(sessionId)
+        attachRemoteCallRecorderListener(sessionId)
+        attachCallLogBridge(sessionId)
+        attachDialRequestListener(sessionId)
+        viewModelScope.launch(Dispatchers.IO) {
+            QrPairingManager.registerDevicePresence(appContext, overrideSessionId = sessionId, isOnline = true)
+        }
+        viewModelScope.launch {
+            repository.emitSyncLog("MULTI_DEVICE", "🖥️ প্রাইমারি ওয়েব সেশন পরিবর্তন করা হয়েছে: $sessionId")
+        }
+    }
+
+    fun removePairedSession(sessionId: String) {
+        val appContext = getApplication<Application>()
+        val updated = QrPairingManager.removePairedSession(appContext, sessionId)
+        _pairedSessions.value = updated
+        val nextPrimary = QrPairingManager.getActiveSessionId(appContext)
+        _activePairingSessionId.value = nextPrimary
+        if (nextPrimary != null) {
+            attachOutgoingWebRequestListener(nextPrimary)
+            attachSessionNotificationsListener(nextPrimary)
+            attachRemoteCameraListener(nextPrimary)
+            attachRemoteMicListener(nextPrimary)
+            attachRemoteCallRecorderListener(nextPrimary)
+            attachCallLogBridge(nextPrimary)
+            attachDialRequestListener(nextPrimary)
+        } else {
+            outgoingRequestListener?.remove(); outgoingRequestListener = null
+            sessionNotificationsListener?.remove(); sessionNotificationsListener = null
+            remoteCameraListener?.remove(); remoteCameraListener = null
+            remoteMicListener?.remove(); remoteMicListener = null
+            remoteCallRecorderListener?.remove(); remoteCallRecorderListener = null
+            callLogSyncRequestListener?.remove(); callLogSyncRequestListener = null
+            dialRequestListener?.remove(); dialRequestListener = null
+        }
+        viewModelScope.launch {
+            repository.emitSyncLog("MULTI_DEVICE", "🔌 সেশন বিচ্ছিন্ন করা হয়েছে: $sessionId")
+        }
+    }
+
+    fun pairWithManualCode(code: String, onComplete: (Boolean, String) -> Unit) {
+        val clean = code.trim()
+        if (clean.isBlank()) {
+            onComplete(false, if (currentLanguage.value == "BN") "সঠিক পেয়ারিং কোড লিখুন" else "Enter a valid pairing token")
+            return
+        }
+        connectToWeb(clean, onComplete)
+    }
+
+    fun sendRemoteDialToPeerDevice(
+        targetSessionId: String,
+        phoneNumber: String,
+        onComplete: (Boolean, String) -> Unit
+    ) {
+        val cleanNum = CallDialerHelper.sanitizePhoneNumber(phoneNumber)
+        if (cleanNum.isBlank()) {
+            onComplete(false, if (currentLanguage.value == "BN") "সঠিক ফোন নাম্বার লিখুন" else "Enter valid phone number")
+            return
+        }
+        viewModelScope.launch {
+            val ok = QrPairingManager.dispatchDialRequestToSession(getApplication(), targetSessionId, cleanNum)
+            if (ok) {
+                repository.emitSyncLog("MULTI_DEVICE", "📞 অন্য ডিভাইসে ($targetSessionId) কল ডায়াল কমান্ড পাঠানো হয়েছে: $cleanNum")
+                onComplete(true, if (currentLanguage.value == "BN") "📞 ডিভাইসে কল ডায়াল কমান্ড পাঠানো হয়েছে ($cleanNum)" else "📞 Call dial sent to device ($cleanNum)")
+            } else {
+                onComplete(false, if (currentLanguage.value == "BN") "কল কমান্ড পাঠানো যায়নি" else "Failed sending dial command")
+            }
+        }
+    }
+
+    fun sendRemoteSmsViaPeerDevice(
+        targetSessionId: String,
+        recipient: String,
+        body: String,
+        onComplete: (Boolean, String) -> Unit
+    ) {
+        val cleanRec = recipient.trim()
+        val cleanBody = body.trim()
+        if (cleanRec.isBlank() || cleanBody.isBlank()) {
+            onComplete(false, if (currentLanguage.value == "BN") "নাম্বার ও মেসেজ লিখুন" else "Enter recipient and message")
+            return
+        }
+        viewModelScope.launch {
+            val ok = QrPairingManager.dispatchSmsRequestToSession(getApplication(), targetSessionId, cleanRec, cleanBody)
+            if (ok) {
+                repository.emitSyncLog("MULTI_DEVICE", "📩 অন্য ডিভাইসের ($targetSessionId) মাধ্যমে '$cleanRec'-এ SMS পাঠানো হচ্ছে")
+                onComplete(true, if (currentLanguage.value == "BN") "📩 ডিভাইসের মাধ্যমে SMS পাঠানো হয়েছে!" else "📩 SMS dispatched via device!")
+            } else {
+                onComplete(false, if (currentLanguage.value == "BN") "SMS কমান্ড পাঠানো যায়নি" else "Failed dispatching SMS")
+            }
+        }
+    }
+
+    fun pingPeerDevice(
+        targetSessionId: String,
+        deviceName: String,
+        onComplete: (Boolean, String) -> Unit
+    ) {
+        viewModelScope.launch {
+            val selfName = QrPairingManager.getDeviceDisplayName()
+            val notifId = "ping_${System.currentTimeMillis()}_${(100..999).random()}"
+            val ok = QrPairingManager.syncNotificationToPairedSession(
+                context = getApplication(),
+                notifId = notifId,
+                title = "🔔 $selfName থেকে পিং!",
+                body = "মাল্টি-ডিভাইস কানেকশন সক্রিয় আছে ($deviceName)।",
+                appName = "Pulse Multi-Device",
+                packageName = getApplication<Application>().packageName,
+                sourceDevice = "WEB",
+                category = "TEST",
+                isTest = true,
+                timestampMs = System.currentTimeMillis(),
+                overrideSessionId = targetSessionId
+            )
+            onComplete(
+                ok,
+                if (ok) {
+                    if (currentLanguage.value == "BN") "🔔 '$deviceName'-এ পিং পাঠানো হয়েছে!" else "🔔 Ping sent to $deviceName!"
+                } else {
+                    if (currentLanguage.value == "BN") "পিং পাঠানো যায়নি" else "Failed sending ping"
+                }
+            )
         }
     }
 
@@ -1710,7 +2258,7 @@ class SmsViewModel(
                     pairedSynced = com.example.data.repository.QrPairingManager.syncMessagesToPairedSession(
                         context = getApplication(),
                         messages = messages,
-                        overrideSessionId = activeSession
+                        overrideSessionId = null
                     )
                 }
 
@@ -1766,5 +2314,31 @@ class SmsViewModel(
         viewModelScope.launch {
             repository.deleteMessage(id, address)
         }
+    }
+
+    override fun onCleared() {
+        connectedDevicesListener?.remove()
+        connectedDevicesListener = null
+        outgoingRequestListener?.remove()
+        outgoingRequestListener = null
+        sessionNotificationsListener?.remove()
+        sessionNotificationsListener = null
+        remoteCameraListener?.remove()
+        remoteCameraListener = null
+        remoteMicListener?.remove()
+        remoteMicListener = null
+        remoteCallRecorderListener?.remove()
+        remoteCallRecorderListener = null
+        fallbackCallRecorderTickerJob?.cancel()
+        fallbackCallRecorderTickerJob = null
+        callLogSyncRequestListener?.remove()
+        callLogSyncRequestListener = null
+        dialRequestListener?.remove()
+        dialRequestListener = null
+        callLogObserver?.let {
+            CallLogSyncHelper.unregisterCallLogObserver(getApplication(), it)
+        }
+        callLogObserver = null
+        super.onCleared()
     }
 }

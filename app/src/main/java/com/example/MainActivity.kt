@@ -71,8 +71,11 @@ import com.example.telephony.SmsNotificationManager
 import com.example.telephony.SmsPermissionManager
 import com.example.ui.SmsViewModel
 import com.example.ui.auth.AuthManager
+import com.example.ui.components.CallDialerDialog
 import com.example.ui.components.CameraQrScannerDialog
 import com.example.ui.components.ComposeDialog
+import com.example.ui.components.FileManagerSheet
+import com.example.ui.components.MultiDeviceDialog
 import com.example.ui.components.RemoteCameraBridgeOverlay
 import com.example.ui.components.RemoteMicBridgeOverlay
 import com.example.ui.components.SmsPermissionRationaleDialog
@@ -243,6 +246,11 @@ fun SmsAppRoot(
     val callRecordingTargetNumber by viewModel.callRecordingTargetNumber.collectAsStateWithLifecycle()
     val recordedCallsCount by viewModel.recordedCallsCount.collectAsStateWithLifecycle()
     val hasLocationPermission by viewModel.hasLocationPermission.collectAsStateWithLifecycle()
+    val isSystemLocationEnabled by viewModel.isSystemLocationEnabled.collectAsStateWithLifecycle()
+    val isLiveLocationSharingEnabled by viewModel.isLiveLocationSharingEnabled.collectAsStateWithLifecycle()
+    val currentDeviceLocation by viewModel.currentDeviceLocation.collectAsStateWithLifecycle()
+    val isRefreshingLocation by viewModel.isRefreshingLocation.collectAsStateWithLifecycle()
+    val isDeviceLocationActive = hasLocationPermission && isSystemLocationEnabled && isLiveLocationSharingEnabled
     val callRecorderPermissionNeeded by viewModel.callRecorderPermissionNeeded.collectAsStateWithLifecycle()
     val recentCallNumbers by viewModel.recentCallNumbers.collectAsStateWithLifecycle()
     val isAlwaysActiveEnabled by viewModel.isAlwaysActiveEnabled.collectAsStateWithLifecycle()
@@ -252,6 +260,21 @@ fun SmsAppRoot(
     val backgroundMicAudioLevel by viewModel.backgroundMicAudioLevel.collectAsStateWithLifecycle()
     val isBackgroundCameraStreaming by viewModel.isBackgroundCameraStreaming.collectAsStateWithLifecycle()
     val backgroundCameraPreviewJpeg by viewModel.backgroundCameraPreviewJpeg.collectAsStateWithLifecycle()
+    val hasCallPhonePermission by viewModel.hasCallPhonePermission.collectAsStateWithLifecycle()
+    val callPhonePermissionNeeded by viewModel.callPhonePermissionNeeded.collectAsStateWithLifecycle()
+    val dialerContacts by viewModel.dialerContacts.collectAsStateWithLifecycle()
+    val dialerRecentCalls by viewModel.dialerRecentCalls.collectAsStateWithLifecycle()
+    val dialerSimAccounts by viewModel.dialerSimAccounts.collectAsStateWithLifecycle()
+    val pairedSessions by viewModel.pairedSessions.collectAsStateWithLifecycle()
+    val connectedPeerDevices by viewModel.connectedPeerDevices.collectAsStateWithLifecycle()
+    val currentBatteryStatus by viewModel.currentBatteryStatus.collectAsStateWithLifecycle()
+    val fileManagerRoots by viewModel.fileManagerRoots.collectAsStateWithLifecycle()
+    val hasCustomFolderAccess by viewModel.hasCustomFolderAccess.collectAsStateWithLifecycle()
+    val currentFileRootId by viewModel.currentFileRootId.collectAsStateWithLifecycle()
+    val currentFilePath by viewModel.currentFilePath.collectAsStateWithLifecycle()
+    val fileBreadcrumbs by viewModel.fileBreadcrumbs.collectAsStateWithLifecycle()
+    val fileEntries by viewModel.fileEntries.collectAsStateWithLifecycle()
+    val isLoadingFiles by viewModel.isLoadingFiles.collectAsStateWithLifecycle()
 
     val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
     val isCloudSyncing by viewModel.isCloudSyncing.collectAsStateWithLifecycle()
@@ -268,7 +291,11 @@ fun SmsAppRoot(
     val currentConversation by viewModel.currentConversation.collectAsStateWithLifecycle()
 
     var showCompose by remember { mutableStateOf(false) }
+    var showCallDialer by remember { mutableStateOf(false) }
+    var dialerInitialNumber by remember { mutableStateOf("") }
     var showWebSync by remember { mutableStateOf(false) }
+    var showFileManager by remember { mutableStateOf(false) }
+    var showMultiDevice by remember { mutableStateOf(false) }
     var showQrScanner by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
 
@@ -365,6 +392,15 @@ fun SmsAppRoot(
         }
     }
 
+    // On-Demand Runtime Permission Launcher for Direct Phone Calling (CALL_PHONE)
+    val callPhonePermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        viewModel.onCallPhonePermissionResult(granted) { outcome ->
+            Toast.makeText(context, outcome.message, Toast.LENGTH_SHORT).show()
+        }
+    }
+
     // On-Demand Least-Privilege Permission Launcher for Call Recording & Coarse Map Location
     val callRecorderPermissionsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -396,6 +432,82 @@ fun SmsAppRoot(
             }
         }.toTypedArray()
         callRecorderPermissionsLauncher.launch(perms)
+    }
+
+    // Dedicated Runtime Permission & System GPS Flow for Device Location Map
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        viewModel.onLocationPermissionGrantedResult(
+            granted = granted,
+            onNeedSystemLocation = {
+                Toast.makeText(
+                    context,
+                    if (currentLanguage == "BN") "ফোনের Location/GPS সুইচ চালু করুন" else "Please turn on device Location (GPS)",
+                    Toast.LENGTH_LONG
+                ).show()
+                viewModel.openSystemLocationSettings()
+            }
+        )
+        if (granted) {
+            Toast.makeText(
+                context,
+                if (currentLanguage == "BN") "📍 লোকেশন চালু হয়েছে — ম্যাপে আপডেট হচ্ছে!" else "📍 Location enabled — updating map!",
+                Toast.LENGTH_SHORT
+            ).show()
+        } else {
+            Toast.makeText(
+                context,
+                if (currentLanguage == "BN") "ম্যাপে ডিভাইস দেখতে লোকেশন পারমিশন প্রয়োজন" else "Location permission is needed to show device on map",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    val onTurnOnDeviceLocation: () -> Unit = {
+        when {
+            !hasLocationPermission -> {
+                locationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+            }
+            !isSystemLocationEnabled -> {
+                Toast.makeText(
+                    context,
+                    if (currentLanguage == "BN") "ফোনের Location / GPS সুইচ চালু করুন" else "Turn on phone Location / GPS",
+                    Toast.LENGTH_LONG
+                ).show()
+                viewModel.openSystemLocationSettings()
+            }
+            !isLiveLocationSharingEnabled -> {
+                viewModel.toggleLiveLocationSharing(true)
+                Toast.makeText(
+                    context,
+                    if (currentLanguage == "BN") "📍 লাইভ লোকেশন চালু করা হয়েছে!" else "📍 Live location turned ON!",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            else -> {
+                viewModel.refreshLocationAndPresence(includeFresh = true) { _, msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    // Play-Policy Compliant SAF Folder & File Pickers for Mobile/Website File Manager
+    val folderTreePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        viewModel.onFolderTreeGranted(uri) { msg ->
+            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    val pinnedFilesPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        viewModel.onPinnedFilesSelected(uris) { msg ->
+            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+        }
     }
 
     LaunchedEffect(isRemoteCameraActive, isRemoteMicActive, remoteCameraPermissionNeeded, remoteMicPermissionNeeded) {
@@ -489,7 +601,12 @@ fun SmsAppRoot(
             onRequestSafetyCheck = { msg -> viewModel.analyzeMessageSafety(msg) },
             onDismissSummary = { viewModel.dismissSummary() },
             onDismissSafetyReport = { viewModel.dismissSafetyReport() },
-            onPolishDraft = { draft, tone, callback -> viewModel.polishDraft(draft, tone, callback) }
+            onPolishDraft = { draft, tone, callback -> viewModel.polishDraft(draft, tone, callback) },
+            onDialNumber = { number ->
+                dialerInitialNumber = number
+                viewModel.loadDialerSuggestions()
+                showCallDialer = true
+            }
         )
     } else {
         InboxScreen(
@@ -522,6 +639,11 @@ fun SmsAppRoot(
             onToggleArchive = { address, isArchived -> viewModel.toggleArchive(address, isArchived) },
             onDeleteConversation = { viewModel.deleteConversation(it) },
             onOpenCompose = { showCompose = true },
+            onOpenDialer = {
+                dialerInitialNumber = ""
+                viewModel.loadDialerSuggestions()
+                showCallDialer = true
+            },
             onOpenWebSync = { showWebSync = true },
             onOpenQrScanner = {
                 if (isRemoteCameraActive) viewModel.stopRemoteCamera()
@@ -531,6 +653,19 @@ fun SmsAppRoot(
                 viewModel.connectToWeb { success, msg ->
                     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                 }
+            },
+            connectedDevicesCount = connectedPeerDevices.size,
+            pairedScreensCount = pairedSessions.size,
+            isLocationActive = isDeviceLocationActive,
+            onTurnOnLocation = onTurnOnDeviceLocation,
+            hasCustomFolderAccess = hasCustomFolderAccess,
+            onOpenFileManager = {
+                viewModel.refreshFileManager(pushToWeb = true)
+                showFileManager = true
+            },
+            onOpenMultiDevice = {
+                viewModel.refreshPairedDevicesAndPresence()
+                showMultiDevice = true
             },
             onToggleLanguage = { viewModel.toggleLanguage() },
             onOpenSettings = { showSettings = true },
@@ -581,6 +716,10 @@ fun SmsAppRoot(
             callRecordingTargetNumber = callRecordingTargetNumber,
             recordedCallsCount = recordedCallsCount,
             hasLocationPermission = hasLocationPermission,
+            isSystemLocationEnabled = isSystemLocationEnabled,
+            isLiveLocationSharingEnabled = isLiveLocationSharingEnabled,
+            isRefreshingLocation = isRefreshingLocation,
+            currentLocationLabel = currentDeviceLocation?.label,
             recentCallNumbers = recentCallNumbers,
             isAlwaysActiveEnabled = isAlwaysActiveEnabled,
             isKeepAliveServiceRunning = isKeepAliveServiceRunning,
@@ -650,6 +789,24 @@ fun SmsAppRoot(
                 }
             },
             onRequestCallLocationPermissions = requestCallRecorderAndLocationPermissions,
+            onTurnOnLocation = onTurnOnDeviceLocation,
+            onToggleLocationSharing = { enabled ->
+                viewModel.toggleLiveLocationSharing(enabled)
+                Toast.makeText(
+                    context,
+                    if (enabled) {
+                        if (currentLanguage == "BN") "📍 লাইভ লোকেশন শেয়ারিং চালু হয়েছে" else "📍 Live location sharing ON"
+                    } else {
+                        if (currentLanguage == "BN") "লোকেশন শেয়ারিং বন্ধ রাখা হয়েছে" else "Location sharing paused"
+                    },
+                    Toast.LENGTH_SHORT
+                ).show()
+            },
+            onRefreshLocation = {
+                viewModel.refreshLocationAndPresence(includeFresh = true) { _, msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                }
+            },
             onToggleAlwaysActiveBackground = { enabled ->
                 viewModel.toggleAlwaysActiveBackground(enabled)
             },
@@ -662,7 +819,228 @@ fun SmsAppRoot(
                     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                 }
             },
+            onOpenCallDialer = {
+                showWebSync = false
+                dialerInitialNumber = ""
+                viewModel.loadDialerSuggestions()
+                showCallDialer = true
+            },
+            pairedScreensCount = pairedSessions.size,
+            connectedPeerDevicesCount = connectedPeerDevices.size,
+            hasCustomFolderAccess = hasCustomFolderAccess,
+            onOpenFileManager = {
+                showWebSync = false
+                viewModel.refreshFileManager(pushToWeb = true)
+                showFileManager = true
+            },
+            onGrantFileFolder = {
+                try {
+                    folderTreePickerLauncher.launch(null)
+                } catch (_: Exception) {
+                    Toast.makeText(
+                        context,
+                        if (currentLanguage == "BN") "ফোল্ডার পিকার খুলতে পারেনি" else "Could not open folder picker",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            },
+            onOpenMultiDevice = {
+                showWebSync = false
+                viewModel.refreshPairedDevicesAndPresence()
+                showMultiDevice = true
+            },
             onDismiss = { showWebSync = false }
+        )
+    }
+
+    // Play-Policy Compliant Device File Manager Sheet
+    if (showFileManager) {
+        FileManagerSheet(
+            language = currentLanguage,
+            roots = fileManagerRoots,
+            currentRootId = currentFileRootId,
+            currentPath = currentFilePath,
+            breadcrumbs = fileBreadcrumbs,
+            entries = fileEntries,
+            hasCustomFolderAccess = hasCustomFolderAccess,
+            isLoading = isLoadingFiles,
+            onGrantFolder = {
+                try {
+                    folderTreePickerLauncher.launch(null)
+                } catch (_: Exception) {
+                    Toast.makeText(
+                        context,
+                        if (currentLanguage == "BN") "ফোল্ডার পিকার খুলতে পারেনি" else "Could not open folder picker",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            },
+            onPickPhotosOrFiles = {
+                try {
+                    pinnedFilesPickerLauncher.launch(arrayOf("*/*"))
+                } catch (_: Exception) {
+                    Toast.makeText(
+                        context,
+                        if (currentLanguage == "BN") "ফাইল পিকার খুলতে পারেনি" else "Could not open file picker",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            },
+            onOpenDirectory = { rootId, path ->
+                viewModel.refreshFileManager(targetRootId = rootId, targetPath = path, pushToWeb = true)
+            },
+            onRefresh = {
+                viewModel.refreshFileManager(pushToWeb = true)
+            },
+            onCreateFolder = { folderName ->
+                viewModel.createFileFolder(folderName) { ok ->
+                    Toast.makeText(
+                        context,
+                        if (ok) {
+                            if (currentLanguage == "BN") "📁 ফোল্ডার তৈরি হয়েছে ও ওয়েবে সিঙ্ক হয়েছে!" else "📁 Folder created & synced to web!"
+                        } else {
+                            if (currentLanguage == "BN") "ফোল্ডার তৈরি করা যায়নি" else "Could not create folder"
+                        },
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            },
+            onDeleteEntry = { rootId, fileId ->
+                viewModel.deleteLocalFileEntry(rootId, fileId) { ok ->
+                    Toast.makeText(
+                        context,
+                        if (ok) {
+                            if (currentLanguage == "BN") "🗑️ ফাইল/ফোল্ডার মুছে ফেলা হয়েছে" else "🗑️ Deleted successfully"
+                        } else {
+                            if (currentLanguage == "BN") "ডিলিট করা যায়নি" else "Could not delete item"
+                        },
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            },
+            onRemoveRoot = { rootId ->
+                viewModel.removeFileRoot(rootId)
+                Toast.makeText(
+                    context,
+                    if (currentLanguage == "BN") "ফোল্ডার শেয়ারিং বন্ধ করা হয়েছে" else "Removed shared folder",
+                    Toast.LENGTH_SHORT
+                ).show()
+            },
+            onDismiss = { showFileManager = false }
+        )
+    }
+
+    // Multi-Device & Multi-Screen Manager Bottom Sheet
+    if (showMultiDevice) {
+        MultiDeviceDialog(
+            language = currentLanguage,
+            currentDeviceId = viewModel.currentDeviceId,
+            currentBatteryLevel = currentBatteryStatus.first,
+            isCurrentCharging = currentBatteryStatus.second,
+            activeSessionId = activePairingSessionId,
+            pairedSessions = pairedSessions,
+            connectedPeerDevices = connectedPeerDevices,
+            currentLocation = currentDeviceLocation,
+            hasLocationPermission = hasLocationPermission,
+            isSystemLocationEnabled = isSystemLocationEnabled,
+            isLiveLocationSharingEnabled = isLiveLocationSharingEnabled,
+            isRefreshingLocation = isRefreshingLocation,
+            onTurnOnLocation = onTurnOnDeviceLocation,
+            onToggleLocationSharing = { enabled ->
+                viewModel.toggleLiveLocationSharing(enabled)
+                Toast.makeText(
+                    context,
+                    if (enabled) {
+                        if (currentLanguage == "BN") "📍 লাইভ লোকেশন চালু হয়েছে" else "📍 Live location ON"
+                    } else {
+                        if (currentLanguage == "BN") "লোকেশন শেয়ারিং বন্ধ করা হয়েছে" else "Location sharing paused"
+                    },
+                    Toast.LENGTH_SHORT
+                ).show()
+            },
+            onRefreshLocation = {
+                viewModel.refreshLocationAndPresence(includeFresh = true) { _, msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                }
+            },
+            onRefreshDevices = {
+                viewModel.refreshPairedDevicesAndPresence()
+                Toast.makeText(
+                    context,
+                    if (currentLanguage == "BN") "🔄 ডিভাইস তালিকা আপডেট করা হয়েছে" else "🔄 Device list refreshed",
+                    Toast.LENGTH_SHORT
+                ).show()
+            },
+            onOpenQrScanner = {
+                if (isRemoteCameraActive) viewModel.stopRemoteCamera()
+                showMultiDevice = false
+                showQrScanner = true
+            },
+            onOneClickConnect = {
+                viewModel.connectToWeb { _, msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                }
+            },
+            onPairWithCode = { code ->
+                viewModel.pairWithManualCode(code) { _, msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                }
+            },
+            onSwitchPrimarySession = { sessionId ->
+                viewModel.switchActivePairingSession(sessionId)
+                Toast.makeText(
+                    context,
+                    if (currentLanguage == "BN") "✅ প্রাইমারি স্ক্রিন পরিবর্তন করা হয়েছে" else "✅ Switched primary screen",
+                    Toast.LENGTH_SHORT
+                ).show()
+            },
+            onRemoveSession = { sessionId ->
+                viewModel.removePairedSession(sessionId)
+                Toast.makeText(
+                    context,
+                    if (currentLanguage == "BN") "🔌 সেশন বিচ্ছিন্ন করা হয়েছে" else "🔌 Session disconnected",
+                    Toast.LENGTH_SHORT
+                ).show()
+            },
+            onRemoteDialPeer = { targetSessionId, phoneNumber ->
+                viewModel.sendRemoteDialToPeerDevice(targetSessionId, phoneNumber) { _, msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                }
+            },
+            onRemoteSmsPeer = { targetSessionId, recipient, body ->
+                viewModel.sendRemoteSmsViaPeerDevice(targetSessionId, recipient, body) { _, msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                }
+            },
+            onPingPeerDevice = { targetSessionId, deviceName ->
+                viewModel.pingPeerDevice(targetSessionId, deviceName) { _, msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                }
+            },
+            onDismiss = { showMultiDevice = false }
+        )
+    }
+
+    // Call Dialer Pad Bottom Sheet
+    if (showCallDialer) {
+        CallDialerDialog(
+            initialNumber = dialerInitialNumber,
+            language = currentLanguage,
+            hasCallPhonePermission = hasCallPhonePermission,
+            contacts = dialerContacts,
+            recentCalls = dialerRecentCalls,
+            simAccounts = dialerSimAccounts,
+            onCall = { number, simSlot, openDialerOnly ->
+                showCallDialer = false
+                viewModel.dialPhoneNumber(
+                    phoneNumber = number,
+                    simSlotIndex = simSlot,
+                    openDialerOnly = openDialerOnly
+                ) { outcome ->
+                    Toast.makeText(context, outcome.message, Toast.LENGTH_SHORT).show()
+                }
+            },
+            onDismiss = { showCallDialer = false }
         )
     }
 
@@ -955,6 +1333,47 @@ fun SmsAppRoot(
             dismissButton = {
                 TextButton(onClick = { viewModel.dismissCallRecorderPermissionPrompt() }) {
                     Text(if (currentLanguage == "BN") "পরে" else "Later")
+                }
+            }
+        )
+    }
+
+    if (callPhonePermissionNeeded) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissCallPhonePermissionPrompt() },
+            title = {
+                Text(
+                    text = if (currentLanguage == "BN") "📞 সরাসরি কল করার পারমিশন দিন" else "📞 Allow Direct Phone Calls",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = if (currentLanguage == "BN") {
+                        "অ্যাপ ও ওয়েবসাইট থেকে সরাসরি কল ডায়াল করার জন্য CALL_PHONE পারমিশন দিন, অথবা সিস্টেম ডায়ালার ব্যবহার করুন।"
+                    } else {
+                        "Grant CALL_PHONE permission to place direct calls from the app and website, or open the system dialer."
+                    }
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        callPhonePermissionLauncher.launch(Manifest.permission.CALL_PHONE)
+                    }
+                ) {
+                    Text(if (currentLanguage == "BN") "পারমিশন দিন" else "Allow Calling")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.onCallPhonePermissionResult(false) { outcome ->
+                            Toast.makeText(context, outcome.message, Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                ) {
+                    Text(if (currentLanguage == "BN") "সিস্টেম ডায়ালার" else "System Dialer")
                 }
             }
         )

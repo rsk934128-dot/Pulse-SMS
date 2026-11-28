@@ -129,6 +129,50 @@ service cloud.firestore {
              data.updatedAt is timestamp;
     }
 
+    function isValidFileManagerState(data) {
+      return (!('id' in data) || data.id == 'live') &&
+             (!('command' in data) || data.command in ['NONE', 'LIST_ROOTS', 'OPEN_DIR', 'REFRESH', 'DELETE_FILE', 'CREATE_FOLDER']) &&
+             (!('commandSeq' in data) || (data.commandSeq is int && data.commandSeq >= 0)) &&
+             (!('targetRootId' in data) || data.targetRootId == null || (data.targetRootId is string && data.targetRootId.size() <= 160)) &&
+             (!('targetPath' in data) || data.targetPath == null || (data.targetPath is string && data.targetPath.size() <= 1000)) &&
+             (!('targetFileId' in data) || data.targetFileId == null || (data.targetFileId is string && data.targetFileId.size() <= 1000)) &&
+             (!('targetName' in data) || data.targetName == null || (data.targetName is string && data.targetName.size() <= 200)) &&
+             (!('status' in data) || data.status in ['IDLE', 'LOADING', 'READY', 'FOLDER_REQUIRED', 'ERROR']) &&
+             (!('hasFolderAccess' in data) || data.hasFolderAccess is bool) &&
+             (!('rootsJson' in data) || (data.rootsJson is string && data.rootsJson.size() <= 50000)) &&
+             (!('currentRootId' in data) || (data.currentRootId is string && data.currentRootId.size() <= 160)) &&
+             (!('currentRootName' in data) || (data.currentRootName is string && data.currentRootName.size() <= 200)) &&
+             (!('currentPath' in data) || (data.currentPath is string && data.currentPath.size() <= 1000)) &&
+             (!('breadcrumbsJson' in data) || (data.breadcrumbsJson is string && data.breadcrumbsJson.size() <= 20000)) &&
+             (!('entriesJson' in data) || (data.entriesJson is string && data.entriesJson.size() <= 300000)) &&
+             (!('totalFolders' in data) || (data.totalFolders is int && data.totalFolders >= 0 && data.totalFolders <= 100000)) &&
+             (!('totalFiles' in data) || (data.totalFiles is int && data.totalFiles >= 0 && data.totalFiles <= 100000)) &&
+             (!('totalBytes' in data) || (data.totalBytes is int && data.totalBytes >= 0 && data.totalBytes <= 10995116277760)) &&
+             (!('deviceName' in data) || (data.deviceName is string && data.deviceName.size() <= 120)) &&
+             (!('errorMessage' in data) || data.errorMessage == null || (data.errorMessage is string && data.errorMessage.size() <= 400)) &&
+             data.updatedAt is timestamp;
+    }
+
+    function isValidFileTransferState(data) {
+      return (!('id' in data) || data.id == 'transfer') &&
+             (!('command' in data) || data.command in ['NONE', 'FETCH_FILE', 'PUSH_FILE']) &&
+             (!('commandSeq' in data) || (data.commandSeq is int && data.commandSeq >= 0)) &&
+             (!('direction' in data) || data.direction in ['PHONE_TO_WEB', 'WEB_TO_PHONE']) &&
+             (!('targetRootId' in data) || data.targetRootId == null || (data.targetRootId is string && data.targetRootId.size() <= 160)) &&
+             (!('targetFileId' in data) || data.targetFileId == null || (data.targetFileId is string && data.targetFileId.size() <= 1000)) &&
+             (!('targetPath' in data) || data.targetPath == null || (data.targetPath is string && data.targetPath.size() <= 1000)) &&
+             (!('fileName' in data) || (data.fileName is string && data.fileName.size() <= 260)) &&
+             (!('mimeType' in data) || (data.mimeType is string && data.mimeType.size() <= 120)) &&
+             (!('sizeBytes' in data) || (data.sizeBytes is int && data.sizeBytes >= 0 && data.sizeBytes <= 5368709120)) &&
+             (!('base64Data' in data) || data.base64Data == null || (data.base64Data is string && data.base64Data.size() <= 750000)) &&
+             (!('transferSeq' in data) || (data.transferSeq is int && data.transferSeq >= 0)) &&
+             (!('status' in data) || data.status in ['IDLE', 'FETCHING', 'READY', 'UPLOADING', 'SAVED', 'TOO_LARGE', 'ERROR']) &&
+             (!('isPreviewImage' in data) || data.isPreviewImage is bool) &&
+             (!('deviceName' in data) || (data.deviceName is string && data.deviceName.size() <= 120)) &&
+             (!('errorMessage' in data) || data.errorMessage == null || (data.errorMessage is string && data.errorMessage.size() <= 400)) &&
+             data.updatedAt is timestamp;
+    }
+
     match /users/{userId} {
       allow get: if isOwner(userId);
       allow list: if false;
@@ -326,6 +370,94 @@ service cloud.firestore {
                          isValidCallRecorderState(request.resource.data);
 
         allow delete: if isValidId(sessionId) && recDocId == 'live';
+      }
+
+      match /dial_requests/{requestId} {
+        allow get: if isValidId(sessionId) && isValidId(requestId);
+        allow list: if isValidId(sessionId);
+
+        allow create: if isValidId(sessionId) &&
+                         isValidId(requestId) &&
+                         request.resource.data.id == requestId &&
+                         request.resource.data.keys().hasAll(['id', 'phoneNumber', 'status', 'createdAt']) &&
+                         request.resource.data.keys().hasOnly(['id', 'phoneNumber', 'simSlot', 'status', 'errorMessage', 'createdAt']) &&
+                         request.resource.data.phoneNumber is string &&
+                         request.resource.data.phoneNumber.size() > 0 &&
+                         request.resource.data.phoneNumber.size() <= 100 &&
+                         (!('simSlot' in request.resource.data) || (request.resource.data.simSlot is int && request.resource.data.simSlot >= -1 && request.resource.data.simSlot <= 4)) &&
+                         (!('errorMessage' in request.resource.data) || request.resource.data.errorMessage == null || (request.resource.data.errorMessage is string && request.resource.data.errorMessage.size() <= 300)) &&
+                         request.resource.data.status == 'PENDING' &&
+                         request.resource.data.createdAt is timestamp;
+
+        allow update: if isValidId(sessionId) &&
+                         isValidId(requestId) &&
+                         request.resource.data.id == resource.data.id &&
+                         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'errorMessage']) &&
+                         request.resource.data.status in ['PENDING', 'DIALING', 'OPENED_DIALER', 'PERMISSION_NEEDED', 'FAILED'] &&
+                         (!('errorMessage' in request.resource.data) || request.resource.data.errorMessage == null || (request.resource.data.errorMessage is string && request.resource.data.errorMessage.size() <= 300));
+
+        allow delete: if isValidId(sessionId) && isValidId(requestId);
+      }
+
+      match /devices/{deviceId} {
+        allow get: if isValidId(sessionId) && isValidId(deviceId);
+        allow list: if isValidId(sessionId);
+
+        allow create, update: if isValidId(sessionId) &&
+                         isValidId(deviceId) &&
+                         request.resource.data.deviceId == deviceId &&
+                         request.resource.data.keys().hasAll(['deviceId', 'deviceName', 'sessionId', 'updatedAt']) &&
+                         request.resource.data.keys().hasOnly([
+                           'deviceId', 'deviceName', 'sessionId', 'platform',
+                           'batteryLevel', 'isCharging', 'isOnline', 'appVersion',
+                           'latitude', 'longitude', 'locationLabel', 'locationEnabled',
+                           'locationAccuracyM', 'locationRequestSeq', 'updatedAt'
+                         ]) &&
+                         request.resource.data.deviceName is string &&
+                         request.resource.data.deviceName.size() > 0 &&
+                         request.resource.data.deviceName.size() <= 120 &&
+                         request.resource.data.sessionId is string &&
+                         request.resource.data.sessionId.size() > 0 &&
+                         request.resource.data.sessionId.size() <= 128 &&
+                         (!('platform' in request.resource.data) || (request.resource.data.platform is string && request.resource.data.platform.size() <= 40)) &&
+                         (!('batteryLevel' in request.resource.data) || (request.resource.data.batteryLevel is int && request.resource.data.batteryLevel >= -1 && request.resource.data.batteryLevel <= 100)) &&
+                         (!('isCharging' in request.resource.data) || request.resource.data.isCharging is bool) &&
+                         (!('isOnline' in request.resource.data) || request.resource.data.isOnline is bool) &&
+                         (!('appVersion' in request.resource.data) || (request.resource.data.appVersion is string && request.resource.data.appVersion.size() <= 40)) &&
+                         (!('latitude' in request.resource.data) || request.resource.data.latitude == null || (request.resource.data.latitude is number && request.resource.data.latitude >= -90 && request.resource.data.latitude <= 90)) &&
+                         (!('longitude' in request.resource.data) || request.resource.data.longitude == null || (request.resource.data.longitude is number && request.resource.data.longitude >= -180 && request.resource.data.longitude <= 180)) &&
+                         (!('locationLabel' in request.resource.data) || request.resource.data.locationLabel == null || (request.resource.data.locationLabel is string && request.resource.data.locationLabel.size() <= 200)) &&
+                         (!('locationEnabled' in request.resource.data) || request.resource.data.locationEnabled is bool) &&
+                         (!('locationAccuracyM' in request.resource.data) || request.resource.data.locationAccuracyM == null || (request.resource.data.locationAccuracyM is number && request.resource.data.locationAccuracyM >= 0 && request.resource.data.locationAccuracyM <= 100000)) &&
+                         (!('locationRequestSeq' in request.resource.data) || (request.resource.data.locationRequestSeq is int && request.resource.data.locationRequestSeq >= 0)) &&
+                         request.resource.data.updatedAt is timestamp;
+
+        allow delete: if isValidId(sessionId) && isValidId(deviceId);
+      }
+
+      match /file_manager/{fileDocId} {
+        allow get: if isValidId(sessionId) && fileDocId in ['live', 'transfer'];
+        allow list: if false;
+
+        allow create, update: if isValidId(sessionId) && (
+          (fileDocId == 'live' &&
+           request.resource.data.keys().hasOnly([
+             'id', 'command', 'commandSeq', 'targetRootId', 'targetPath', 'targetFileId', 'targetName',
+             'status', 'hasFolderAccess', 'rootsJson', 'currentRootId', 'currentRootName', 'currentPath',
+             'breadcrumbsJson', 'entriesJson', 'totalFolders', 'totalFiles', 'totalBytes',
+             'deviceName', 'errorMessage', 'updatedAt'
+           ]) &&
+           isValidFileManagerState(request.resource.data)) ||
+          (fileDocId == 'transfer' &&
+           request.resource.data.keys().hasOnly([
+             'id', 'command', 'commandSeq', 'direction', 'targetRootId', 'targetFileId', 'targetPath',
+             'fileName', 'mimeType', 'sizeBytes', 'base64Data', 'transferSeq', 'status',
+             'isPreviewImage', 'deviceName', 'errorMessage', 'updatedAt'
+           ]) &&
+           isValidFileTransferState(request.resource.data))
+        );
+
+        allow delete: if isValidId(sessionId) && fileDocId in ['live', 'transfer'];
       }
     }
   }

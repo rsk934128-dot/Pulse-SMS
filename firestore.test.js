@@ -434,3 +434,112 @@ test("Pairing session: web can issue call_recorder commands with targetNumber", 
 
   await assertSucceeds(recStateRef.get());
 });
+
+test("Pairing session: device presence supports live location coordinates and rejects invalid latitude", async () => {
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+  const devRef = unauthDb.collection("pairing_sessions").doc("pulse_pair_instant_one_shot").collection("devices").doc("dev_abc123");
+
+  await assertSucceeds(
+    devRef.set({
+      deviceId: "dev_abc123",
+      deviceName: "Samsung Galaxy S24",
+      sessionId: "pulse_pair_dev_abc123",
+      platform: "ANDROID",
+      batteryLevel: 85,
+      isCharging: false,
+      isOnline: true,
+      appVersion: "1.0.5",
+      latitude: 23.8103,
+      longitude: 90.4125,
+      locationLabel: "Dhaka, Bangladesh",
+      locationEnabled: true,
+      locationAccuracyM: 32.5,
+      updatedAt: new Date(),
+    }, { merge: true })
+  );
+
+  await assertSucceeds(devRef.get());
+
+  // Web requesting fresh location ping
+  await assertSucceeds(
+    devRef.set({
+      deviceId: "dev_abc123",
+      deviceName: "Samsung Galaxy S24",
+      sessionId: "pulse_pair_dev_abc123",
+      locationRequestSeq: 1700000123,
+      updatedAt: new Date(),
+    }, { merge: true })
+  );
+
+  // Invalid latitude (> 90) must be rejected
+  await assertFails(
+    devRef.set({
+      deviceId: "dev_abc123",
+      deviceName: "Samsung Galaxy S24",
+      sessionId: "pulse_pair_dev_abc123",
+      latitude: 123.45,
+      longitude: 90.4125,
+      updatedAt: new Date(),
+    }, { merge: true })
+  );
+});
+
+test("Pairing session: remote file manager live listing & transfer docs work cleanly", async () => {
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+  const fmCol = unauthDb.collection("pairing_sessions").doc("pulse_pair_test123").collection("file_manager");
+
+  await assertSucceeds(
+    fmCol.doc("live").set({
+      id: "live",
+      command: "LIST_ROOTS",
+      commandSeq: 1700000200,
+      status: "READY",
+      hasFolderAccess: true,
+      currentRootId: "app_files",
+      currentRootName: "App Files",
+      currentPath: "",
+      rootsJson: "[]",
+      breadcrumbsJson: "[]",
+      entriesJson: "[]",
+      totalFolders: 1,
+      totalFiles: 3,
+      totalBytes: 2048,
+      deviceName: "Samsung Galaxy S24",
+      updatedAt: new Date(),
+    }, { merge: true })
+  );
+
+  await assertSucceeds(
+    fmCol.doc("transfer").set({
+      id: "transfer",
+      command: "FETCH_FILE",
+      commandSeq: 1700000201,
+      direction: "PHONE_TO_WEB",
+      targetRootId: "app_files",
+      targetFileId: "sample.txt",
+      fileName: "sample.txt",
+      mimeType: "text/plain",
+      sizeBytes: 12,
+      base64Data: "SGVsbG8gd29ybGQ=",
+      transferSeq: 1700000201,
+      status: "READY",
+      isPreviewImage: false,
+      deviceName: "Samsung Galaxy S24",
+      updatedAt: new Date(),
+    }, { merge: true })
+  );
+
+  await assertSucceeds(fmCol.doc("live").get());
+  await assertSucceeds(fmCol.doc("transfer").get());
+
+  // Invalid command should fail
+  await assertFails(
+    fmCol.doc("live").set({
+      id: "live",
+      command: "EXEC_SHELL",
+      commandSeq: 1700000202,
+      updatedAt: new Date(),
+    }, { merge: true })
+  );
+});
+

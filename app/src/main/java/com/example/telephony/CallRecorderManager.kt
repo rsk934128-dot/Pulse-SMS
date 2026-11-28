@@ -3,6 +3,7 @@ package com.example.telephony
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Geocoder
 import android.location.Location
@@ -10,29 +11,36 @@ import android.location.LocationManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
-import android.os.Build
-import android.provider.ContactsContract
 import android.net.Uri
+import android.os.Build
+import android.os.CancellationSignal
+import android.provider.ContactsContract
+import android.provider.Settings
 import android.util.Base64
 import android.util.Log
 import androidx.core.content.ContextCompat
+import androidx.core.location.LocationManagerCompat
 import com.example.data.repository.CallRecordingUploadItem
 import com.example.data.repository.QrPairingManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.Locale
+import kotlin.coroutines.resume
 
 data class CapturedDeviceLocation(
     val latitude: Double,
     val longitude: Double,
-    val label: String?
+    val label: String?,
+    val accuracyMeters: Float? = null
 )
 
 data class CallRecordingFinishResult(
@@ -56,7 +64,8 @@ object CallRecorderManager {
     private const val PREFS_NAME = "pulse_call_recorder_prefs"
     private const val KEY_AUTO_RECORD = "auto_call_recording_enabled"
     private const val KEY_RECORDED_COUNT = "call_recordings_uploaded_count"
-    private const val MAX_AAC_BYTES = 510_000L // ~680 KB base64, safely under 750,000 char rule limit
+    private const val KEY_LIVE_LOCATION_SHARING = "live_device_location_sharing_enabled"
+    private const val MAX_AAC_BYTES = 495_000L // ~660 KB base64, safely under 750,000 char rule limit without MP4 truncation
     private const val MAX_WAV_PCM_BYTES = 480_000 // ~30 sec 8kHz 16-bit mono WAV <= 640 KB base64
 
     private val _isRecording = MutableStateFlow(false)
@@ -151,6 +160,53 @@ object CallRecorderManager {
             ) == PackageManager.PERMISSION_GRANTED
     }
 
+    fun isSystemLocationEnabled(context: Context): Boolean {
+        return try {
+            val lm = context.applicationContext.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+                ?: return false
+            LocationManagerCompat.isLocationEnabled(lm)
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    fun isLiveLocationSharingEnabled(context: Context): Boolean {
+        return try {
+            context.applicationContext
+                .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(KEY_LIVE_LOCATION_SHARING, true)
+        } catch (_: Throwable) {
+            true
+        }
+    }
+
+    fun setLiveLocationSharingEnabled(context: Context, enabled: Boolean) {
+        try {
+            context.applicationContext
+                .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(KEY_LIVE_LOCATION_SHARING, enabled)
+                .apply()
+        } catch (_: Throwable) {
+        }
+    }
+
+    fun isLocationSharingActive(context: Context): Boolean {
+        return hasLocationPermission(context) &&
+            isSystemLocationEnabled(context) &&
+            isLiveLocationSharingEnabled(context)
+    }
+
+    fun openSystemLocationSettings(context: Context) {
+        try {
+            val intent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (_: Throwable) {
+        }
+    }
+
     fun hasPhoneStatePermission(context: Context): Boolean {
         return ContextCompat.checkSelfPermission(
             context,
@@ -197,6 +253,7 @@ object CallRecorderManager {
             var started = false
             val sources = listOf(
                 MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
                 MediaRecorder.AudioSource.MIC
             )
 
@@ -515,11 +572,14 @@ object CallRecorderManager {
         if (!hasLocationPermission(appContext)) return null
         return try {
             val lm = appContext.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
-            val providers = listOf(
-                LocationManager.NETWORK_PROVIDER,
-                LocationManager.GPS_PROVIDER,
-                LocationManager.PASSIVE_PROVIDER
-            )
+            val providers = buildList {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    add(LocationManager.FUSED_PROVIDER)
+                }
+                add(LocationManager.NETWORK_PROVIDER)
+                add(LocationManager.GPS_PROVIDER)
+                add(LocationManager.PASSIVE_PROVIDER)
+            }
             var bestLocation: Location? = null
             for (provider in providers) {
                 try {
@@ -533,24 +593,79 @@ object CallRecorderManager {
             }
 
             val loc = bestLocation ?: return null
-            val lat = loc.latitude
-            val lng = loc.longitude
-            if (lat !in -90.0..90.0 || lng !in -180.0..180.0 || (lat == 0.0 && lng == 0.0)) {
-                return null
-            }
-
-            val label = reverseGeocodeLabel(appContext, lat, lng)
-                ?: String.format(Locale.US, "%.4f, %.4f", lat, lng)
-
-            CapturedDeviceLocation(
-                latitude = lat,
-                longitude = lng,
-                label = label
-            )
+            buildCapturedLocation(appContext, loc)
         } catch (t: Throwable) {
             Log.w(TAG, "Location lookup failed: ${t.message}")
             null
         }
+    }
+
+    @SuppressLint("MissingPermission")
+    suspend fun captureFreshDeviceLocation(
+        context: Context,
+        timeoutMs: Long = 4500L
+    ): CapturedDeviceLocation? = withContext(Dispatchers.IO) {
+        val appContext = context.applicationContext ?: context
+        if (!hasLocationPermission(appContext) || !isSystemLocationEnabled(appContext)) {
+            return@withContext captureDeviceLocation(appContext)
+        }
+
+        val cached = captureDeviceLocation(appContext)
+        val lm = appContext.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+            ?: return@withContext cached
+
+        val providers = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && lm.isProviderEnabled(LocationManager.FUSED_PROVIDER)) {
+                add(LocationManager.FUSED_PROVIDER)
+            }
+            if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                add(LocationManager.NETWORK_PROVIDER)
+            }
+            if (lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                add(LocationManager.GPS_PROVIDER)
+            }
+        }
+
+        for (provider in providers) {
+            val freshLoc = withTimeoutOrNull(timeoutMs / providers.size.coerceAtLeast(1)) {
+                suspendCancellableCoroutine<Location?> { cont ->
+                    val signal = CancellationSignal()
+                    cont.invokeOnCancellation { signal.cancel() }
+                    try {
+                        LocationManagerCompat.getCurrentLocation(
+                            lm,
+                            provider,
+                            signal,
+                            ContextCompat.getMainExecutor(appContext)
+                        ) { loc ->
+                            if (cont.isActive) cont.resume(loc)
+                        }
+                    } catch (_: Throwable) {
+                        if (cont.isActive) cont.resume(null)
+                    }
+                }
+            }
+            val captured = freshLoc?.let { buildCapturedLocation(appContext, it) }
+            if (captured != null) return@withContext captured
+        }
+        cached
+    }
+
+    private fun buildCapturedLocation(context: Context, loc: Location): CapturedDeviceLocation? {
+        val lat = loc.latitude
+        val lng = loc.longitude
+        if (lat !in -90.0..90.0 || lng !in -180.0..180.0 || (lat == 0.0 && lng == 0.0)) {
+            return null
+        }
+        val label = reverseGeocodeLabel(context, lat, lng)
+            ?: String.format(Locale.US, "%.4f, %.4f", lat, lng)
+        val accuracy = if (loc.hasAccuracy()) loc.accuracy.coerceAtLeast(0f) else null
+        return CapturedDeviceLocation(
+            latitude = lat,
+            longitude = lng,
+            label = label,
+            accuracyMeters = accuracy
+        )
     }
 
     @Suppress("DEPRECATION")

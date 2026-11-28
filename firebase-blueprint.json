@@ -224,6 +224,83 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["updatedAt"]
+    },
+    "ConnectedPeerDevice": {
+      "title": "ConnectedPeerDevice",
+      "description": "Connected Android device presence and live GPS/network location for Multi-Device Map",
+      "type": "object",
+      "properties": {
+        "deviceId": { "type": "string" },
+        "deviceName": { "type": "string" },
+        "sessionId": { "type": "string" },
+        "platform": { "type": "string" },
+        "batteryLevel": { "type": "integer" },
+        "isCharging": { "type": "boolean" },
+        "isOnline": { "type": "boolean" },
+        "appVersion": { "type": "string" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "locationLabel": { "type": "string" },
+        "locationEnabled": { "type": "boolean" },
+        "locationAccuracyM": { "type": "number" },
+        "locationRequestSeq": { "type": "integer" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["deviceId", "deviceName", "sessionId", "updatedAt"]
+    },
+    "RemoteFileManagerState": {
+      "title": "RemoteFileManagerState",
+      "description": "Real-time phone File Manager directory listing & command bridge between Website and Mobile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "command": { "type": "string", "enum": ["NONE", "LIST_ROOTS", "OPEN_DIR", "REFRESH", "DELETE_FILE", "CREATE_FOLDER"] },
+        "commandSeq": { "type": "integer" },
+        "targetRootId": { "type": "string" },
+        "targetPath": { "type": "string" },
+        "targetFileId": { "type": "string" },
+        "targetName": { "type": "string" },
+        "status": { "type": "string", "enum": ["IDLE", "LOADING", "READY", "FOLDER_REQUIRED", "ERROR"] },
+        "hasFolderAccess": { "type": "boolean" },
+        "rootsJson": { "type": "string" },
+        "currentRootId": { "type": "string" },
+        "currentRootName": { "type": "string" },
+        "currentPath": { "type": "string" },
+        "breadcrumbsJson": { "type": "string" },
+        "entriesJson": { "type": "string" },
+        "totalFolders": { "type": "integer" },
+        "totalFiles": { "type": "integer" },
+        "totalBytes": { "type": "integer" },
+        "deviceName": { "type": "string" },
+        "errorMessage": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["updatedAt"]
+    },
+    "RemoteFileTransferState": {
+      "title": "RemoteFileTransferState",
+      "description": "On-demand file preview, download, and upload transfer payload between Website and Mobile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "command": { "type": "string", "enum": ["NONE", "FETCH_FILE", "PUSH_FILE"] },
+        "commandSeq": { "type": "integer" },
+        "direction": { "type": "string", "enum": ["PHONE_TO_WEB", "WEB_TO_PHONE"] },
+        "targetRootId": { "type": "string" },
+        "targetFileId": { "type": "string" },
+        "targetPath": { "type": "string" },
+        "fileName": { "type": "string" },
+        "mimeType": { "type": "string" },
+        "sizeBytes": { "type": "integer" },
+        "base64Data": { "type": "string" },
+        "transferSeq": { "type": "integer" },
+        "status": { "type": "string", "enum": ["IDLE", "FETCHING", "READY", "UPLOADING", "SAVED", "TOO_LARGE", "ERROR"] },
+        "isPreviewImage": { "type": "boolean" },
+        "deviceName": { "type": "string" },
+        "errorMessage": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["updatedAt"]
     }
   },
   "firestore": {
@@ -280,6 +357,18 @@
         "$ref": "#/entities/RemoteCallRecorderState"
       },
       "description": "Remote call recorder control and live recording state between Website and Mobile"
+    },
+    "/pairing_sessions/{sessionId}/devices/{deviceId}": {
+      "schema": {
+        "$ref": "#/entities/ConnectedPeerDevice"
+      },
+      "description": "Connected device presence, battery, and live location coordinates for Multi-Device Map"
+    },
+    "/pairing_sessions/{sessionId}/file_manager/{fileDocId}": {
+      "schema": {
+        "$ref": "#/entities/RemoteFileManagerState"
+      },
+      "description": "Remote file manager directory state (live) and on-demand file preview/transfer payload (transfer)"
     }
   }
 }

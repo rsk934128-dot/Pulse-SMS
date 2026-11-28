@@ -25,10 +25,15 @@ import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.Devices
+import androidx.compose.material.icons.filled.Dialpad
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ElectricBolt
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -42,6 +47,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -98,9 +104,17 @@ fun InboxScreen(
     onToggleArchive: (String, Boolean) -> Unit,
     onDeleteConversation: (String) -> Unit,
     onOpenCompose: () -> Unit,
+    onOpenDialer: () -> Unit = {},
     onOpenWebSync: () -> Unit,
     onOpenQrScanner: () -> Unit = {},
     onConnectToWeb: () -> Unit = {},
+    connectedDevicesCount: Int = 0,
+    pairedScreensCount: Int = 0,
+    isLocationActive: Boolean = false,
+    onTurnOnLocation: () -> Unit = {},
+    hasCustomFolderAccess: Boolean = false,
+    onOpenFileManager: () -> Unit = {},
+    onOpenMultiDevice: () -> Unit = {},
     onToggleLanguage: () -> Unit,
     onOpenSettings: () -> Unit,
     onRequestDefaultSms: () -> Unit,
@@ -122,12 +136,29 @@ fun InboxScreen(
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = onOpenCompose,
-                icon = { Icon(Icons.Default.Edit, contentDescription = null) },
-                text = { Text(if (language == "BN") "নতুন মেসেজ" else "New SMS") },
-                modifier = Modifier.testTag("compose_fab")
-            )
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                FloatingActionButton(
+                    onClick = onOpenDialer,
+                    containerColor = Color(0xFF10B981),
+                    contentColor = Color.White,
+                    modifier = Modifier.testTag("dialer_fab")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Dialpad,
+                        contentDescription = if (language == "BN") "কল ডায়ালার" else "Call Dialer"
+                    )
+                }
+
+                ExtendedFloatingActionButton(
+                    onClick = onOpenCompose,
+                    icon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                    text = { Text(if (language == "BN") "নতুন মেসেজ" else "New SMS") },
+                    modifier = Modifier.testTag("compose_fab")
+                )
+            }
         }
     ) { innerPadding ->
         Column(
@@ -523,6 +554,108 @@ fun InboxScreen(
                                 fontSize = 12.sp
                             )
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = onOpenMultiDevice,
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp),
+                            modifier = Modifier
+                                .weight(1.25f)
+                                .height(48.dp)
+                                .testTag("open_multi_device_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Devices,
+                                contentDescription = null,
+                                modifier = Modifier.size(17.dp)
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text(
+                                text = if (language == "BN") {
+                                    "ডিভাইস ও ম্যাপ ($connectedDevicesCount/$pairedScreensCount)"
+                                } else {
+                                    "Devices & Map ($connectedDevicesCount/$pairedScreensCount)"
+                                },
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        Button(
+                            onClick = {
+                                if (isLocationActive) onOpenMultiDevice() else onTurnOnLocation()
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isLocationActive) Color(0xFF059669) else Color(0xFF0284C7)
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("inbox_turn_on_location_button")
+                        ) {
+                            Icon(
+                                imageVector = if (isLocationActive) Icons.Default.MyLocation else Icons.Default.LocationOn,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (isLocationActive) {
+                                    if (language == "BN") "🟢 লোকেশন চালু" else "🟢 Location On"
+                                } else {
+                                    if (language == "BN") "📍 লোকেশন চালু" else "📍 Turn On GPS"
+                                },
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedButton(
+                        onClick = onOpenFileManager,
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("inbox_open_file_manager_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FolderOpen,
+                            contentDescription = null,
+                            tint = if (hasCustomFolderAccess) Color(0xFF059669) else MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (language == "BN") {
+                                if (hasCustomFolderAccess) "📁 ফাইল ম্যানেজার (ওয়েব সিঙ্ক চালু ✓)" else "📁 মোবাইল ফাইল ম্যানেজার (ওয়েবসাইটে দেখুন)"
+                            } else {
+                                if (hasCustomFolderAccess) "📁 File Manager (Web Sync Active ✓)" else "📁 Mobile File Manager (View on Web)"
+                            },
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }
